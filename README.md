@@ -504,14 +504,14 @@ try {
 
 | Exception | Typical causes |
 |---|---|
-| `ConnectionException` | open/connect failures, using a closed connection |
+| `ConnectionException` | connect failures, using a closed connection |
 | `ParserException` | SQL syntax errors |
 | `BinderException` | unknown identifiers, type resolution, unknown parameter names |
 | `CatalogException` | missing tables/schemas/columns |
 | `ConstraintException` | constraint violations |
 | `ConversionException` | failed casts, out-of-range, division by zero |
 | `TransactionException` | transaction conflicts, invalid transaction state |
-| `IOException` | file system, network, HTTP, extension loading |
+| `IOException` | file system, network, HTTP, extension loading — including `Database` open failures with DuckDB's `IO Error:` prefix (unwritable path, single-writer lock conflict) |
 | `InterruptedException` | `interrupt()` / `PendingQuery::cancel()` |
 | `InternalException` | DuckDB-internal errors (please report upstream) |
 
@@ -614,6 +614,17 @@ guarantees are covered by the test suite:
   you cannot corrupt state by mixing sync/async use of one connection, but
   queries on one connection never run *in parallel*. For parallel queries,
   open one connection per query (`$db->connect()` is cheap).
+- File-backed databases are **single-writer across processes**: the first
+  process to open the file holds an exclusive lock, and a `new Database()`
+  for the same file from another process fails immediately with
+  `IOException` (`ErrorType::Io`, "Could not set lock on file ...").
+  Within one process a second `new Database()` for the same file succeeds
+  (POSIX fcntl locks are per-process) and sees everything committed so far —
+  but note that POSIX drops *all* of a process's locks on a file when *any*
+  of its descriptors for that file is closed, so once that second handle is
+  destroyed the primary handle's cross-process lock is gone too. If you rely
+  on the single-writer guarantee, keep exactly one `Database` per file per
+  process.
 - Worker threads only execute DuckDB calls; all PHP/zval access happens on
   the request thread. Safe under ZTS, `parallel`, FrankenPHP, etc.
 - DuckDB interrupt is connection-scoped: `PendingQuery::cancel()` on a
