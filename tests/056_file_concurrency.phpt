@@ -12,6 +12,8 @@ if (duckdb_subprocess_args() === null) {
 <?php
 use DuckDB\Database;
 
+require_once __DIR__ . '/subprocess.inc';
+
 $path = sys_get_temp_dir() . '/duckdb_phpt_' . uniqid() . '.duckdb';
 
 $db = new Database($path);
