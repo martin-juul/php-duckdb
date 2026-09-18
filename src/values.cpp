@@ -94,9 +94,9 @@ void duckdb_throw_msg(const char *msg) {
 }
 
 /* DuckDB error messages carry a "<Type> Error: " prefix (e.g. "Parser
- * Error: syntax error at ..."). The prepare API exposes only the message,
- * so the category is recovered from that prefix. */
-static duckdb_error_type duckdb_classify_error_message(const char *msg) {
+ * Error: syntax error at ..."). The prepare and open APIs expose only
+ * the message, so the category is recovered from that prefix. */
+duckdb_error_type duckdb_classify_error_message(const char *msg) {
     if (msg == nullptr) {
         return DUCKDB_ERROR_INVALID;
     }
