@@ -32,24 +32,17 @@ echo 'writer during tx: ', $w->query('SELECT count(*)::INTEGER AS c FROM t')->fe
 $w->commit();
 echo 'reader after commit: ', $r->query('SELECT count(*)::INTEGER AS c FROM t')->fetchRow()['c'], "\n";
 
-// DuckDB's file lock is per-process: a second handle in the SAME process
-// opens fine and replays the WAL, seeing everything committed so far.
-$db2 = new Database($path);
-$count = $db2->connect()->query('SELECT count(*)::INTEGER AS c FROM t')->fetchRow()['c'];
-echo "second handle: opened, sees $count\n";
-unset($db2);
-
-// A DIFFERENT process hits the single-writer lock and must get a typed
-// IOException, not a crash or silent sharing. DuckDB loads the database
-// lazily (SingleFileStorageManager::LoadDatabase runs on first catalog
-// access, not at duckdb_open), so a bare open does not touch the lock:
-// the child must issue a query before the fcntl write lock is attempted.
+// A DIFFERENT process hits the single-writer lock: duckdb_open_ext fails
+// immediately with "IO Error: Could not set lock on file ...", which the
+// Database constructor surfaces as a typed IOException (ErrorType::Io) -
+// not a crash, and not silent sharing. This probe MUST run before any
+// in-process second handle (see below): POSIX fcntl locks are per-process,
+// and closing ANY descriptor a process holds on a file releases EVERY lock
+// that process has on it - so destroying an in-process second handle would
+// silently unlock the primary handle before the child ever ran.
 $childCode =
-    '$db = new DuckDB\\Database(' . var_export($path, true) . ');'
-    . ' try {'
-    . ' $db->connect()->query("SELECT count(*) FROM t");'
-    . ' echo "opened\n";'
-    . ' } catch (DuckDB\\IOException $e) {'
+    'try { new DuckDB\\Database(' . var_export($path, true) . '); echo "opened\n"; }'
+    . ' catch (DuckDB\\IOException $e) {'
     . ' echo "io ", $e->getErrorType()->name,'
     . ' " lock=", stripos($e->getMessage(), "lock") !== false ? "yes" : "no", "\n"; }';
 $proc = proc_open(
@@ -65,12 +58,22 @@ $childExit = proc_close($proc);
 echo 'child: ', trim((string) $childOut), "\n";
 echo "child exit: $childExit\n";
 
-// The failed foreign query did not disturb the writer
+// The failed foreign open did not disturb the writer
 $w->query('INSERT INTO t VALUES (4)');
 echo 'writer still works: ', $w->query('SELECT count(*)::INTEGER AS c FROM t')->fetchRow()['c'], "\n";
 
-// Once every connection and the Database itself are released, the file
-// lock is gone and the data is durable.
+// DuckDB's file lock is per-process: a second handle in the SAME process
+// opens fine and replays the WAL, seeing everything committed so far.
+// Keep this LAST of the lock-sensitive sections: unset($db2) closes its
+// descriptor, which under POSIX fcntl semantics also drops the primary
+// handle's lock on this file. Nothing below relies on the lock anymore.
+$db2 = new Database($path);
+$count = $db2->connect()->query('SELECT count(*)::INTEGER AS c FROM t')->fetchRow()['c'];
+echo "second handle: opened, sees $count\n";
+unset($db2);
+
+// Once every connection and the Database itself are released, the data is
+// durable and a fresh handle reads it all back.
 $w->close();
 $r->close();
 unset($w, $r, $db);
@@ -87,9 +90,9 @@ echo "done\n";
 reader during tx: 2
 writer during tx: 3
 reader after commit: 3
-second handle: opened, sees 3
 child: io Io lock=yes
 child exit: 0
 writer still works: 4
+second handle: opened, sees 4
 reopened sum: 10
 done

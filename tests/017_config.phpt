@@ -26,12 +26,14 @@ try {
     echo 'ValueError caught', "\n";
 }
 
-// Unwritable paths fail with ConnectionException
+// Unwritable paths fail with a typed IOException (ErrorType::Io): open-time
+// failures carry DuckDB's "IO Error:" prefix and are classified from it,
+// exactly like query-time IO errors.
 try {
     new Database('/nonexistent-dir-xyz/db.duckdb');
     echo "no exception\n";
-} catch (DuckDB\ConnectionException $e) {
-    echo 'ConnectionException caught', "\n";
+} catch (DuckDB\IOException $e) {
+    echo 'IOException caught, type=', $e->getErrorType()->name, "\n";
 }
 ?>
 --EXPECT--
@@ -41,4 +43,4 @@ array(1) {
 }
 code=42 type=InvalidConfiguration
 ValueError caught
-ConnectionException caught
+IOException caught, type=Io
