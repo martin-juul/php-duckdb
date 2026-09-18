@@ -1,0 +1,172 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<package xmlns="http://pear.php.net/dtd/package-2.0" xmlns:tasks="http://pear.php.net/dtd/tasks-1.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" packagerversion="1.10.13" version="2.0" xsi:schemaLocation="http://pear.php.net/dtd/tasks-1.0 http://pear.php.net/dtd/tasks-1.0.xsd http://pear.php.net/dtd/package-2.0 http://pear.php.net/dtd/package-2.0.xsd">
+ <name>duckdb</name>
+ <channel>pecl.php.net</channel>
+ <summary>Native DuckDB driver for PHP</summary>
+ <description>
+  Native PHP extension providing a driver for DuckDB (https://duckdb.org),
+  an in-process analytical database, via the stable DuckDB C API.
+
+  Features: synchronous and streaming queries, prepared statements with
+  positional and named parameters, PDO-style transaction helpers, the
+  Appender API for bulk inserts, asynchronous execution on background
+  threads (with cancellation, progress reporting, Fiber suspension and
+  event-loop integration) plus a single-threaded pending/polling mode,
+  a typed exception hierarchy mirroring DuckDB's error categories, and
+  full type coverage (nested types, exact decimals, temporal types as
+  DateTimeImmutable, ENUM, UUID, BIT, BLOB, INTERVAL).
+ </description>
+ <lead>
+  <name>Martin Juul Christiansen</name>
+  <user>martinjuul</user>
+  <email>code@juul.xyz</email>
+  <active>yes</active>
+ </lead>
+ <date>2026-09-17</date>
+ <time>12:00:00</time>
+ <version>
+  <release>1.0.0</release>
+  <api>1.0.0</api>
+ </version>
+ <stability>
+  <release>stable</release>
+  <api>stable</api>
+ </stability>
+ <license uri="https://opensource.org/licenses/MIT">MIT</license>
+ <notes>
+  First stable release.
+
+  - Database/Connection/Statement/Result/ResultIterator/PendingQuery/
+    Appender/Interval classes, FetchMode and ErrorType enums.
+  - Typed exception hierarchy (ConnectionException, ParserException,
+    BinderException, CatalogException, ConstraintException,
+    ConversionException, TransactionException, IOException,
+    InterruptedException, InternalException) carrying DuckDB error
+    categories.
+  - Streaming results with stale-stream detection, forward-only iterators.
+  - Async: queryAsync()/executeAsync() on worker threads with cancel(),
+    completion stream/fd and Fiber suspend(); queryPending()
+    single-threaded polling mode.
+  - Connection close()/isClosed()/queryProgress()/interrupt()/
+    getTableNames(), PDO-style beginTransaction()/commit()/rollBack().
+  - Appender with appendRow() and piecemeal
+    beginRow()/append()/appendDefault()/endRow().
+  - Full .phpt test suite (run-tests.php).
+ </notes>
+ <contents>
+  <dir name="/">
+   <file name="config.m4" role="src"/>
+   <file name="config.w32" role="src"/>
+   <file name="duckdb.cpp" role="src"/>
+   <file name="php_duckdb.h" role="src"/>
+   <file name="duckdb_arginfo.h" role="src"/>
+   <file name="duckdb.stub.php" role="src"/>
+   <dir name="src">
+    <file name="appender.cpp" role="src"/>
+    <file name="pending.cpp" role="src"/>
+    <file name="result.cpp" role="src"/>
+    <file name="statement.cpp" role="src"/>
+    <file name="suspend_amphp.cpp" role="src"/>
+    <file name="suspend_internal.h" role="src"/>
+    <file name="suspend_reactphp.cpp" role="src"/>
+    <file name="suspend_swoole.cpp" role="src"/>
+    <file name="suspend_true_async.cpp" role="src"/>
+    <file name="values.cpp" role="src"/>
+   </dir>
+   <file name="LICENSE" role="doc"/>
+   <file name="README.md" role="doc"/>
+   <dir name="examples">
+    <file name="bootstrap.php" role="doc"/>
+    <file name="sync_basic.php" role="doc"/>
+    <file name="prepared.php" role="doc"/>
+    <file name="async_concurrent.php" role="doc"/>
+    <file name="transactions.php" role="doc"/>
+    <file name="appender.php" role="doc"/>
+    <file name="errors.php" role="doc"/>
+    <file name="swoole.php" role="doc"/>
+    <file name="true_async.php" role="doc"/>
+    <file name="amphp.php" role="doc"/>
+    <file name="reactphp.php" role="doc"/>
+   </dir>
+   <dir name="tests">
+    <file name="skipif.inc" role="test"/>
+    <file name="001_open_close.phpt" role="test"/>
+    <file name="002_query_fetch.phpt" role="test"/>
+    <file name="003_prepare_positional.phpt" role="test"/>
+    <file name="004_prepare_named.phpt" role="test"/>
+    <file name="005_statement_metadata.phpt" role="test"/>
+    <file name="006_bind_types.phpt" role="test"/>
+    <file name="007_data_types.phpt" role="test"/>
+    <file name="008_errors.phpt" role="test"/>
+    <file name="009_error_type.phpt" role="test"/>
+    <file name="010_interval.phpt" role="test"/>
+    <file name="011_streaming.phpt" role="test"/>
+    <file name="012_iterator.phpt" role="test"/>
+    <file name="013_async.phpt" role="test"/>
+    <file name="014_pending.phpt" role="test"/>
+    <file name="015_fiber.phpt" role="test"/>
+    <file name="016_appender.phpt" role="test"/>
+    <file name="017_config.phpt" role="test"/>
+    <file name="018_transactions.phpt" role="test"/>
+    <file name="019_file_persistence.phpt" role="test"/>
+    <file name="020_unicode.phpt" role="test"/>
+    <file name="021_tablenames.phpt" role="test"/>
+    <file name="022_execute.phpt" role="test"/>
+    <file name="023_version.phpt" role="test"/>
+    <file name="024_queryprogress.phpt" role="test"/>
+    <file name="025_result_metadata.phpt" role="test"/>
+    <file name="026_transaction_helpers.phpt" role="test"/>
+    <file name="027_streaming_invalidation.phpt" role="test"/>
+    <file name="030_types_integer.phpt" role="test"/>
+    <file name="031_types_float.phpt" role="test"/>
+    <file name="032_types_decimal.phpt" role="test"/>
+    <file name="033_types_string.phpt" role="test"/>
+    <file name="034_types_temporal.phpt" role="test"/>
+    <file name="035_types_nested.phpt" role="test"/>
+    <file name="036_types_misc.phpt" role="test"/>
+    <file name="037_type_names.phpt" role="test"/>
+    <file name="038_bind_roundtrip.phpt" role="test"/>
+    <file name="039_bind_type_errors.phpt" role="test"/>
+    <file name="040_argument_types.phpt" role="test"/>
+    <file name="041_serialization_denied.phpt" role="test"/>
+    <file name="042_nul_bytes_rejected.phpt" role="test"/>
+    <file name="043_streaming_midflight_error.phpt" role="test"/>
+    <file name="044_config_scalars.phpt" role="test"/>
+    <file name="045_statement_after_close.phpt" role="test"/>
+    <file name="046_fetchall_exception_safety.phpt" role="test"/>
+    <file name="047_gettablenames.phpt" role="test"/>
+    <file name="048_nesting_depth_limit.phpt" role="test"/>
+    <file name="049_swoole.phpt" role="test"/>
+    <file name="050_true_async.phpt" role="test"/>
+    <file name="051_amphp.phpt" role="test"/>
+    <file name="052_reactphp.phpt" role="test"/>
+    <file name="swoole_subprocess.inc" role="test"/>
+    <file name="harness.php" role="script"/>
+    <file name="duckdb.supp" role="test"/>
+    <dir name="stress">
+     <file name="memory_stability.php" role="test"/>
+     <file name="concurrency_stress.php" role="test"/>
+    </dir>
+   </dir>
+  </dir>
+ </contents>
+ <dependencies>
+  <required>
+   <php>
+    <min>8.1.0</min>
+   </php>
+   <pearinstaller>
+    <min>1.10.0</min>
+   </pearinstaller>
+  </required>
+ </dependencies>
+ <providesextension>duckdb</providesextension>
+ <extsrcrelease/>
+ <!--
+  Note: the DuckDB C API library (libduckdb, v1.1+; v1.5.x recommended) and
+  duckdb.h are required at build time. Pass the configure flag
+  with-duckdb=DIR, where DIR contains include/duckdb.h and
+  lib/libduckdb. libduckdb must also be available at runtime (e.g. in
+  the linker path).
+ -->
+</package>
