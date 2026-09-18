@@ -1,12 +1,14 @@
 # Valgrind suppressions for the duckdb PHP extension test suite.
 #
-# These cover allocations owned by glibc and libduckdb's thread lifecycle,
-# not by extension code: every std::thread pays a one-time TLS slot that the
-# dynamic loader keeps until process exit (threads are pooled and reused),
-# which Memcheck reports as "possibly lost". Suppressing them keeps the
-# valgrind harness stage signal-only — any entry here must name a stack we
-# do not own. Extension-owned allocations must never be added.
+# These cover allocations owned by glibc, libduckdb's thread lifecycle, and
+# third-party PHP extensions loaded via the CI php.ini — never by our own
+# extension code. Suppressing them keeps the valgrind harness stage
+# signal-only: any entry here must name a stack we do not own.
+# Extension-owned allocations must never be added.
 
+# Every std::thread pays a one-time TLS slot that the dynamic loader keeps
+# until process exit (threads are pooled and reused), which Memcheck
+# reports as "possibly lost".
 {
    glibc-thread-tls-dtv
    Memcheck:Leak
@@ -17,5 +19,23 @@
    fun:_dl_allocate_tls
    fun:allocate_stack
    fun:pthread_create*
+   ...
+}
+
+# PECL ext-ds (loaded via the CI php.ini, not requested by any test of ours)
+# leaks the two Ds\Pair property names at MINIT: php_ds_register_pair() in
+# php-ds/ext-ds (src/php/classes/php_pair_ce.c) passes zend_string_init()
+# results straight into zend_declare_typed_property() without releasing the
+# caller's reference, so the 32-byte "key" and "value" strings are
+# definitely lost in every process that loads ds.so. Upstream bug; one
+# suppression covers both call sites.
+{
+   php-ds-register-pair-property-names
+   Memcheck:Leak
+   match-leak-kinds: definite
+   fun:malloc
+   fun:__zend_malloc
+   fun:php_ds_register_pair
+   fun:zm_startup_ds
    ...
 }
