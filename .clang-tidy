@@ -1,0 +1,74 @@
+# clang-tidy configuration for the duckdb PHP extension.
+#
+# Run via `cmake --build build --target tidy` (see CMakeLists.txt), or
+# directly after a CMake configure:
+#
+#   clang-tidy -p build duckdb.cpp src/*.cpp
+#
+# The Zend C API forces patterns that several checkers reject by default
+# (C-style casts and pointer arithmetic inside macros, varargs, union
+# access through zval, non-const globals for the module entry). Those
+# checks are disabled project-wide here instead of NOLINT-ed per line.
+#
+# duckdb_arginfo.h is generated from duckdb.stub.php by gen_stub.php:
+# never edit it to satisfy a diagnostic — fix the stub and regenerate.
+
+Checks: >
+  bugprone-*,
+  clang-analyzer-*,
+  concurrency-*,
+  cppcoreguidelines-*,
+  misc-*,
+  modernize-*,
+  performance-*,
+  portability-*,
+  readability-*,
+  -altera-*,
+  -bugprone-easily-swappable-parameters,
+  -bugprone-reserved-identifier,
+  -concurrency-mt-unsafe,
+  -cppcoreguidelines-avoid-c-arrays,
+  -cppcoreguidelines-avoid-magic-numbers,
+  -cppcoreguidelines-avoid-non-const-global-variables,
+  -cppcoreguidelines-macro-usage,
+  -cppcoreguidelines-owning-memory,
+  -cppcoreguidelines-pro-bounds-array-to-pointer-decay,
+  -cppcoreguidelines-pro-bounds-constant-array-index,
+  -cppcoreguidelines-pro-bounds-pointer-arithmetic,
+  -cppcoreguidelines-pro-type-cstyle-cast,
+  -cppcoreguidelines-pro-type-reinterpret-cast,
+  -cppcoreguidelines-pro-type-union-access,
+  -cppcoreguidelines-pro-type-vararg,
+  -misc-header-include-cycle,
+  -misc-include-cleaner,
+  -modernize-avoid-c-arrays,
+  -modernize-macro-to-enum,
+  -modernize-use-trailing-return-type,
+  -performance-enum-size,
+  -readability-convert-member-functions-to-static,
+  -readability-identifier-length,
+  -readability-magic-numbers,
+  -readability-uppercase-literal-suffix
+
+# Only report diagnostics in the project's own headers. Zend, libduckdb
+# and standard library headers are not ours to fix. duckdb_arginfo.h is
+# included here deliberately: real signature mismatches surface there.
+HeaderFilterRegex: '(php_duckdb|duckdb_arginfo|suspend_internal)\.h$'
+
+# Treat nothing as an error for now: the build stays warning-tolerant,
+# CI decides what fails.
+WarningsAsErrors: ''
+
+CheckOptions:
+  # The decoder in src/result.cpp is legitimately large; the default
+  # thresholds flag it without adding signal.
+  - key: readability-function-size.LineThreshold
+    value: '1500'
+  - key: readability-function-size.StatementThreshold
+    value: '1500'
+  - key: readability-function-size.ParameterThreshold
+    value: '12'
+  # zend_parse_parameters format strings trip this on purpose-built
+  # wrappers; keep it but allow the common Zend names.
+  - key: bugprone-suspicious-string-compare.WarnOnLogicalNotComparison
+    value: 'true'
