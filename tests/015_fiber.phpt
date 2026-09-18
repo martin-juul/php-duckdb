@@ -36,12 +36,18 @@ if ($asyncRoot) {
     $r = $conn->queryAsync('SELECT 1 AS n')->suspend();
     echo 'outside fiber: async root coroutine, n=', $r->fetchRow()['n'], "\n";
 } else {
+    // Heavy enough that the worker cannot finish before the first
+    // duckdb_task_step, so Fiber::suspend is reliably reached and throws
+    // (a trivial query can complete first, skip the loop and never throw).
+    $pending = $conn->queryAsync('SELECT count(*) FROM range(1000000) t1, range(100) t2');
     try {
-        $conn->queryAsync('SELECT 1')->suspend();
+        $pending->suspend();
         echo "outside fiber: BAD - no error\n";
     } catch (FiberError $e) {
         echo 'outside fiber: ', $e->getMessage(), "\n";
     }
+    // Interrupt the abandoned worker so request shutdown does not race it.
+    $pending->cancel();
 }
 ?>
 --EXPECTF--

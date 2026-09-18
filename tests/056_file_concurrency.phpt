@@ -40,10 +40,16 @@ echo "second handle: opened, sees $count\n";
 unset($db2);
 
 // A DIFFERENT process hits the single-writer lock and must get a typed
-// IOException, not a crash or silent sharing.
+// IOException, not a crash or silent sharing. DuckDB loads the database
+// lazily (SingleFileStorageManager::LoadDatabase runs on first catalog
+// access, not at duckdb_open), so a bare open does not touch the lock:
+// the child must issue a query before the fcntl write lock is attempted.
 $childCode =
-    'try { new DuckDB\\Database(' . var_export($path, true) . '); echo "opened\n"; }'
-    . ' catch (DuckDB\\IOException $e) {'
+    '$db = new DuckDB\\Database(' . var_export($path, true) . ');'
+    . ' try {'
+    . ' $db->connect()->query("SELECT count(*) FROM t");'
+    . ' echo "opened\n";'
+    . ' } catch (DuckDB\\IOException $e) {'
     . ' echo "io ", $e->getErrorType()->name,'
     . ' " lock=", stripos($e->getMessage(), "lock") !== false ? "yes" : "no", "\n"; }';
 $proc = proc_open(
@@ -59,7 +65,7 @@ $childExit = proc_close($proc);
 echo 'child: ', trim((string) $childOut), "\n";
 echo "child exit: $childExit\n";
 
-// The failed foreign open did not disturb the writer
+// The failed foreign query did not disturb the writer
 $w->query('INSERT INTO t VALUES (4)');
 echo 'writer still works: ', $w->query('SELECT count(*)::INTEGER AS c FROM t')->fetchRow()['c'], "\n";
 
