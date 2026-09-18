@@ -359,6 +359,7 @@ final class Harness
         if ($runTests === null) {
             throw new HarnessException('run-tests.php not found (run the doctor stage)', Config::EXIT_ENV);
         }
+        $runTests = $this->writableRunTests($runTests);
         $module = $this->modulePath();
         if ($module === null) {
             throw new HarnessException('extension not built — run the build stage first', Config::EXIT_BUILD);
@@ -688,6 +689,29 @@ final class Harness
             return $cache;
         }
         return null;
+    }
+
+    /**
+     * run-tests.php writes run-test-info.php next to itself, so a copy
+     * installed system-wide (e.g. /usr/lib/php/<api>/build/) fails for
+     * unprivileged users with "Cannot open file ... (save_text)". Use a
+     * writable copy in the temp dir in that case.
+     */
+    private function writableRunTests(string $runTests): string
+    {
+        if (is_writable(dirname($runTests))) {
+            return $runTests;
+        }
+        $copy = sys_get_temp_dir() . '/run-tests-' . PHP_VERSION . '.php';
+        if (!is_file($copy) || filemtime($copy) < filemtime($runTests)) {
+            if (!@copy($runTests, $copy)) {
+                throw new HarnessException(
+                    "run-tests.php ({$runTests}) sits in a non-writable directory and could not be copied",
+                    Config::EXIT_ENV,
+                );
+            }
+        }
+        return $copy;
     }
 
     private function which(string $binary): ?string
