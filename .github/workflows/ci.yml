@@ -251,36 +251,16 @@ jobs:
           LD_LIBRARY_PATH: /opt/duckdb/lib
         run: php tests/harness.php --no-color --junit=junit.xml
 
-      # Diagnostics for the shutdown segfault (zend_function_dtor in
-      # zend_shutdown). The isolate step decides who owns the bug:
-      # if the bare runtime also exits 139, it's the fork build.
-      - name: Isolate fork vs extension
-        if: always()
-        shell: bash
-        run: |
-          set +e
-          echo '--- bare fork (no extension loaded) ---'
-          php -n -r 'echo "noext-ok\n";'
-          echo "exit: $?"
-          echo '--- with only ext-duckdb loaded ---'
-          php -n -d extension=$PWD/modules/duckdb.so -r 'echo "ext-ok\n";'
-          echo "exit: $?"
-
-      - name: Capture shutdown backtrace
-        if: always()
+      # If the harness fails, capture a native backtrace of a minimal
+      # script under gdb — catches shutdown segfaults like the one fixed
+      # in 6144e579 (double-free of a persistent function entry).
+      - name: Backtrace on failure
+        if: failure()
         shell: bash
         run: |
           apt-get update && apt-get install -y gdb
           gdb -batch -ex run -ex bt \
-            --args php -n -d extension=$PWD/modules/duckdb.so examples/bootstrap.php
-
-      - name: Valgrind shutdown crash
-        if: always()
-        shell: bash
-        run: |
-          apt-get update && apt-get install -y valgrind
-          USE_ZEND_ALLOC=0 valgrind --num-callers=30 \
-            php -n -d extension=$PWD/modules/duckdb.so -r 'echo "x\n";' 2>&1 | tail -60 || true
+            --args php -n -d extension=$PWD/modules/duckdb.so examples/bootstrap.php || true
 
       - name: Upload failure artifacts
         if: failure()
