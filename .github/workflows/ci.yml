@@ -53,10 +53,10 @@ jobs:
         run: php tests/harness.php --no-color --junit=junit.xml
 
       - name: Backtrace on failure
-        if: failure()
+        if: failure() && runner.os == 'Linux'
         shell: bash
         run: |
-          apt-get update && apt-get install -y gdb
+          sudo apt-get update && sudo apt-get install -y gdb
           gdb -batch -ex run -ex bt --args php -d extension=$PWD/modules/duckdb.so examples/bootstrap.php
 
       - name: Upload failure artifacts
@@ -226,6 +226,7 @@ jobs:
     runs-on: ubuntu-latest
     # The True Async runtime is a php-src fork, not an extension: the
     # official image ships a PHP 8.6+ binary with ext true_async built in.
+    # Pinned tag: `latest` is a moving target that regressed before.
     container: trueasync/php-true-async:0.7.13-php8.6
     steps:
       - uses: actions/checkout@v4
@@ -250,14 +251,36 @@ jobs:
           LD_LIBRARY_PATH: /opt/duckdb/lib
         run: php tests/harness.php --no-color --junit=junit.xml
 
+      # Diagnostics for the shutdown segfault (zend_function_dtor in
+      # zend_shutdown). The isolate step decides who owns the bug:
+      # if the bare runtime also exits 139, it's the fork build.
+      - name: Isolate fork vs extension
+        if: always()
+        shell: bash
+        run: |
+          set +e
+          echo '--- bare fork (no extension loaded) ---'
+          php -n -r 'echo "noext-ok\n";'
+          echo "exit: $?"
+          echo '--- with only ext-duckdb loaded ---'
+          php -n -d extension=$PWD/modules/duckdb.so -r 'echo "ext-ok\n";'
+          echo "exit: $?"
+
       - name: Capture shutdown backtrace
         if: always()
+        shell: bash
         run: |
-          php -v
           apt-get update && apt-get install -y gdb
           gdb -batch -ex run -ex bt \
-            --args php -d extension=$PWD/modules/duckdb.so examples/bootstrap.php
+            --args php -n -d extension=$PWD/modules/duckdb.so examples/bootstrap.php
 
+      - name: Valgrind shutdown crash
+        if: always()
+        shell: bash
+        run: |
+          apt-get update && apt-get install -y valgrind
+          USE_ZEND_ALLOC=0 valgrind --num-callers=30 \
+            php -n -d extension=$PWD/modules/duckdb.so -r 'echo "x\n";' 2>&1 | tail -60 || true
 
       - name: Upload failure artifacts
         if: failure()
