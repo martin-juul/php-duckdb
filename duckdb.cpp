@@ -265,7 +265,16 @@ PHP_METHOD(DuckDB_Database, __construct) {
         if (msg.find("options were not recognized") != std::string::npos) {
             duckdb_throw_error(DUCKDB_INVALID_CONFIGURATION, msg.c_str());
         } else {
-            duckdb_throw_error(DUCKDB_ERROR_CONNECTION, msg.c_str());
+            /* Open failures carry the same "<Type> Error:" prefix as query
+             * errors: a single-writer lock conflict arrives as "IO Error:
+             * Could not set lock on file ..." and must surface as
+             * IOException(ErrorType::Io), not a generic connection error.
+             * Unrecognized messages stay connection errors. */
+            duckdb_error_type type = duckdb_classify_error_message(msg.c_str());
+            if (type == DUCKDB_ERROR_INVALID) {
+                type = DUCKDB_ERROR_CONNECTION;
+            }
+            duckdb_throw_error(type, msg.c_str());
         }
         RETURN_THROWS();
     }
