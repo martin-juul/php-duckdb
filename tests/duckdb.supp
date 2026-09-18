@@ -1,0 +1,21 @@
+# Valgrind suppressions for the duckdb PHP extension test suite.
+#
+# These cover allocations owned by glibc and libduckdb's thread lifecycle,
+# not by extension code: every std::thread pays a one-time TLS slot that the
+# dynamic loader keeps until process exit (threads are pooled and reused),
+# which Memcheck reports as "possibly lost". Suppressing them keeps the
+# valgrind harness stage signal-only — any entry here must name a stack we
+# do not own. Extension-owned allocations must never be added.
+
+{
+   glibc-thread-tls-dtv
+   Memcheck:Leak
+   match-leak-kinds: possible
+   fun:calloc
+   fun:calloc
+   fun:allocate_dtv
+   fun:_dl_allocate_tls
+   fun:allocate_stack
+   fun:pthread_create*
+   ...
+}
