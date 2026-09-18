@@ -442,6 +442,10 @@ bool duckdb_connection_guard(const std::shared_ptr<conn_inner> &conn);
 /* Throw for a prepare-time error; the DuckDB prepare API exposes only a
  * message, so the category is derived from its "<Type> Error:" prefix. */
 void duckdb_throw_prepare_error(const char *msg);
+/* Recover the error category from a DuckDB error message's
+ * "<Type> Error:" prefix; DUCKDB_ERROR_INVALID when unrecognized.
+ * Used by the open and prepare paths, which expose only a message. */
+duckdb_error_type duckdb_classify_error_message(const char *msg);
 /* Throw from a failed duckdb_result (message + error type), then
  * destroy the result. Does not return. */
 void duckdb_throw_result_error(duckdb_result *res);
