@@ -252,8 +252,8 @@ final class Harness
         $start = microtime(true);
         $problems = [];
 
-        if (PHP_VERSION_ID < 80100) {
-            $problems[] = 'PHP >= 8.1 required, found ' . PHP_VERSION;
+        if (PHP_VERSION_ID < 80200) {
+            $problems[] = 'PHP >= 8.2 required, found ' . PHP_VERSION;
         }
 
         $root = $this->config->rootDir;
