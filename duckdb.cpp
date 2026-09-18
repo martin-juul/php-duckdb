@@ -836,13 +836,27 @@ PHP_MINIT_FUNCTION(duckdb) {
     DUCKDB_REGISTER_CLASS(pending, register_class_DuckDB_PendingQuery);
     DUCKDB_REGISTER_CLASS(appender, register_class_DuckDB_Appender);
 
+    /* Registered manually (not via ext_functions in duckdb_arginfo.h)
+     * because gen_stub.php cannot emit a cross-namespace alias. Persistent
+     * teardown belongs to Zend: do NOT unregister these in MSHUTDOWN — see
+     * the comment in PHP_MSHUTDOWN_FUNCTION(duckdb). */
     zend_register_functions(NULL, duckdb_legacy_functions, NULL, MODULE_PERSISTENT);
 
     return SUCCESS;
 }
 
 PHP_MSHUTDOWN_FUNCTION(duckdb) {
-    zend_unregister_functions(duckdb_legacy_functions, 1, NULL);
+    /* No function teardown here. The legacy alias registered in MINIT is
+     * MODULE_PERSISTENT, and persistent functions are owned by
+     * CG(function_table): Zend destroys them wholesale in zend_shutdown().
+     * php-src itself only unregisters module functions for MODULE_TEMPORARY
+     * modules (module_destructor() in zend_API.c). Manually unregistering a
+     * persistent function double-frees its zend_internal_function on
+     * runtimes whose alias handling keeps the entry reachable after
+     * zend_hash_del() — the True Async PHP 8.6 fork SIGSEGVed in
+     * zend_function_dtor() during zend_shutdown() (Valgrind: the block was
+     * freed by zend_unregister_functions() here, then freed again by
+     * zend_hash_destroy() at engine shutdown). */
     return SUCCESS;
 }
 
