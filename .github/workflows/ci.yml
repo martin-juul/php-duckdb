@@ -83,7 +83,7 @@ jobs:
         run: |
           set -eux
           sudo apt-get update
-          sudo apt-get install -y valgrind
+          sudo apt-get install -y valgrind libbrotli-dev
           printf '\n' | sudo pecl install swoole
           echo 'extension=swoole.so' | sudo tee "$(php -r 'echo PHP_CONFIG_FILE_SCAN_DIR;')/30-swoole.ini"
           php -r 'exit(version_compare(SWOOLE_VERSION, "6.0", ">=") ? 0 : 1);'
