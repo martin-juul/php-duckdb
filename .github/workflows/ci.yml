@@ -52,6 +52,13 @@ jobs:
           DYLD_LIBRARY_PATH: /opt/duckdb/lib
         run: php tests/harness.php --no-color --junit=junit.xml
 
+      - name: Backtrace on failure
+        if: failure()
+        shell: bash
+        run: |
+          apt-get update && apt-get install -y gdb
+          gdb -batch -ex run -ex bt --args php -d extension=$PWD/modules/duckdb.so examples/bootstrap.php
+
       - name: Upload failure artifacts
         if: failure()
         uses: actions/upload-artifact@v4
