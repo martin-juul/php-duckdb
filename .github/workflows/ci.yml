@@ -1,0 +1,257 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build-and-test:
+    name: PHP ${{ matrix.php }} on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        php: ['8.2', '8.3', '8.4', '8.5']
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php }}
+          coverage: none
+
+      - name: Install libduckdb
+        shell: bash
+        run: |
+          set -eux
+          DUCKDB_VERSION="v1.5.5"
+          case "$RUNNER_OS" in
+            Linux)
+              curl -sL "https://github.com/duckdb/duckdb/releases/download/${DUCKDB_VERSION}/libduckdb-linux-amd64.zip" -o /tmp/libduckdb.zip
+              ;;
+            macOS)
+              curl -sL "https://github.com/duckdb/duckdb/releases/download/${DUCKDB_VERSION}/libduckdb-osx-universal.zip" -o /tmp/libduckdb.zip
+              ;;
+          esac
+          sudo unzip -o /tmp/libduckdb.zip -d /opt/duckdb
+          # Archive layout: duckdb.h + libduckdb.so at the top level
+          sudo mkdir -p /opt/duckdb/include /opt/duckdb/lib
+          sudo sh -c 'mv /opt/duckdb/duckdb.h /opt/duckdb/include/ 2>/dev/null || true'
+          sudo sh -c 'mv /opt/duckdb/libduckdb.* /opt/duckdb/lib/ 2>/dev/null || true'
+          sudo sh -c 'mv /opt/duckdb/duckdb.hpp /opt/duckdb/include/ 2>/dev/null || true'
+          ls -R /opt/duckdb
+
+      - name: Harness (build + unit + examples)
+        shell: bash
+        env:
+          LD_LIBRARY_PATH: /opt/duckdb/lib
+          DYLD_LIBRARY_PATH: /opt/duckdb/lib
+        run: php tests/harness.php --no-color --junit=junit.xml
+
+      - name: Upload failure artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-failures-${{ matrix.os }}-php${{ matrix.php }}
+          path: |
+            tests/*.diff
+            tests/*.out
+            tests/*.exp
+            tests/*.log
+            junit.xml
+          if-no-files-found: ignore
+
+  extended:
+    name: Swoole + Valgrind + stress (PHP 8.4)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          coverage: none
+          extensions: curl
+
+      - name: Install libduckdb, valgrind and Swoole
+        shell: bash
+        run: |
+          set -eux
+          sudo apt-get update
+          sudo apt-get install -y valgrind
+          printf '\n' | sudo pecl install swoole
+          echo 'extension=swoole.so' | sudo tee "$(php -r 'echo PHP_CONFIG_FILE_SCAN_DIR;')/30-swoole.ini"
+          php -r 'exit(version_compare(SWOOLE_VERSION, "6.0", ">=") ? 0 : 1);'
+          curl -sL "https://github.com/duckdb/duckdb/releases/download/v1.5.5/libduckdb-linux-amd64.zip" -o /tmp/libduckdb.zip
+          sudo unzip -o /tmp/libduckdb.zip -d /opt/duckdb
+          sudo mkdir -p /opt/duckdb/include /opt/duckdb/lib
+          sudo sh -c 'mv /opt/duckdb/duckdb.h /opt/duckdb/include/ 2>/dev/null || true'
+          sudo sh -c 'mv /opt/duckdb/libduckdb.* /opt/duckdb/lib/ 2>/dev/null || true'
+
+      - name: Build + unit + examples (Swoole loaded, test 049 active)
+        shell: bash
+        env:
+          LD_LIBRARY_PATH: /opt/duckdb/lib
+        run: php tests/harness.php --no-color
+
+      - name: Valgrind over the test suite
+        shell: bash
+        env:
+          LD_LIBRARY_PATH: /opt/duckdb/lib
+        run: php tests/harness.php valgrind --no-color
+
+      - name: Stress
+        shell: bash
+        env:
+          LD_LIBRARY_PATH: /opt/duckdb/lib
+        run: php tests/harness.php stress --no-color
+
+      - name: Upload failure artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: extended-failures
+          path: |
+            tests/*.mem
+            tests/*.diff
+            tests/*.out
+          if-no-files-found: ignore
+
+  amphp:
+    name: AMPHP v3 (PHP 8.4)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          coverage: none
+
+      - name: Install libduckdb and AMPHP
+        shell: bash
+        run: |
+          set -eux
+          curl -sL "https://github.com/duckdb/duckdb/releases/download/v1.5.5/libduckdb-linux-amd64.zip" -o /tmp/libduckdb.zip
+          sudo unzip -o /tmp/libduckdb.zip -d /opt/duckdb
+          sudo mkdir -p /opt/duckdb/include /opt/duckdb/lib
+          sudo sh -c 'mv /opt/duckdb/duckdb.h /opt/duckdb/include/ 2>/dev/null || true'
+          sudo sh -c 'mv /opt/duckdb/libduckdb.* /opt/duckdb/lib/ 2>/dev/null || true'
+          # AMPHP is userland: install it beside the checkout so composer
+          # never mutates the repository's own composer.json.
+          mkdir -p /tmp/amphp
+          composer --working-dir=/tmp/amphp require --no-interaction amphp/amp:^3.0
+
+      - name: Harness (build + unit + examples; test 051 active)
+        shell: bash
+        env:
+          LD_LIBRARY_PATH: /opt/duckdb/lib
+          DUCKDB_AMPHP_AUTOLOAD: /tmp/amphp/vendor/autoload.php
+        run: php tests/harness.php --no-color --junit=junit.xml
+
+      - name: Upload failure artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: amphp-failures
+          path: |
+            tests/*.diff
+            tests/*.out
+            tests/*.exp
+            tests/*.log
+            junit.xml
+          if-no-files-found: ignore
+
+  reactphp:
+    name: ReactPHP react/async v4 (PHP 8.4)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          coverage: none
+
+      - name: Install libduckdb and ReactPHP
+        shell: bash
+        run: |
+          set -eux
+          curl -sL "https://github.com/duckdb/duckdb/releases/download/v1.5.5/libduckdb-linux-amd64.zip" -o /tmp/libduckdb.zip
+          sudo unzip -o /tmp/libduckdb.zip -d /opt/duckdb
+          sudo mkdir -p /opt/duckdb/include /opt/duckdb/lib
+          sudo sh -c 'mv /opt/duckdb/duckdb.h /opt/duckdb/include/ 2>/dev/null || true'
+          sudo sh -c 'mv /opt/duckdb/libduckdb.* /opt/duckdb/lib/ 2>/dev/null || true'
+          # ReactPHP is userland: install it beside the checkout so composer
+          # never mutates the repository's own composer.json.
+          mkdir -p /tmp/reactphp
+          composer --working-dir=/tmp/reactphp require --no-interaction react/async:^4.0
+
+      - name: Harness (build + unit + examples; test 052 active)
+        shell: bash
+        env:
+          LD_LIBRARY_PATH: /opt/duckdb/lib
+          DUCKDB_REACTPHP_AUTOLOAD: /tmp/reactphp/vendor/autoload.php
+        run: php tests/harness.php --no-color --junit=junit.xml
+
+      - name: Upload failure artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: reactphp-failures
+          path: |
+            tests/*.diff
+            tests/*.out
+            tests/*.exp
+            tests/*.log
+            junit.xml
+          if-no-files-found: ignore
+
+  true-async:
+    name: True Async runtime (trueasync/php-true-async)
+    runs-on: ubuntu-latest
+    # The True Async runtime is a php-src fork, not an extension: the
+    # official image ships a PHP 8.6+ binary with ext true_async built in.
+    container: trueasync/php-true-async:latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build tools and libduckdb
+        shell: bash
+        run: |
+          set -eux
+          apt-get update
+          apt-get install -y build-essential autoconf unzip curl git
+          curl -sL "https://github.com/duckdb/duckdb/releases/download/v1.5.5/libduckdb-linux-amd64.zip" -o /tmp/libduckdb.zip
+          mkdir -p /opt/duckdb/include /opt/duckdb/lib
+          unzip -o /tmp/libduckdb.zip -d /opt/duckdb
+          mv /opt/duckdb/duckdb.h /opt/duckdb/include/
+          mv /opt/duckdb/libduckdb.* /opt/duckdb/lib/
+          php -v
+          php -m | grep true_async
+
+      - name: Harness (build + unit + examples; test 050 active)
+        shell: bash
+        env:
+          LD_LIBRARY_PATH: /opt/duckdb/lib
+        run: php tests/harness.php --no-color --junit=junit.xml
+
+      - name: Upload failure artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: true-async-failures
+          path: |
+            tests/*.diff
+            tests/*.out
+            tests/*.exp
+            tests/*.log
+            junit.xml
+          if-no-files-found: ignore
