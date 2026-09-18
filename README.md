@@ -77,7 +77,7 @@ your data (memory / .duckdb file / Parquet / CSV / …)
 
 ## Requirements
 
-- PHP **8.1+** (8.2–8.5 supported; enums are used in the public API)
+- PHP **8.2+** (8.2–8.5 supported; enums are used in the public API)
 - A C++17 compiler
 - The DuckDB C library (`libduckdb` + `duckdb.h`), e.g. from
   <https://duckdb.org/docs/installation/> — this driver is developed and
@@ -108,6 +108,27 @@ Run the test suite:
 ```bash
 LD_LIBRARY_PATH=/opt/duckdb/lib \
   php run-tests.php -q -d extension=$PWD/modules/duckdb.so tests/
+```
+
+## Docker images
+
+Multi-arch images (`linux/amd64` + `linux/arm64`) with the extension
+preinstalled are published to the GitHub Container Registry for every
+supported PHP version, built from the `Dockerfile` in this repository:
+
+```bash
+docker run --rm ghcr.io/martin-juul/php-duckdb:8.4 \
+  -r '$c = (new DuckDB\Database())->connect(); var_dump($c->query("SELECT 42 AS x")->fetchRow());'
+```
+
+Tags: `8.2`, `8.3`, `8.4`, `8.5` (moving tags, rebuilt on every master
+push), `latest` (alias for the newest PHP version), and
+`<release>-php<X.Y>` for tagged releases (e.g. `1.0.0-php8.4`). Images are
+based on `php:X.Y-cli-bookworm` and ship the matching libduckdb, so the
+extension loads with no extra setup. To build locally instead:
+
+```bash
+docker build --build-arg PHP_VERSION=8.4 -t php-duckdb:8.4 .
 ```
 
 ## Quick start
@@ -649,7 +670,7 @@ php tests/harness.php --full --junit=report.xml
 
 Stages:
 
-- **doctor** verifies the toolchain (PHP ≥ 8.1, phpize, libduckdb,
+- **doctor** verifies the toolchain (PHP ≥ 8.2, phpize, libduckdb,
   run-tests.php, valgrind) with actionable errors.
 - **build** runs phpize/configure/make, incrementally; `--rebuild` forces
   a clean build.
