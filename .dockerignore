@@ -1,0 +1,10 @@
+# Build context: the Dockerfile copies only the extension sources, so this
+# file is purely a context-size optimization.
+.git
+.github
+tests
+examples
+modules
+*.md
+Dockerfile
+.dockerignore
