@@ -219,7 +219,7 @@ jobs:
     runs-on: ubuntu-latest
     # The True Async runtime is a php-src fork, not an extension: the
     # official image ships a PHP 8.6+ binary with ext true_async built in.
-    container: trueasync/php-true-async:latest
+    container: trueasync/php-true-async:0.7.13-php8.6
     steps:
       - uses: actions/checkout@v4
 
