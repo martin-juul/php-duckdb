@@ -1,0 +1,47 @@
+{
+    "name": "martinjuul/duckdb",
+    "description": "Native DuckDB driver for PHP (C extension). Synchronous, streaming and asynchronous queries, prepared statements, transactions, bulk appender, typed errors.",
+    "type": "php-ext",
+    "license": "MIT",
+    "keywords": [
+        "duckdb",
+        "database",
+        "analytics",
+        "olap",
+        "sql",
+        "extension"
+    ],
+    "authors": [
+        {
+            "name": "Martin Juul Christiansen",
+            "email": "code@juul.xyz",
+            "homepage": "https://juul.xyz",
+            "role": "Developer"
+        }
+    ],
+    "require": {
+        "php": ">= 8.1"
+    },
+    "suggest": {
+        "ext-uv": "For event-loop integration of async queries via PendingQuery::getFd()",
+        "ext-swoole": ">=6.0: PendingQuery::suspend() yields Swoole coroutines natively instead of blocking the scheduler",
+        "amphp/amp": "^3.0: PendingQuery::suspend() suspends fibers on the Revolt event loop instead of blocking",
+        "react/async": "^4.0: PendingQuery::suspend() awaits on the ReactPHP event loop instead of blocking"
+    },
+    "extra": {
+        "php-ext": {
+            "extension-name": "duckdb",
+            "configure-options": [
+                {
+                    "name": "with-duckdb",
+                    "description": "Path to the DuckDB C library installation (contains include/duckdb.h and lib/libduckdb)"
+                }
+            ]
+        }
+    },
+    "scripts": {
+        "test": "php tests/harness.php",
+        "test:full": "php tests/harness.php --full",
+        "test:quick": "php tests/harness.php --quick"
+    }
+}

@@ -1,0 +1,13 @@
+// config.w32 for the duckdb PHP extension (Windows)
+
+ARG_WITH("duckdb", "Include duckdb support", "no");
+
+if (PHP_DUCKDB != "no") {
+    if (CHECK_HEADER_ADD_INCLUDE("duckdb.h", "CFLAGS_DUCKDB", PHP_DUCKDB + "\\include") &&
+        CHECK_LIB("duckdb.lib", "duckdb", PHP_DUCKDB + "\\lib")) {
+        EXTENSION("duckdb", "duckdb.cpp src\\values.cpp src\\result.cpp src\\statement.cpp src\\pending.cpp src\\suspend_swoole.cpp src\\suspend_true_async.cpp src\\suspend_amphp.cpp src\\suspend_reactphp.cpp src\\appender.cpp");
+        ADD_FLAG("CFLAGS_DUCKDB", "/EHsc /std:c++17");
+    } else {
+        WARNING("duckdb not found; install the DuckDB C API library and headers");
+    }
+}
