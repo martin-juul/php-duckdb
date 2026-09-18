@@ -422,12 +422,13 @@ final class Harness
 
         $bad = $failed + $leaked;
         $detail = sprintf(
-            '%d passed, %d failed%s, %d skipped (%d tests)',
+            '%d passed, %d failed%s%s, %d skipped (%d tests)',
             $passed,
             $failed,
             $leaked > 0 ? ", {$leaked} leaked" : '',
+            $warned > 0 ? ", {$warned} warned" : '',
             $skipped,
-            $passed + $failed + $skipped,
+            $passed + $failed + $leaked + $warned + $skipped,
         );
 
         if ($bad > 0) {
