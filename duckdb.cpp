@@ -184,12 +184,36 @@ static void duckdb_interval_free_object(zend_object *object) {
 /* Throw a ConnectionException when the connection has been closed.
  * Returns true when the connection is usable. */
 bool duckdb_connection_guard(const std::shared_ptr<conn_inner> &conn) {
+    if (UNEXPECTED(!conn)) {
+        zend_throw_error(NULL, "DuckDB\\Connection object is not initialized (its constructor was bypassed)");
+        return false;
+    }
     if (conn->closed.load(std::memory_order_acquire)) {
         zend_throw_exception_ex(duckdb_connection_exception_ce, DUCKDB_ERROR_CONNECTION,
                                 "Connection is closed");
         return false;
     }
     return true;
+}
+
+/* Process-wide instance cache for file-backed databases.
+ *
+ * POSIX fcntl locks are per-process, not per-fd: closing ANY descriptor
+ * on a file drops ALL of the process's locks on it. Two independent
+ * duckdb_database handles on the same path would therefore unlock each
+ * other and corrupt the file. Routing every file-backed open through
+ * duckdb_get_or_create_from_cache() makes a second Database object for
+ * the same path share the first one's instance instead of opening the
+ * file twice.
+ *
+ * The cache is keyed by path string, so ':memory:' databases are exempt
+ * (they must stay private to their Database object) and go through
+ * duckdb_open_ext() directly. The cache itself is intentionally never
+ * destroyed: it is a process-lifetime resource, like the module's
+ * registered functions. */
+static duckdb_instance_cache duckdb_instance_cache_global() {
+    static duckdb_instance_cache cache = duckdb_create_instance_cache();
+    return cache;
 }
 
 PHP_METHOD(DuckDB_Database, __construct) {
@@ -203,6 +227,10 @@ PHP_METHOD(DuckDB_Database, __construct) {
         Z_PARAM_STRING(path, path_len)
         Z_PARAM_ARRAY_HT(config)
     ZEND_PARSE_PARAMETERS_END();
+
+    if (!duckdb_check_no_nul(path, path_len, 1)) {
+        RETURN_THROWS();
+    }
 
     if (path_len == 0) {
         path = (char *)":memory:";
@@ -223,6 +251,9 @@ PHP_METHOD(DuckDB_Database, __construct) {
                 zend_argument_value_error(2, "must be a map of option names to values, got integer key " ZEND_LONG_FMT, num_key);
                 RETURN_THROWS();
             }
+            if (!duckdb_check_no_nul(ZSTR_VAL(key), ZSTR_LEN(key), 2)) {
+                RETURN_THROWS();
+            }
             if (Z_TYPE_P(val) != IS_STRING && Z_TYPE_P(val) != IS_LONG &&
                 Z_TYPE_P(val) != IS_DOUBLE && Z_TYPE_P(val) != IS_TRUE && Z_TYPE_P(val) != IS_FALSE) {
                 zend_argument_value_error(2, "must only contain scalar values, got %s for option \"%s\"",
@@ -239,6 +270,10 @@ PHP_METHOD(DuckDB_Database, __construct) {
             } else {
                 str_val = zval_get_string(val);
             }
+            if (!duckdb_check_no_nul(ZSTR_VAL(str_val), ZSTR_LEN(str_val), 2)) {
+                zend_string_release(str_val);
+                RETURN_THROWS();
+            }
             duckdb_state st = duckdb_set_config(cfg.get(), ZSTR_VAL(key), ZSTR_VAL(str_val));
             zend_string_release(str_val);
             if (st == DuckDBError) {
@@ -253,7 +288,13 @@ PHP_METHOD(DuckDB_Database, __construct) {
     auto inner = std::make_shared<db_inner>();
 
     char *err = nullptr;
-    duckdb_state state = duckdb_open_ext(path, &inner->db, cfg.get(), &err);
+    /* File-backed databases are shared process-wide through the instance
+     * cache (see above); ':memory:' databases stay per-object private. */
+    duckdb_instance_cache cache =
+        strcmp(path, ":memory:") != 0 ? duckdb_instance_cache_global() : nullptr;
+    duckdb_state state = cache
+        ? duckdb_get_or_create_from_cache(cache, path, &inner->db, cfg.get(), &err)
+        : duckdb_open_ext(path, &inner->db, cfg.get(), &err);
     if (state == DuckDBError) {
         std::string msg = err ? err : "Unable to open database";
         if (err) {
@@ -287,6 +328,9 @@ PHP_METHOD(DuckDB_Database, connect) {
     ZEND_PARSE_PARAMETERS_END();
 
     php_duckdb_database_object *intern = Z_DUCKDB_DATABASE_P(ZEND_THIS);
+    if (!duckdb_initialized_guard(static_cast<bool>(intern->inner), "DuckDB\\Database")) {
+        RETURN_THROWS();
+    }
 
     auto inner = std::make_shared<conn_inner>();
     inner->db = intern->inner;
@@ -370,7 +414,26 @@ PHP_METHOD(DuckDB_Connection, queryStreaming) {
             duckdb_throw_prepare_error(err ? err : "Failed to prepare statement");
             RETURN_THROWS();
         }
-        if (duckdb_execute_prepared_streaming(stmt->stmt, &res) == DuckDBError) {
+        /* duckdb_execute_prepared_streaming is deprecated upstream; the
+         * replacement is the pending-result API. */
+        duckdb_pending_result pending = nullptr;
+        if (duckdb_pending_prepared_streaming(stmt->stmt, &pending) == DuckDBError) {
+            const char *err = pending ? duckdb_pending_error(pending) : nullptr;
+            std::string msg = (err && err[0]) ? err : "Failed to start streaming query";
+            if (pending) {
+                duckdb_destroy_pending(&pending);
+            }
+            duckdb_error_type type = duckdb_classify_error_message(msg.c_str());
+            if (type == DUCKDB_ERROR_INVALID) {
+                type = DUCKDB_ERROR_INTERNAL;
+            }
+            duckdb_throw_error(type, msg.c_str());
+            RETURN_THROWS();
+        }
+        duckdb_state st = duckdb_execute_pending(pending, &res);
+        /* duckdb_execute_pending does NOT consume the pending handle. */
+        duckdb_destroy_pending(&pending);
+        if (st == DuckDBError) {
             duckdb_throw_result_error(&res);
             RETURN_THROWS();
         }
@@ -410,15 +473,29 @@ PHP_METHOD(DuckDB_Connection, queryAsync) {
     task->sql.assign(sql, sql_len);
     task->notify_write_fd = fds[1];
 
+    /* Starting a new execution invalidates any open streaming result on
+     * this connection. The bump is sequenced before the thread is
+     * created: thread creation is the happens-before edge that publishes
+     * the task to the worker. */
+    intern->inner->execution_epoch.fetch_add(1, std::memory_order_relaxed);
+
+    try {
+        std::thread(duckdb_async_run, task).detach();
+    } catch (const std::system_error &e) {
+        /* Thread creation failed (resource exhaustion): no worker owns the
+         * write end, so close both fds ourselves. */
+        close(fds[0]);
+        close(fds[1]);
+        task->notify_write_fd = -1;
+        zend_throw_exception_ex(duckdb_internal_exception_ce, DUCKDB_ERROR_INTERNAL,
+                                "Failed to start async worker thread: %s", e.what());
+        RETURN_THROWS();
+    }
+
     object_init_ex(return_value, duckdb_pending_ce);
     php_duckdb_pending_object *p = Z_DUCKDB_PENDING_P(return_value);
     p->task = task;
     p->read_fd = fds[0];
-
-    /* Starting a new execution invalidates any open streaming result on
-     * this connection. */
-    intern->inner->execution_epoch.fetch_add(1, std::memory_order_relaxed);
-    std::thread(duckdb_async_run, task).detach();
 }
 
 PHP_METHOD(DuckDB_Connection, queryPending) {
@@ -644,6 +721,9 @@ PHP_METHOD(DuckDB_Connection, close) {
     ZEND_PARSE_PARAMETERS_END();
 
     php_duckdb_connection_object *intern = Z_DUCKDB_CONNECTION_P(ZEND_THIS);
+    if (!duckdb_initialized_guard(static_cast<bool>(intern->inner), "DuckDB\\Connection")) {
+        RETURN_THROWS();
+    }
     /* Flag-only: the underlying duckdb_disconnect() is deferred to the
      * destructor so in-flight async queries and live streaming results
      * finish safely. Idempotent by construction. */
@@ -656,6 +736,9 @@ PHP_METHOD(DuckDB_Connection, isClosed) {
     ZEND_PARSE_PARAMETERS_END();
 
     php_duckdb_connection_object *intern = Z_DUCKDB_CONNECTION_P(ZEND_THIS);
+    if (!duckdb_initialized_guard(static_cast<bool>(intern->inner), "DuckDB\\Connection")) {
+        RETURN_THROWS();
+    }
     RETURN_BOOL(intern->inner->closed.load(std::memory_order_acquire));
 }
 
@@ -737,6 +820,9 @@ static void duckdb_connection_exec_simple(INTERNAL_FUNCTION_PARAMETERS, const ch
     duckdb_result res = {};
     {
         std::lock_guard<std::mutex> lk(intern->inner->mutex);
+        /* BEGIN/COMMIT/ROLLBACK are executions too: they invalidate any
+         * open streaming result on this connection. */
+        intern->inner->execution_epoch.fetch_add(1, std::memory_order_relaxed);
         if (duckdb_query(intern->inner->conn, sql, &res) == DuckDBError) {
             duckdb_throw_result_error(&res);
             RETURN_THROWS();
