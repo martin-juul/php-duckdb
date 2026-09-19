@@ -243,19 +243,22 @@ All Ubuntu targets use `dh --with php`, `phpenmod` activation and
 ## Release assets
 
 Publishing a GitHub Release (from a version tag) triggers the packaging
-workflow on the release commit: every target rebuilds from that tag —
-full test suite included — and the `release-assets` job attaches all
-packages to the release. Asset names carry a distro suffix because the
-deb filename is identical across distros:
+workflow on the release commit: every target rebuilds from that tag on
+**both amd64 and arm64** (native ARM64 runners) — full test suite
+included — and the `release-assets` job attaches all packages to the
+release. Asset names carry a distro suffix because the deb filename is
+identical across distros; the architecture is encoded in the package
+filename itself (`_amd64`/`_arm64` for debs, `.x86_64`/`.aarch64` for
+rpms):
 
 ```
-php-duckdb_1.2.0-1_amd64.debian-sid.deb
-php-duckdb_1.2.0-1_amd64.debian-13-trixie.deb
-php-duckdb_1.2.0-1_amd64.ubuntu-24.04.deb
-php-duckdb_1.2.0-1_amd64.ubuntu-26.04.deb
-php-duckdb_1.2.0-1_amd64.ubuntu-devel.deb
-php8-duckdb-1.2.0-1.x86_64.opensuse-tumbleweed.rpm (+ .src.rpm)
-php-pecl-duckdb-1.2.0-1.fc44.x86_64.fedora-44.rpm (+ .src.rpm)
+php-duckdb_1.2.0-1_amd64.debian-sid.deb          (+ _arm64)
+php-duckdb_1.2.0-1_amd64.debian-13-trixie.deb    (+ _arm64)
+php-duckdb_1.2.0-1_amd64.ubuntu-24.04.deb        (+ _arm64)
+php-duckdb_1.2.0-1_amd64.ubuntu-26.04.deb        (+ _arm64)
+php-duckdb_1.2.0-1_amd64.ubuntu-devel.deb        (+ _arm64)
+php8-duckdb-1.2.0-1.x86_64.opensuse-tumbleweed.rpm (+ .aarch64, .src.rpm)
+php-pecl-duckdb-1.2.0-1.fc44.x86_64.fedora-44.rpm  (+ .aarch64, .src.rpm)
 ```
 
 dpkg/rpm don't care about the file name, so the suffixed assets install
