@@ -123,6 +123,137 @@ jobs:
           LD_LIBRARY_PATH: /opt/duckdb/lib
         run: php tests/harness.php --stress --no-color
 
+      # TEMPORARY DIAGNOSTIC — remove once the Swoole shutdown SIGSEGV
+      # (unit/049_swoole.phpt + examples/swoole.php exiting 139 after
+      # printing all expected output) is root-caused. Runs only when an
+      # earlier step failed. Captures gdb backtraces and core dumps for
+      # the two crashing scenarios plus a pure-Swoole and a pure-DuckDB
+      # control, so we can tell where the fault lives.
+      - name: Capture Swoole crash backtrace (diagnostic)
+        if: failure()
+        env:
+          LD_LIBRARY_PATH: /opt/duckdb/lib
+        run: |
+          set +e
+          sudo apt-get update -qq >/dev/null 2>&1
+          sudo apt-get install -y gdb >/dev/null 2>&1
+          gdb --version | head -1
+
+          echo '===== environment ====='
+          uname -a
+          ldd --version | head -1
+          nproc
+          php -v | head -1
+          php -m | tr '\n' ' '; echo
+          php --ri swoole 2>/dev/null | sed -n '1,45p'
+          php --ri duckdb 2>/dev/null | sed -n '1,15p'
+
+          # Core dumps into the workspace, as a fallback if the crash
+          # refuses to reproduce under gdb.
+          ulimit -c unlimited
+          echo "$PWD/core.%e.%p" | sudo tee /proc/sys/kernel/core_pattern
+          cat /proc/sys/kernel/core_pattern
+
+          # --- scenario scripts -------------------------------------------
+          # The Swoole child scenario, extracted verbatim from the phpt
+          # (the crash happens in that proc_open'd subprocess).
+          cat > /tmp/extract_child.php <<'EXTRACT_EOF'
+          <?php
+          $t = file_get_contents('tests/049_swoole.phpt');
+          if (!preg_match('/\$script = <<<\'PHP\'\n(.*?)\nPHP;/s', $t, $m)) {
+              fwrite(STDERR, "could not extract child script\n");
+              exit(1);
+          }
+          file_put_contents('/tmp/swoole_child.php', "<?php\n" . $m[1]);
+          echo "extracted ", strlen($m[1]), " bytes of child scenario\n";
+          EXTRACT_EOF
+          php /tmp/extract_child.php
+
+          # Control 1: Swoole coroutines only, no duckdb loaded (-n).
+          cat > /tmp/swoole_only.php <<'CTRL_EOF'
+          <?php
+          use Swoole\Coroutine;
+          use function Swoole\Coroutine\run;
+          run(function () {
+              $ticks = 0;
+              $t = Coroutine::create(function () use (&$ticks) {
+                  for ($i = 0; $i < 200; $i++) { Coroutine::sleep(0.001); $ticks++; }
+              });
+              $w = Coroutine::create(function () { Coroutine::sleep(0.1); });
+              Coroutine::join([$t, $w]);
+              echo "swoole-only ok ($ticks ticks)\n";
+          });
+          CTRL_EOF
+
+          # Control 2: duckdb async only, no swoole loaded (-n).
+          cat > /tmp/duckdb_only.php <<'CTRL_EOF'
+          <?php
+          use DuckDB\Database;
+          $db = new Database(':memory:');
+          for ($i = 0; $i < 5; $i++) {
+              $p = $db->connect()->queryAsync('SELECT sum(t1.range) FROM range(2000000) t1, range(20) t2');
+              var_dump($p->await()->fetchAll(DuckDB\FetchMode::Num)[0][0]);
+          }
+          echo "duckdb-only ok\n";
+          CTRL_EOF
+
+          # --- phase 1: plain runs (fast, core dumps enabled) -------------
+          echo '===== phase 1: plain runs ====='
+          # A curl-native swoole build needs ext-curl loaded even with -n.
+          EXTDIR=$(php-config --extension-dir)
+          CURL_ARG=()
+          [ -f "$EXTDIR/curl.so" ] && CURL_ARG=(-d "extension=$EXTDIR/curl.so")
+          for i in $(seq 1 15); do
+              php -d extension=$PWD/modules/duckdb.so -d swoole.hook_flags=0 /tmp/swoole_child.php >/dev/null 2>&1
+              rc=$?; [ $rc -ne 0 ] && echo "049-child run $i: exit $rc"
+              php -d extension=$PWD/modules/duckdb.so examples/swoole.php >/dev/null 2>&1
+              rc=$?; [ $rc -ne 0 ] && echo "example run $i: exit $rc"
+          done
+          for i in $(seq 1 10); do
+              php -n "${CURL_ARG[@]}" -d extension=$EXTDIR/swoole.so /tmp/swoole_only.php >/dev/null 2>&1
+              rc=$?; [ $rc -ne 0 ] && echo "swoole-only run $i: exit $rc"
+              php -n -d extension=$PWD/modules/duckdb.so /tmp/duckdb_only.php >/dev/null 2>&1
+              rc=$?; [ $rc -ne 0 ] && echo "duckdb-only run $i: exit $rc"
+          done
+          echo 'phase 1 done'
+
+          # --- phase 2: under gdb ------------------------------------------
+          echo '===== phase 2: gdb runs ====='
+          cat > /tmp/gdb.cmds <<'GDB_EOF'
+          set pagination off
+          handle SIGPIPE SIGUSR1 SIGUSR2 SIGCHLD nostop noprint pass
+          run
+          bt 40
+          thread apply all bt 25
+          info sharedlibrary
+          GDB_EOF
+          run_gdb() {
+              local label="$1"; shift
+              for i in $(seq 1 15); do
+                  gdb -batch -x /tmp/gdb.cmds --args "$@" > /tmp/gdb_out.log 2>&1
+                  if grep -qE 'SIGSEGV|SIGABRT' /tmp/gdb_out.log; then
+                      echo "!!! CRASH REPRODUCED: $label run $i"
+                      cat /tmp/gdb_out.log
+                      return 0
+                  fi
+              done
+              echo "no crash under gdb for: $label"
+          }
+          run_gdb "049-child" php -d extension=$PWD/modules/duckdb.so -d swoole.hook_flags=0 /tmp/swoole_child.php
+          run_gdb "example"   php -d extension=$PWD/modules/duckdb.so examples/swoole.php
+
+          # --- phase 3: backtraces from any core dumps ---------------------
+          echo '===== phase 3: core dumps ====='
+          for c in core.php.*; do
+              [ -f "$c" ] || continue
+              echo "=== core: $c ==="
+              gdb -batch -ex 'set pagination off' -ex 'bt 40' \
+                  -ex 'thread apply all bt 25' -ex 'info sharedlibrary' \
+                  "$(command -v php)" "$c" 2>&1 | tail -120
+          done
+          echo '===== diagnostic step done ====='
+          exit 0
+
       - name: Upload failure artifacts
         if: failure()
         uses: actions/upload-artifact@v4
