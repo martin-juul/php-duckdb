@@ -53,9 +53,14 @@ writing** (not on first write):
 
 - A second **process** opening the same file fails immediately with an
   `IOException` (`Could not set lock on file ... Conflicting lock is held`).
-- Within one process, open **one `Database` object per file** and create all
-  your connections from it. Do not construct a second `Database` for the same
-  file in the same process — lock lifetime semantics make that fragile.
+- Within one process, multiple `Database` objects for the same **path string**
+  are safe since 1.1.0: file-backed opens go through DuckDB's process-wide
+  instance cache, so they share a single underlying instance and lock. The
+  cache is keyed by the path string, so two different spellings of the same
+  file (e.g. a relative and an absolute path) are *not* deduplicated — use
+  one canonical path. A cached file instance stays open for the lifetime of
+  the process; `:memory:` databases are exempt and remain private to each
+  `Database` object.
 - Read-only opens (`['access_mode' => 'read_only']`) do not take the write
   lock, so many processes can read the same file concurrently (while nobody
   writes).
@@ -65,6 +70,10 @@ writing** (not on first write):
 $db    = new Database('/data/app.duckdb');
 $connA = $db->connect();
 $connB = $db->connect();
+
+// Also fine since 1.1.0: a second Database on the same path shares the
+// cached instance (same process, same canonical path string)
+$again = new Database('/data/app.duckdb');
 ```
 
 ## Interrupting and monitoring a connection
@@ -94,5 +103,5 @@ This wraps `duckdb_get_table_names()`.
 
 | C API | Status |
 |---|---|
-| `duckdb_create_instance_cache()` / `duckdb_get_or_create_from_cache()` | Not exposed. In PHP the idiom is simply to keep one `Database` object per path (a static, a container service, …). A future release may wrap the instance cache to make shared in-memory databases (`:memory:` named instances) possible |
+| `duckdb_create_instance_cache()` / `duckdb_get_or_create_from_cache()` | Used internally since 1.1.0: file-backed `Database` opens share one instance per path string process-wide (see "File locking" above). Not exposed directly to PHP |
 | `duckdb_connection_id()` | Not exposed; no PHP-facing use |

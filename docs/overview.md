@@ -95,7 +95,7 @@ API, the PHP surface will feel familiar:
 
 ## Stability
 
-The extension pins the *stable* DuckDB C API. A few C entry points it uses
-(`duckdb_execute_prepared_streaming`, `duckdb_row_count`) are deprecated
-upstream but remain functional; they will be migrated as the upstream
-replacements settle.
+The extension pins the *stable* DuckDB C API. Two entry points it uses
+(`duckdb_row_count`, `duckdb_value_varchar`) are deprecated upstream but have
+no non-deprecated replacement; they remain functional and are isolated to
+single, clearly commented call sites.

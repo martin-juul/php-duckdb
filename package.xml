@@ -25,8 +25,8 @@
  <date>2026-09-19</date>
  <time>12:00:00</time>
  <version>
-  <release>1.0.0</release>
-  <api>1.0.0</api>
+  <release>1.1.0</release>
+  <api>1.1.0</api>
  </version>
  <stability>
   <release>stable</release>
@@ -34,24 +34,25 @@
  </stability>
  <license uri="https://opensource.org/licenses/MIT">MIT</license>
  <notes>
-  First stable release.
+  Hardening release.
 
-  - Database/Connection/Statement/Result/ResultIterator/PendingQuery/
-    Appender/Interval classes, FetchMode and ErrorType enums.
-  - Typed exception hierarchy (ConnectionException, ParserException,
-    BinderException, CatalogException, ConstraintException,
-    ConversionException, TransactionException, IOException,
-    InterruptedException, InternalException) carrying DuckDB error
-    categories.
-  - Streaming results with stale-stream detection, forward-only iterators.
-  - Async: queryAsync()/executeAsync() on worker threads with cancel(),
-    completion stream/fd and Fiber suspend(); queryPending()
-    single-threaded polling mode.
-  - Connection close()/isClosed()/queryProgress()/interrupt()/
-    getTableNames(), PDO-style beginTransaction()/commit()/rollBack().
-  - Appender with appendRow() and piecemeal
-    beginRow()/append()/appendDefault()/endRow().
-  - Full .phpt test suite (run-tests.php).
+  - File-backed Database opens now share one DuckDB instance per path
+    process-wide via the DuckDB instance cache, fixing intra-process
+    lock conflicts (POSIX per-process lock semantics).
+  - Database paths and configuration keys/values containing embedded
+    NUL bytes are rejected with ValueError.
+  - Transaction helpers (beginTransaction/commit/rollBack) now bump the
+    connection execution epoch, so open streaming results detect the
+    invalidation and fail loudly instead of silently truncating.
+  - queryAsync()/executeAsync() guard against worker-thread creation
+    failure (resource exhaustion) with a typed InternalException
+    instead of a crash.
+  - All classes guard against construction via reflection
+    (ReflectionClass::newInstanceWithoutConstructor) with a clean Error
+    instead of dereferencing a null handle.
+  - Migrated off the deprecated duckdb_execute_prepared_streaming() C
+    API to the pending-result API.
+  - New tests: 061-064.
  </notes>
  <contents>
   <dir name="/">
@@ -167,6 +168,10 @@
     <file name="058_error_recovery.phpt" role="test"/>
     <file name="059_statement_reuse.phpt" role="test"/>
     <file name="060_interleaved_results.phpt" role="test"/>
+    <file name="061_database_open_nul.phpt" role="test"/>
+    <file name="062_transaction_invalidates_stream.phpt" role="test"/>
+    <file name="063_reflection_instantiation.phpt" role="test"/>
+    <file name="064_shared_file_instance.phpt" role="test"/>
     <file name="swoole_subprocess.inc" role="test"/>
     <file name="harness.php" role="script"/>
     <file name="duckdb.supp" role="test"/>
