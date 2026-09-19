@@ -131,6 +131,20 @@ extension loads with no extra setup. To build locally instead:
 docker build --build-arg PHP_VERSION=8.4 -t php-duckdb:8.4 .
 ```
 
+ZTS variants for [FrankenPHP](https://frankenphp.dev) are published as
+`8.4-frankenphp` and `8.5-frankenphp` (plus `latest-frankenphp`), based
+on `dunglas/frankenphp` with the extension compiled against the embedded
+ZTS PHP — ready for classic and worker mode out of the box:
+
+```bash
+docker run --rm --entrypoint php \
+  ghcr.io/martin-juul/php-duckdb:8.5-frankenphp \
+  -r 'var_dump(DuckDB\version());'
+```
+
+They are built from `Dockerfile.frankenphp` in this repository; see
+[docs/frankenphp.md](docs/frankenphp.md) for worker-mode details.
+
 ## Quick start
 
 ```php
@@ -658,8 +672,11 @@ The extension is ZTS-safe and works under [FrankenPHP](https://frankenphp.dev)
 in both classic and worker mode — verified against FrankenPHP's embedded
 ZTS PHP in CI, including a concurrent worker-mode smoke test and a
 graceful-shutdown check. Because FrankenPHP embeds a **ZTS** PHP, the
-extension must be built against the same PHP version with ZTS enabled;
-the `dunglas/frankenphp:*-builder` images contain everything needed. See
+extension must be built against the same PHP version with ZTS enabled.
+The quickest start is the prebuilt image
+(`ghcr.io/martin-juul/php-duckdb:8.5-frankenphp`, see
+[Docker images](#docker-images)); to build your own, the
+`dunglas/frankenphp:*-builder` images contain everything needed. See
 [docs/frankenphp.md](docs/frankenphp.md) for the build recipe and
 worker-mode semantics (persistent `:memory:` databases per worker thread,
 async queries in workers, safe shutdown), and
