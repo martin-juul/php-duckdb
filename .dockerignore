@@ -7,4 +7,5 @@ examples
 modules
 *.md
 Dockerfile
+Dockerfile.frankenphp
 .dockerignore

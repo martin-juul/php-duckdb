@@ -10,7 +10,32 @@ verified against FrankenPHP's embedded ZTS PHP in CI, including a
 worker-mode smoke test under concurrent load and a graceful-shutdown
 check.
 
+## Prebuilt images
+
+Multi-arch (`linux/amd64` + `linux/arm64`) FrankenPHP images with the
+extension preinstalled are published to the GitHub Container Registry,
+built from [`Dockerfile.frankenphp`](../Dockerfile.frankenphp):
+
+```bash
+docker run --rm --entrypoint php \
+  ghcr.io/martin-juul/php-duckdb:8.5-frankenphp \
+  -r 'var_dump(DuckDB\version());'
+```
+
+Tags: `8.4-frankenphp`, `8.5-frankenphp`, `latest-frankenphp` (moving
+tags, rebuilt on every master push), and `<release>-php<X.Y>-frankenphp`
+for tagged releases. Use one as the base for your app — worker mode is a
+single env var away:
+
+```dockerfile
+FROM ghcr.io/martin-juul/php-duckdb:8.5-frankenphp
+COPY . /app
+ENV FRANKENPHP_CONFIG="worker ./public/index.php"
+```
+
 ## Building: ZTS and version match
+
+If you build the extension yourself instead, mind the version match.
 
 FrankenPHP embeds a **ZTS** (thread-safe) PHP build. A shared extension
 must be compiled against the **same PHP minor version** (e.g. 8.4.x) with
