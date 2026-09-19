@@ -22,42 +22,48 @@ jobs:
         uses: shivammathur/setup-php@v2
         with:
           php-version: ${{ matrix.php }}
-          coverage: none
+          extensions: ffi
 
-      - name: Install libduckdb
-        shell: bash
+      - name: Install libduckdb (Linux)
+        if: runner.os == 'Linux'
         run: |
-          set -eux
-          DUCKDB_VERSION="v1.5.5"
-          case "$RUNNER_OS" in
-            Linux)
-              curl -sL "https://github.com/duckdb/duckdb/releases/download/${DUCKDB_VERSION}/libduckdb-linux-amd64.zip" -o /tmp/libduckdb.zip
-              ;;
-            macOS)
-              curl -sL "https://github.com/duckdb/duckdb/releases/download/${DUCKDB_VERSION}/libduckdb-osx-universal.zip" -o /tmp/libduckdb.zip
-              ;;
-          esac
-          sudo unzip -o /tmp/libduckdb.zip -d /opt/duckdb
-          # Archive layout: duckdb.h + libduckdb.so at the top level
+          curl -sL "https://github.com/duckdb/duckdb/releases/download/v1.5.5/libduckdb-linux-amd64.zip" -o /tmp/libduckdb.zip
           sudo mkdir -p /opt/duckdb/include /opt/duckdb/lib
-          sudo sh -c 'mv /opt/duckdb/duckdb.h /opt/duckdb/include/ 2>/dev/null || true'
-          sudo sh -c 'mv /opt/duckdb/libduckdb.* /opt/duckdb/lib/ 2>/dev/null || true'
-          sudo sh -c 'mv /opt/duckdb/duckdb.hpp /opt/duckdb/include/ 2>/dev/null || true'
-          ls -R /opt/duckdb
+          sudo unzip -o /tmp/libduckdb.zip -d /opt/duckdb
+          sudo mv /opt/duckdb/duckdb.h /opt/duckdb/include/
+          sudo mv /opt/duckdb/libduckdb.* /opt/duckdb/lib/
+
+      - name: Install libduckdb (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          curl -sL "https://github.com/duckdb/duckdb/releases/download/v1.5.5/libduckdb-osx-universal.zip" -o /tmp/libduckdb.zip
+          sudo mkdir -p /opt/duckdb/include /opt/duckdb/lib
+          sudo unzip -o /tmp/libduckdb.zip -d /opt/duckdb
+          sudo mv /opt/duckdb/duckdb.h /opt/duckdb/include/
+          sudo mv /opt/duckdb/libduckdb.* /opt/duckdb/lib/
 
       - name: Harness (build + unit + examples)
-        shell: bash
         env:
           LD_LIBRARY_PATH: /opt/duckdb/lib
           DYLD_LIBRARY_PATH: /opt/duckdb/lib
         run: php tests/harness.php --no-color --junit=junit.xml
 
-      - name: Backtrace on failure
+      - name: Capture core backtrace on Linux failure
         if: failure() && runner.os == 'Linux'
-        shell: bash
+        continue-on-error: true
+        env:
+          LD_LIBRARY_PATH: /opt/duckdb/lib
         run: |
-          sudo apt-get update && sudo apt-get install -y gdb
-          gdb -batch -ex run -ex bt --args php -d extension=$PWD/modules/duckdb.so examples/bootstrap.php
+          sudo apt-get install -y gdb
+          ulimit -c unlimited
+          sudo sysctl -w kernel.core_pattern=/tmp/core.%p
+          FAILING_PHPT=$(ls -t tests/*.diff 2>/dev/null | head -1 | sed 's/\.diff$/.phpt/')
+          if [ -n "$FAILING_PHPT" ]; then
+            PHP_BIN=$(which php)
+            gdb -batch -ex run -ex "bt 30" \
+              --args "$PHP_BIN" -d extension="$GITHUB_WORKSPACE/modules/duckdb.so" \
+              run-tests.php -q "$FAILING_PHPT" 2>&1 | tail -60 || true
+          fi
 
       - name: Upload failure artifacts
         if: failure()
@@ -82,41 +88,38 @@ jobs:
         uses: shivammathur/setup-php@v2
         with:
           php-version: '8.4'
-          coverage: none
-          extensions: curl
+          extensions: ffi
 
-      - name: Install libduckdb, valgrind and Swoole
-        shell: bash
+      - name: Install libduckdb
         run: |
-          set -eux
-          sudo apt-get update
-          sudo apt-get install -y valgrind libbrotli-dev
-          printf '\n' | sudo pecl install swoole
-          echo 'extension=swoole.so' | sudo tee "$(php -r 'echo PHP_CONFIG_FILE_SCAN_DIR;')/30-swoole.ini"
-          php -r 'exit(version_compare(SWOOLE_VERSION, "6.0", ">=") ? 0 : 1);'
           curl -sL "https://github.com/duckdb/duckdb/releases/download/v1.5.5/libduckdb-linux-amd64.zip" -o /tmp/libduckdb.zip
-          sudo unzip -o /tmp/libduckdb.zip -d /opt/duckdb
           sudo mkdir -p /opt/duckdb/include /opt/duckdb/lib
-          sudo sh -c 'mv /opt/duckdb/duckdb.h /opt/duckdb/include/ 2>/dev/null || true'
-          sudo sh -c 'mv /opt/duckdb/libduckdb.* /opt/duckdb/lib/ 2>/dev/null || true'
+          sudo unzip -o /tmp/libduckdb.zip -d /opt/duckdb
+          sudo mv /opt/duckdb/duckdb.h /opt/duckdb/include/
+          sudo mv /opt/duckdb/libduckdb.* /opt/duckdb/lib/
 
-      - name: Build + unit + examples (Swoole loaded, test 049 active)
-        shell: bash
+      - name: Install Swoole and Valgrind
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y valgrind
+          pecl install swoole
+          echo "extension=swoole.so" | sudo tee "$(php -r 'echo PHP_CONFIG_FILE_SCAN_DIR;')/20-swoole.ini"
+
+      - name: Harness (build + unit + Swoole examples)
         env:
           LD_LIBRARY_PATH: /opt/duckdb/lib
-        run: php tests/harness.php --no-color
+        run: php tests/harness.php --no-color --junit=junit.xml
 
-      - name: Valgrind over the test suite
-        shell: bash
+      - name: Valgrind
         env:
           LD_LIBRARY_PATH: /opt/duckdb/lib
-        run: php tests/harness.php valgrind --no-color
+          USE_ZEND_ALLOC: '0'
+        run: php tests/harness.php --valgrind --no-color
 
       - name: Stress
-        shell: bash
         env:
           LD_LIBRARY_PATH: /opt/duckdb/lib
-        run: php tests/harness.php stress --no-color
+        run: php tests/harness.php --stress --no-color
 
       - name: Upload failure artifacts
         if: failure()
@@ -124,39 +127,45 @@ jobs:
         with:
           name: extended-failures
           path: |
-            tests/*.mem
             tests/*.diff
             tests/*.out
+            tests/*.exp
+            tests/*.log
+            junit.xml
           if-no-files-found: ignore
 
   amphp:
-    name: AMPHP v3 (PHP 8.4)
+    name: Amp async (PHP ${{ matrix.php }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        php: ['8.4', '8.5']
     steps:
       - uses: actions/checkout@v4
 
       - name: Setup PHP
         uses: shivammathur/setup-php@v2
         with:
-          php-version: '8.4'
-          coverage: none
+          php-version: ${{ matrix.php }}
+          extensions: ffi
+          tools: composer
 
-      - name: Install libduckdb and AMPHP
-        shell: bash
+      - name: Install libduckdb
         run: |
-          set -eux
           curl -sL "https://github.com/duckdb/duckdb/releases/download/v1.5.5/libduckdb-linux-amd64.zip" -o /tmp/libduckdb.zip
-          sudo unzip -o /tmp/libduckdb.zip -d /opt/duckdb
           sudo mkdir -p /opt/duckdb/include /opt/duckdb/lib
-          sudo sh -c 'mv /opt/duckdb/duckdb.h /opt/duckdb/include/ 2>/dev/null || true'
-          sudo sh -c 'mv /opt/duckdb/libduckdb.* /opt/duckdb/lib/ 2>/dev/null || true'
-          # AMPHP is userland: install it beside the checkout so composer
-          # never mutates the repository's own composer.json.
-          mkdir -p /tmp/amphp
-          composer --working-dir=/tmp/amphp require --no-interaction amphp/amp:^3.0
+          sudo unzip -o /tmp/libduckdb.zip -d /opt/duckdb
+          sudo mv /opt/duckdb/duckdb.h /opt/duckdb/include/
+          sudo mv /opt/duckdb/libduckdb.* /opt/duckdb/lib/
 
-      - name: Harness (build + unit + examples; test 051 active)
-        shell: bash
+      - name: Install Amp
+        run: |
+          mkdir -p /tmp/amphp
+          cd /tmp/amphp
+          composer require amphp/amp:^3.0 --no-interaction --quiet
+
+      - name: Harness (unit + Amp examples)
         env:
           LD_LIBRARY_PATH: /opt/duckdb/lib
           DUCKDB_AMPHP_AUTOLOAD: /tmp/amphp/vendor/autoload.php
@@ -166,7 +175,7 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: amphp-failures
+          name: amphp-failures-php${{ matrix.php }}
           path: |
             tests/*.diff
             tests/*.out
@@ -176,33 +185,37 @@ jobs:
           if-no-files-found: ignore
 
   reactphp:
-    name: ReactPHP react/async v4 (PHP 8.4)
+    name: ReactPHP async (PHP ${{ matrix.php }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        php: ['8.4', '8.5']
     steps:
       - uses: actions/checkout@v4
 
       - name: Setup PHP
         uses: shivammathur/setup-php@v2
         with:
-          php-version: '8.4'
-          coverage: none
+          php-version: ${{ matrix.php }}
+          extensions: ffi
+          tools: composer
 
-      - name: Install libduckdb and ReactPHP
-        shell: bash
+      - name: Install libduckdb
         run: |
-          set -eux
           curl -sL "https://github.com/duckdb/duckdb/releases/download/v1.5.5/libduckdb-linux-amd64.zip" -o /tmp/libduckdb.zip
-          sudo unzip -o /tmp/libduckdb.zip -d /opt/duckdb
           sudo mkdir -p /opt/duckdb/include /opt/duckdb/lib
-          sudo sh -c 'mv /opt/duckdb/duckdb.h /opt/duckdb/include/ 2>/dev/null || true'
-          sudo sh -c 'mv /opt/duckdb/libduckdb.* /opt/duckdb/lib/ 2>/dev/null || true'
-          # ReactPHP is userland: install it beside the checkout so composer
-          # never mutates the repository's own composer.json.
-          mkdir -p /tmp/reactphp
-          composer --working-dir=/tmp/reactphp require --no-interaction react/async:^4.0
+          sudo unzip -o /tmp/libduckdb.zip -d /opt/duckdb
+          sudo mv /opt/duckdb/duckdb.h /opt/duckdb/include/
+          sudo mv /opt/duckdb/libduckdb.* /opt/duckdb/lib/
 
-      - name: Harness (build + unit + examples; test 052 active)
-        shell: bash
+      - name: Install ReactPHP
+        run: |
+          mkdir -p /tmp/reactphp
+          cd /tmp/reactphp
+          composer require react/async:^4.0 --no-interaction --quiet
+
+      - name: Harness (unit + ReactPHP examples)
         env:
           LD_LIBRARY_PATH: /opt/duckdb/lib
           DUCKDB_REACTPHP_AUTOLOAD: /tmp/reactphp/vendor/autoload.php
@@ -212,7 +225,7 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: reactphp-failures
+          name: reactphp-failures-php${{ matrix.php }}
           path: |
             tests/*.diff
             tests/*.out
@@ -222,11 +235,8 @@ jobs:
           if-no-files-found: ignore
 
   true-async:
-    name: True Async runtime (trueasync/php-true-async)
+    name: True-async (PHP 8.6)
     runs-on: ubuntu-latest
-    # The True Async runtime is a php-src fork, not an extension: the
-    # official image ships a PHP 8.6+ binary with ext true_async built in.
-    # Pinned tag: `latest` is a moving target that regressed before.
     container: trueasync/php-true-async:0.7.13-php8.6
     steps:
       - uses: actions/checkout@v4
@@ -236,37 +246,106 @@ jobs:
         run: |
           set -eux
           apt-get update
-          apt-get install -y build-essential autoconf unzip curl git
+          apt-get install -y build-essential autoconf pkg-config unzip curl git gdb
           curl -sL "https://github.com/duckdb/duckdb/releases/download/v1.5.5/libduckdb-linux-amd64.zip" -o /tmp/libduckdb.zip
           mkdir -p /opt/duckdb/include /opt/duckdb/lib
           unzip -o /tmp/libduckdb.zip -d /opt/duckdb
           mv /opt/duckdb/duckdb.h /opt/duckdb/include/
           mv /opt/duckdb/libduckdb.* /opt/duckdb/lib/
-          php -v
-          php -m | grep true_async
 
-      - name: Harness (build + unit + examples; test 050 active)
+      - name: Harness (build + unit + true-async examples)
         shell: bash
         env:
           LD_LIBRARY_PATH: /opt/duckdb/lib
         run: php tests/harness.php --no-color --junit=junit.xml
 
-      # If the harness fails, capture a native backtrace of a minimal
-      # script under gdb — catches shutdown segfaults like the one fixed
-      # in 6144e579 (double-free of a persistent function entry).
-      - name: Backtrace on failure
+      - name: Capture core backtrace on failure
         if: failure()
+        continue-on-error: true
         shell: bash
+        env:
+          LD_LIBRARY_PATH: /opt/duckdb/lib
         run: |
-          apt-get update && apt-get install -y gdb
-          gdb -batch -ex run -ex bt \
-            --args php -n -d extension=$PWD/modules/duckdb.so examples/bootstrap.php || true
+          ulimit -c unlimited
+          sysctl -w kernel.core_pattern=/tmp/core.%p || true
+          FAILING_PHPT=$(ls -t tests/*.diff 2>/dev/null | head -1 | sed 's/\.diff$/.phpt/')
+          if [ -n "$FAILING_PHPT" ]; then
+            PHP_BIN=$(which php)
+            gdb -batch -ex run -ex "bt 30" \
+              --args "$PHP_BIN" -d extension="$GITHUB_WORKSPACE/modules/duckdb.so" \
+              run-tests.php -q "$FAILING_PHPT" 2>&1 | tail -60 || true
+          fi
 
       - name: Upload failure artifacts
         if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: true-async-failures
+          path: |
+            tests/*.diff
+            tests/*.out
+            tests/*.exp
+            tests/*.log
+            junit.xml
+          if-no-files-found: ignore
+
+  frankenphp:
+    name: FrankenPHP worker mode (ZTS, PHP ${{ matrix.php }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        php: ['8.4', '8.5']
+    # The builder images ship the exact ZTS PHP that FrankenPHP embeds,
+    # plus phpize/php-config and the frankenphp binary.
+    container: dunglas/frankenphp:php${{ matrix.php }}-builder
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install libduckdb
+        shell: bash
+        run: |
+          set -eux
+          apt-get update
+          apt-get install -y unzip curl git
+          curl -sL "https://github.com/duckdb/duckdb/releases/download/v1.5.5/libduckdb-linux-amd64.zip" -o /tmp/libduckdb.zip
+          mkdir -p /opt/duckdb/include /opt/duckdb/lib
+          unzip -o /tmp/libduckdb.zip -d /opt/duckdb
+          mv /opt/duckdb/duckdb.h /opt/duckdb/include/
+          mv /opt/duckdb/libduckdb.* /opt/duckdb/lib/
+
+      - name: Harness (ZTS build + unit + examples)
+        shell: bash
+        env:
+          LD_LIBRARY_PATH: /opt/duckdb/lib
+        run: php tests/harness.php --no-color --junit=junit.xml
+
+      # Serve examples/frankenphp.php in worker mode, hammer it, then
+      # SIGTERM: a clean exit proves no in-flight async worker outlives
+      # module unload (test 065's race, end to end).
+      - name: Worker-mode smoke test
+        shell: bash
+        env:
+          LD_LIBRARY_PATH: /opt/duckdb/lib
+        run: |
+          set -eux
+          cd examples
+          mkdir -p /tmp/fpini
+          printf 'extension=%s/modules/duckdb.so\n' "$GITHUB_WORKSPACE" > /tmp/fpini/php.ini
+          PHPRC=/tmp/fpini frankenphp run --config frankenphp.Caddyfile &
+          FP_PID=$!
+          for i in $(seq 1 30); do
+            curl -sf -o /dev/null http://localhost:8080/ && break || sleep 1
+          done
+          seq 1 200 | xargs -P 16 -I{} curl -sf http://localhost:8080/ -o /dev/null
+          kill -TERM $FP_PID
+          wait $FP_PID
+
+      - name: Upload failure artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: frankenphp-failures-php${{ matrix.php }}
           path: |
             tests/*.diff
             tests/*.out
