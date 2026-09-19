@@ -88,7 +88,11 @@ jobs:
         uses: shivammathur/setup-php@v2
         with:
           php-version: '8.4'
-          extensions: ffi
+          # Swoole is installed by setup-php, not by a bare pecl call:
+          # pecl run as the runner user no longer has write access to
+          # php_dir on current ubuntu-latest images ("Cannot install,
+          # php_dir for channel pecl.php.net is not writeable").
+          extensions: ffi, swoole
 
       - name: Install libduckdb
         run: |
@@ -98,12 +102,10 @@ jobs:
           sudo mv /opt/duckdb/duckdb.h /opt/duckdb/include/
           sudo mv /opt/duckdb/libduckdb.* /opt/duckdb/lib/
 
-      - name: Install Swoole and Valgrind
+      - name: Install Valgrind
         run: |
           sudo apt-get update
           sudo apt-get install -y valgrind
-          pecl install swoole
-          echo "extension=swoole.so" | sudo tee "$(php -r 'echo PHP_CONFIG_FILE_SCAN_DIR;')/20-swoole.ini"
 
       - name: Harness (build + unit + Swoole examples)
         env:
