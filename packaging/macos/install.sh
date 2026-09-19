@@ -29,6 +29,9 @@ fi
 $SUDO cp duckdb.so libduckdb.dylib "$extdir/"
 
 if [ -n "$scandir" ]; then
+  # The scan dir is not always created by the PHP package (e.g. a fresh
+  # Homebrew install has no conf.d until the first extension drops one).
+  $SUDO mkdir -p "$scandir"
   echo "extension=duckdb.so" | $SUDO tee "$scandir/40-duckdb.ini" > /dev/null
 else
   echo "note: this PHP has no ini scan dir; add 'extension=duckdb.so' to php.ini manually"
