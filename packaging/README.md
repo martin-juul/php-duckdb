@@ -10,7 +10,9 @@ packaging/
   fedora/
     php-pecl-duckdb.spec   # RPM spec — Fedora 43+, EPEL-compatible
   debian/
-    control, rules, ...    # debhelper packaging — Debian sid/forky, Ubuntu
+    control, rules, ...    # debhelper — Debian sid/forky, Ubuntu (system libduckdb)
+  debian-trixie/
+    control, rules, ...    # debhelper — Debian 13 trixie (vendored libduckdb)
 ```
 
 The extension itself is distribution-agnostic (phpize + `--with-duckdb`);
@@ -127,6 +129,9 @@ registered through `debian/php-duckdb.php` into
 `phpenmod` in the maintainer scripts, and `${php:Depends}` pins the
 package to the exact PHP API (`phpapi-*`) it was built against.
 
+For Debian 13 (trixie), which has no `libduckdb` package at all, use the
+`debian-trixie/` variant described further below instead.
+
 ### Local build
 
 ```bash
@@ -160,6 +165,47 @@ The test suite runs in `dh_auto_test` with `NO_INTERACTION=1` /
 - Source format is `3.0 (quilt)`; the CI build is binary-only (`-b`),
   which needs no orig tarball. To build a source package, place
   `php-duckdb_<version>.orig.tar.gz` next to the tree first.
+
+### Debian 13 (trixie) — vendored libduckdb
+
+Stable has no `libduckdb-dev` (DuckDB entered Debian after the trixie
+freeze), so `debian-trixie/` vendors the prebuilt archive exactly like
+the RPM specs. Differences from the sid packaging:
+
+- `debian/rules` carries the `DUCKDB_VERSION` pin and expects
+  `duckdb-sdk/{include,lib}` staged from `libduckdb-linux-<arch>.zip`
+  before the build; the CI job reads the pin from the rules file so the
+  two cannot drift apart.
+- The vendored archive's SONAME is the *unversioned* `libduckdb.so`
+  (Debian's own build versions it `libduckdb.so.1.5`), so the package
+  ships `/usr/lib/<multiarch>/libduckdb.so` and declares
+  `Conflicts: libduckdb1.5` to avoid a file clash with a future system
+  package.
+- `Architecture: amd64 arm64` — the arches DuckDB publishes prebuilt
+  Linux archives for.
+- The build-time test suite sets `LD_LIBRARY_PATH` to `duckdb-sdk/lib`,
+  since the vendored lib is not on the loader path until the package is
+  installed (same trick as the RPM `%check`).
+
+Local build:
+
+```bash
+sudo apt-get install build-essential debhelper dh-php php-dev php-cli curl unzip
+
+ver=1.5.5  # keep in sync with DUCKDB_VERSION in debian-trixie/rules
+curl -fsSL -o /tmp/libduckdb.zip \
+  https://github.com/duckdb/duckdb/releases/download/v${ver}/libduckdb-linux-amd64.zip
+unzip -o /tmp/libduckdb.zip -d /tmp/libduckdb
+mkdir -p duckdb-sdk/include duckdb-sdk/lib
+cp /tmp/libduckdb/duckdb.h duckdb-sdk/include/
+cp /tmp/libduckdb/libduckdb.so duckdb-sdk/lib/
+
+cp -r packaging/debian-trixie debian
+chmod +x debian/rules
+dpkg-buildpackage -us -uc -b
+sudo dpkg -i ../php-duckdb_*.deb
+php -m | grep duckdb
+```
 
 ## Adding another distribution
 
