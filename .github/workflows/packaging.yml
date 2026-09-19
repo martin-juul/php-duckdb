@@ -2,10 +2,11 @@ name: Packaging
 
 # Keeps the distribution packaging in packaging/ buildable. Each job
 # builds the native package in a real distro container (openSUSE
-# Tumbleweed, Fedora 44, Debian sid, Debian 13 trixie, Ubuntu LTS,
-# Ubuntu devel), runs the full test suite at build time, then installs
-# the resulting package and smoke-tests the system PHP loading it
-# through the distro's own ini mechanism.
+# Tumbleweed, Fedora 44, AlmaLinux 9/10 against the Remi repository's
+# PHP, Debian sid, Debian 13 trixie, Ubuntu LTS, Ubuntu devel), runs the
+# full test suite at build time, then installs the resulting package and
+# smoke-tests the system PHP loading it through the distro's own ini
+# mechanism.
 #
 # Every job runs on amd64 (ubuntu-latest) AND arm64 (ubuntu-24.04-arm —
 # native ARM64 runners, free for public repos), so each distro package
@@ -166,6 +167,83 @@ jobs:
           path: |
             /root/rpmbuild/RPMS/*/*.rpm
             /root/rpmbuild/SRPMS/*.rpm
+          if-no-files-found: error
+
+  almalinux-rpm:
+    name: AlmaLinux ${{ matrix.os }} RPM — Remi PHP ${{ matrix.php }} (${{ matrix.arch }})
+    runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: ['9', '10']
+        php: ['8.2', '8.3', '8.4', '8.5']
+        arch: [amd64, arm64]
+    container: almalinux:${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # Remi's default-namespace PHP via the dedicated remi-php82/83/84/85
+      # repos (not the phpXX-php-* SCLs). On EL9 the AppStream php module
+      # masks non-modular php packages, so it must be reset first; EL10
+      # has no modularity. The php packages are version-pinned because
+      # AppStream's php 8.3 on EL10 would otherwise win over remi-php82.
+      - name: Install Remi repository and build tooling
+        run: |
+          set -eu
+          dnf install -y --setopt=install_weak_deps=False epel-release
+          dnf install -y "https://rpms.remirepo.net/enterprise/remi-release-${{ matrix.os }}.rpm"
+          if [ "${{ matrix.os }}" = "9" ]; then
+            dnf module reset -y php
+          fi
+          short=$(echo "${{ matrix.php }}" | tr -d .)
+          dnf install -y --setopt=install_weak_deps=False \
+            --enablerepo=remi-safe,remi-php${short} \
+            "php-devel-${{ matrix.php }}.*" "php-cli-${{ matrix.php }}.*" \
+            rpm-build gcc gcc-c++ make libtool chrpath unzip curl tar gzip gawk
+          php -v | head -1
+
+      # Same staging story as the Fedora job: checkout may fall back to a
+      # REST tarball (no git in the container, no .git), so pack the
+      # workspace with tar; rpmbuild never downloads Source URLs itself.
+      # The spec's Source1 is arch-conditional (%ifarch), so stage the
+      # libduckdb zip under the name matching the build architecture.
+      - name: Stage rpmbuild sources
+        run: |
+          set -eu
+          ver=$(awk '/^%global upstream_version/ {print $3}' packaging/almalinux/php-pecl-duckdb.spec)
+          dver=$(awk '/^%global duckdb_version/ {print $3}' packaging/almalinux/php-pecl-duckdb.spec)
+          case "$(uname -m)" in
+            x86_64) duck_arch=amd64 ;;
+            aarch64) duck_arch=arm64 ;;
+            *) echo "unsupported build arch: $(uname -m)" >&2; exit 1 ;;
+          esac
+          mkdir -p /root/rpmbuild/SOURCES /root/rpmbuild/SPECS /root/rpmbuild/BUILD /root/rpmbuild/RPMS /root/rpmbuild/SRPMS
+          tar --exclude='./.git' --transform "s,^\.,php-duckdb-${ver}," \
+            -czf "/root/rpmbuild/SOURCES/php-duckdb-${ver}.tar.gz" .
+          curl -fsSL -o "/root/rpmbuild/SOURCES/libduckdb-linux-${duck_arch}.zip" \
+            "https://github.com/duckdb/duckdb/releases/download/v${dver}/libduckdb-linux-${duck_arch}.zip"
+          cp packaging/almalinux/php-pecl-duckdb.spec /root/rpmbuild/SPECS/
+
+      # -bb builds the binary RPM only: this 16-cell matrix would
+      # otherwise publish 8 identical SRPMs per distro version.
+      # The spec's %check runs the full .phpt suite (Swoole/AMPHP/
+      # ReactPHP/True-Async tests skip — those extensions are not
+      # installed here).
+      - name: Build RPM (with test suite)
+        run: rpmbuild --define '_topdir /root/rpmbuild' -bb /root/rpmbuild/SPECS/php-pecl-duckdb.spec
+
+      - name: Install RPM and smoke test with Remi PHP
+        run: |
+          set -eu
+          rpm -ivh /root/rpmbuild/RPMS/$(uname -m)/php-pecl-duckdb-*.rpm
+          php -m | grep -i duckdb
+          php -r '$c = (new DuckDB\Database())->connect(); $r = $c->query("SELECT 42 AS x")->fetchRow(); if ($r["x"] !== 42) { exit(1); } printf("smoke OK: duckdb ext %s, libduckdb %s, PHP %s\n", phpversion("duckdb"), DuckDB\version(), PHP_VERSION);'
+
+      - name: Upload RPM artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: almalinux-${{ matrix.os }}-php${{ matrix.php }}-rpm-${{ matrix.arch }}
+          path: /root/rpmbuild/RPMS/*/*.rpm
           if-no-files-found: error
 
   debian-deb:
@@ -455,6 +533,7 @@ jobs:
     needs:
       - opensuse-rpm
       - fedora-rpm
+      - almalinux-rpm
       - debian-deb
       - debian-trixie-deb
       - ubuntu-lts-deb
