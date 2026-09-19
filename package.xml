@@ -22,7 +22,7 @@
   <email>code@juul.xyz</email>
   <active>yes</active>
  </lead>
- <date>2026-09-17</date>
+ <date>2026-09-19</date>
  <time>12:00:00</time>
  <version>
   <release>1.0.0</release>
@@ -75,6 +75,24 @@
    </dir>
    <file name="LICENSE" role="doc"/>
    <file name="README.md" role="doc"/>
+   <dir name="docs">
+    <file name="README.md" role="doc"/>
+    <file name="overview.md" role="doc"/>
+    <file name="api.md" role="doc"/>
+    <file name="connect.md" role="doc"/>
+    <file name="config.md" role="doc"/>
+    <file name="query.md" role="doc"/>
+    <file name="prepared.md" role="doc"/>
+    <file name="appender.md" role="doc"/>
+    <file name="types.md" role="doc"/>
+    <file name="value.md" role="doc"/>
+    <file name="data_chunk.md" role="doc"/>
+    <file name="vector.md" role="doc"/>
+    <file name="table_functions.md" role="doc"/>
+    <file name="replacement_scans.md" role="doc"/>
+    <file name="errors.md" role="doc"/>
+    <file name="async.md" role="doc"/>
+   </dir>
    <dir name="examples">
     <file name="bootstrap.php" role="doc"/>
     <file name="sync_basic.php" role="doc"/>
@@ -90,6 +108,7 @@
    </dir>
    <dir name="tests">
     <file name="skipif.inc" role="test"/>
+    <file name="subprocess.inc" role="test"/>
     <file name="001_open_close.phpt" role="test"/>
     <file name="002_query_fetch.phpt" role="test"/>
     <file name="003_prepare_positional.phpt" role="test"/>
@@ -140,6 +159,14 @@
     <file name="050_true_async.phpt" role="test"/>
     <file name="051_amphp.phpt" role="test"/>
     <file name="052_reactphp.phpt" role="test"/>
+    <file name="053_large_result_sets.phpt" role="test"/>
+    <file name="054_appender_at_scale.phpt" role="test"/>
+    <file name="055_csv_parquet_roundtrip.phpt" role="test"/>
+    <file name="056_file_concurrency.phpt" role="test"/>
+    <file name="057_large_values.phpt" role="test"/>
+    <file name="058_error_recovery.phpt" role="test"/>
+    <file name="059_statement_reuse.phpt" role="test"/>
+    <file name="060_interleaved_results.phpt" role="test"/>
     <file name="swoole_subprocess.inc" role="test"/>
     <file name="harness.php" role="script"/>
     <file name="duckdb.supp" role="test"/>
@@ -153,7 +180,7 @@
  <dependencies>
   <required>
    <php>
-    <min>8.1.0</min>
+    <min>8.2.0</min>
    </php>
    <pearinstaller>
     <min>1.10.0</min>
