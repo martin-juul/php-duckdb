@@ -53,7 +53,7 @@ jobs:
       # workspace with tar instead of `git archive`.
       - name: Stage rpmbuild sources
         run: |
-          set -euo pipefail
+          set -eu
           ver=$(awk '/^Version:/ {print $2}' packaging/opensuse/php-duckdb.spec)
           dver=$(awk '/^%define duckdb_version/ {print $3}' packaging/opensuse/php-duckdb.spec)
           mkdir -p /root/rpmbuild/SOURCES /root/rpmbuild/SPECS /root/rpmbuild/BUILD /root/rpmbuild/RPMS /root/rpmbuild/SRPMS
@@ -71,7 +71,7 @@ jobs:
 
       - name: Install RPM and smoke test with system PHP
         run: |
-          set -euo pipefail
+          set -eu
           rpm -ivh /root/rpmbuild/RPMS/x86_64/php8-duckdb-*.rpm
           php -m | grep -i duckdb
           php -r '$c = (new DuckDB\Database())->connect(); $r = $c->query("SELECT 42 AS x")->fetchRow(); if ($r["x"] !== 42) { exit(1); } printf("smoke OK: duckdb ext %s, libduckdb %s, PHP %s\n", phpversion("duckdb"), DuckDB\version(), PHP_VERSION);'
@@ -103,7 +103,7 @@ jobs:
       # workspace with tar; rpmbuild never downloads Source URLs itself.
       - name: Stage rpmbuild sources
         run: |
-          set -euo pipefail
+          set -eu
           ver=$(awk '/^%global upstream_version/ {print $3}' packaging/fedora/php-pecl-duckdb.spec)
           dver=$(awk '/^%global duckdb_version/ {print $3}' packaging/fedora/php-pecl-duckdb.spec)
           mkdir -p /root/rpmbuild/SOURCES /root/rpmbuild/SPECS /root/rpmbuild/BUILD /root/rpmbuild/RPMS /root/rpmbuild/SRPMS
@@ -121,7 +121,7 @@ jobs:
 
       - name: Install RPM and smoke test with system PHP
         run: |
-          set -euo pipefail
+          set -eu
           rpm -ivh /root/rpmbuild/RPMS/x86_64/php-pecl-duckdb-*.rpm
           php -m | grep -i duckdb
           php -r '$c = (new DuckDB\Database())->connect(); $r = $c->query("SELECT 42 AS x")->fetchRow(); if ($r["x"] !== 42) { exit(1); } printf("smoke OK: duckdb ext %s, libduckdb %s, PHP %s\n", phpversion("duckdb"), DuckDB\version(), PHP_VERSION);'
@@ -154,9 +154,10 @@ jobs:
       # version and PHP_DUCKDB_VERSION must not drift apart.
       - name: Guard version drift
         run: |
-          set -euo pipefail
+          set -eu
           code_ver=$(sed -n '/PHP_DUCKDB_VERSION/{s/.* "//;s/".*$//;p}' php_duckdb.h)
-          deb_ver=$(dpkg-parsechangelog -l packaging/debian/changelog -S Version | cut -d- -f1)
+          deb_ver=$(dpkg-parsechangelog -l packaging/debian/changelog -S Version)
+          deb_ver=${deb_ver%%-*}
           if [ "$code_ver" != "$deb_ver" ]; then
             echo "version drift: php_duckdb.h=$code_ver debian/changelog=$deb_ver"
             exit 1
@@ -166,7 +167,7 @@ jobs:
       # packaging/ and restore the execute bit on debian/rules.
       - name: Stage debian packaging
         run: |
-          set -euo pipefail
+          set -eu
           cp -a "$GITHUB_WORKSPACE" /root/src
           cp -r /root/src/packaging/debian /root/src/debian
           chmod +x /root/src/debian/rules
@@ -181,7 +182,7 @@ jobs:
 
       - name: Install deb and smoke test with system PHP
         run: |
-          set -euo pipefail
+          set -eu
           dpkg -i /root/php-duckdb_*.deb
           php -m | grep -i duckdb
           php -r '$c = (new DuckDB\Database())->connect(); $r = $c->query("SELECT 42 AS x")->fetchRow(); if ($r["x"] !== 42) { exit(1); } printf("smoke OK: duckdb ext %s, libduckdb %s, PHP %s\n", phpversion("duckdb"), DuckDB\version(), PHP_VERSION);'
@@ -212,9 +213,10 @@ jobs:
 
       - name: Guard version drift
         run: |
-          set -euo pipefail
+          set -eu
           code_ver=$(sed -n '/PHP_DUCKDB_VERSION/{s/.* "//;s/".*$//;p}' php_duckdb.h)
-          deb_ver=$(dpkg-parsechangelog -l packaging/debian-trixie/changelog -S Version | cut -d- -f1)
+          deb_ver=$(dpkg-parsechangelog -l packaging/debian-trixie/changelog -S Version)
+          deb_ver=${deb_ver%%-*}
           if [ "$code_ver" != "$deb_ver" ]; then
             echo "version drift: php_duckdb.h=$code_ver debian-trixie/changelog=$deb_ver"
             exit 1
@@ -226,7 +228,7 @@ jobs:
       # so the two cannot drift apart.
       - name: Stage debian packaging and vendored libduckdb
         run: |
-          set -euo pipefail
+          set -eu
           cp -a "$GITHUB_WORKSPACE" /root/src
           cp -r /root/src/packaging/debian-trixie /root/src/debian
           chmod +x /root/src/debian/rules
@@ -255,7 +257,7 @@ jobs:
 
       - name: Install deb and smoke test with system PHP
         run: |
-          set -euo pipefail
+          set -eu
           dpkg -i /root/php-duckdb_*.deb
           php -m | grep -i duckdb
           php -r '$c = (new DuckDB\Database())->connect(); $r = $c->query("SELECT 42 AS x")->fetchRow(); if ($r["x"] !== 42) { exit(1); } printf("smoke OK: duckdb ext %s, libduckdb %s, PHP %s\n", phpversion("duckdb"), DuckDB\version(), PHP_VERSION);'
@@ -289,9 +291,10 @@ jobs:
 
       - name: Guard version drift
         run: |
-          set -euo pipefail
+          set -eu
           code_ver=$(sed -n '/PHP_DUCKDB_VERSION/{s/.* "//;s/".*$//;p}' php_duckdb.h)
-          deb_ver=$(dpkg-parsechangelog -l packaging/ubuntu/changelog -S Version | cut -d- -f1)
+          deb_ver=$(dpkg-parsechangelog -l packaging/ubuntu/changelog -S Version)
+          deb_ver=${deb_ver%%-*}
           if [ "$code_ver" != "$deb_ver" ]; then
             echo "version drift: php_duckdb.h=$code_ver ubuntu/changelog=$deb_ver"
             exit 1
@@ -303,7 +306,7 @@ jobs:
       # two cannot drift apart.
       - name: Stage debian packaging and vendored libduckdb
         run: |
-          set -euo pipefail
+          set -eu
           cp -a "$GITHUB_WORKSPACE" /root/src
           cp -r /root/src/packaging/ubuntu /root/src/debian
           chmod +x /root/src/debian/rules
@@ -332,7 +335,7 @@ jobs:
 
       - name: Install deb and smoke test with system PHP
         run: |
-          set -euo pipefail
+          set -eu
           dpkg -i /root/php-duckdb_*.deb
           php -m | grep -i duckdb
           php -r '$c = (new DuckDB\Database())->connect(); $r = $c->query("SELECT 42 AS x")->fetchRow(); if ($r["x"] !== 42) { exit(1); } printf("smoke OK: duckdb ext %s, libduckdb %s, PHP %s\n", phpversion("duckdb"), DuckDB\version(), PHP_VERSION);'
@@ -361,9 +364,10 @@ jobs:
 
       - name: Guard version drift
         run: |
-          set -euo pipefail
+          set -eu
           code_ver=$(sed -n '/PHP_DUCKDB_VERSION/{s/.* "//;s/".*$//;p}' php_duckdb.h)
-          deb_ver=$(dpkg-parsechangelog -l packaging/debian/changelog -S Version | cut -d- -f1)
+          deb_ver=$(dpkg-parsechangelog -l packaging/debian/changelog -S Version)
+          deb_ver=${deb_ver%%-*}
           if [ "$code_ver" != "$deb_ver" ]; then
             echo "version drift: php_duckdb.h=$code_ver debian/changelog=$deb_ver"
             exit 1
@@ -371,7 +375,7 @@ jobs:
 
       - name: Stage debian packaging
         run: |
-          set -euo pipefail
+          set -eu
           cp -a "$GITHUB_WORKSPACE" /root/src
           cp -r /root/src/packaging/debian /root/src/debian
           chmod +x /root/src/debian/rules
@@ -381,7 +385,7 @@ jobs:
 
       - name: Install deb and smoke test with system PHP
         run: |
-          set -euo pipefail
+          set -eu
           dpkg -i /root/php-duckdb_*.deb
           php -m | grep -i duckdb
           php -r '$c = (new DuckDB\Database())->connect(); $r = $c->query("SELECT 42 AS x")->fetchRow(); if ($r["x"] !== 42) { exit(1); } printf("smoke OK: duckdb ext %s, libduckdb %s, PHP %s\n", phpversion("duckdb"), DuckDB\version(), PHP_VERSION);'
