@@ -15,7 +15,7 @@
 #include "config.h"
 #endif
 
-#include "php.h"
+#include "php_duckdb_cxx_compat.h"
 #include "php_duckdb.h"
 
 #if defined(ZTS) && defined(COMPILE_DL_DUCKDB)

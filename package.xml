@@ -42,6 +42,7 @@
    <file name="config.w32" role="src"/>
    <file name="duckdb.cpp" role="src"/>
    <file name="php_duckdb.h" role="src"/>
+   <file name="php_duckdb_cxx_compat.h" role="src"/>
    <file name="duckdb_arginfo.h" role="src"/>
    <file name="duckdb.stub.php" role="src"/>
    <dir name="src">
