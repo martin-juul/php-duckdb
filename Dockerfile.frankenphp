@@ -17,7 +17,7 @@ ARG PHP_VERSION=8.5
 # ==================================================================== #
 # Build stage: compile against the builder image's embedded ZTS PHP.   #
 # ==================================================================== #
-FROM dunglas/frankenphp:php${PHP_VERSION}-builder AS build
+FROM dunglas/frankenphp:builder-php${PHP_VERSION} AS build
 
 ARG DUCKDB_VERSION=v1.5.5
 ARG TARGETPLATFORM

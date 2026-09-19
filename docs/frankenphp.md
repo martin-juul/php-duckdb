@@ -48,7 +48,7 @@ version a release embeds on the
 The easiest route is the official builder image:
 
 ```dockerfile
-FROM dunglas/frankenphp:php8.5-builder AS builder
+FROM dunglas/frankenphp:builder-php8.5 AS builder
 
 # libduckdb v1.5.x
 RUN curl -sL https://github.com/duckdb/duckdb/releases/download/v1.5.5/libduckdb-linux-amd64.zip -o /tmp/libduckdb.zip \
