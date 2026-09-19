@@ -15,7 +15,7 @@
 extern zend_module_entry duckdb_module_entry;
 #define phpext_duckdb_ptr &duckdb_module_entry
 
-#define PHP_DUCKDB_VERSION "1.0.0"
+#define PHP_DUCKDB_VERSION "1.1.0"
 #define PHP_DUCKDB_NS      "DuckDB"
 
 #if defined(ZTS) && defined(COMPILE_DL_DUCKDB)
@@ -43,6 +43,7 @@ ZEND_TSRMLS_CACHE_EXTERN()
 #include <memory>
 #include <mutex>
 #include <string>
+#include <system_error>
 #include <thread>
 #include <vector>
 
@@ -416,6 +417,19 @@ static inline php_duckdb_interval_object *duckdb_interval_from_obj(zend_object *
 static inline bool duckdb_check_no_nul(const char *str, size_t len, uint32_t arg_num) {
     if (UNEXPECTED(memchr(str, '\0', len) != nullptr)) {
         zend_argument_value_error(arg_num, "must not contain NUL bytes");
+        return false;
+    }
+    return true;
+}
+
+/* Guard against objects whose constructor was bypassed (e.g. via
+ * ReflectionClass::newInstanceWithoutConstructor()): their shared_ptr
+ * members are null, and dereferencing them would crash. Throws \Error and
+ * returns false. */
+static inline bool duckdb_initialized_guard(bool initialized, const char *class_name) {
+    if (UNEXPECTED(!initialized)) {
+        zend_throw_error(NULL, "%s object is not initialized (its constructor was bypassed)",
+                         class_name);
         return false;
     }
     return true;
