@@ -41,20 +41,22 @@ jobs:
           zypper --non-interactive --gpg-auto-import-keys refresh
           zypper --non-interactive install --no-recommends \
             rpm-build php8 php8-devel gcc gcc-c++ make autoconf automake \
-            unzip curl tar gzip git gawk
+            unzip curl tar gzip gawk
 
       # rpmbuild never downloads Source URLs itself; stage them exactly as
       # the spec names them. The version is read from the spec so the two
       # cannot drift apart.
+      # NOTE: actions/checkout falls back to a REST tarball download when
+      # the container has no git — leaving no .git directory — so pack the
+      # workspace with tar instead of `git archive`.
       - name: Stage rpmbuild sources
         run: |
           set -euo pipefail
           ver=$(awk '/^Version:/ {print $2}' packaging/opensuse/php-duckdb.spec)
           dver=$(awk '/^%define duckdb_version/ {print $3}' packaging/opensuse/php-duckdb.spec)
-          mkdir -p /root/rpmbuild/{SOURCES,SPECS,BUILD,RPMS,SRPMS}
-          git archive --prefix="php-duckdb-${ver}/" \
-            -o "/root/rpmbuild/SOURCES/php-duckdb-${ver}.tar" HEAD
-          gzip -f "/root/rpmbuild/SOURCES/php-duckdb-${ver}.tar"
+          mkdir -p /root/rpmbuild/SOURCES /root/rpmbuild/SPECS /root/rpmbuild/BUILD /root/rpmbuild/RPMS /root/rpmbuild/SRPMS
+          tar --exclude='./.git' --transform "s,^\.,php-duckdb-${ver}," \
+            -czf "/root/rpmbuild/SOURCES/php-duckdb-${ver}.tar.gz" .
           curl -fsSL -o /root/rpmbuild/SOURCES/libduckdb-linux-amd64.zip \
             "https://github.com/duckdb/duckdb/releases/download/v${dver}/libduckdb-linux-amd64.zip"
           cp packaging/opensuse/php-duckdb.spec /root/rpmbuild/SPECS/
