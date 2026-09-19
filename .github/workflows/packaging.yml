@@ -2,9 +2,10 @@ name: Packaging
 
 # Keeps the distribution packaging in packaging/ buildable. Each job
 # builds the native package in a real distro container (openSUSE
-# Tumbleweed, Fedora 44, Debian sid), runs the full test suite at build
-# time, then installs the resulting package and smoke-tests the system
-# PHP loading it through the distro's own ini mechanism.
+# Tumbleweed, Fedora 44, Debian sid, Debian 13 trixie), runs the full
+# test suite at build time, then installs the resulting package and
+# smoke-tests the system PHP loading it through the distro's own ini
+# mechanism.
 
 on:
   push:
@@ -189,5 +190,79 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: debian-sid-deb
+          path: /root/php-duckdb*.deb
+          if-no-files-found: error
+
+  debian-trixie-deb:
+    name: Debian 13 trixie deb
+    runs-on: ubuntu-latest
+    container: debian:trixie
+    steps:
+      - uses: actions/checkout@v4
+
+      # trixie has no libduckdb package (DuckDB entered Debian after the
+      # freeze), so this job vendors the prebuilt archive — the same
+      # strategy as the RPM jobs; the sid job uses libduckdb-dev instead.
+      - name: Install build tooling
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            build-essential debhelper dh-php php-dev php-cli \
+            curl unzip ca-certificates
+
+      - name: Guard version drift
+        run: |
+          set -euo pipefail
+          code_ver=$(sed -n '/PHP_DUCKDB_VERSION/{s/.* "//;s/".*$//;p}' php_duckdb.h)
+          deb_ver=$(dpkg-parsechangelog -l packaging/debian-trixie/changelog -S Version | cut -d- -f1)
+          if [ "$code_ver" != "$deb_ver" ]; then
+            echo "version drift: php_duckdb.h=$code_ver debian-trixie/changelog=$deb_ver"
+            exit 1
+          fi
+
+      # dpkg insists on ./debian at the source root; restore the execute
+      # bit on debian/rules. The vendored libduckdb is staged as
+      # duckdb-sdk/{include,lib}; the pin lives in debian-trixie/rules
+      # so the two cannot drift apart.
+      - name: Stage debian packaging and vendored libduckdb
+        run: |
+          set -euo pipefail
+          cp -a "$GITHUB_WORKSPACE" /root/src
+          cp -r /root/src/packaging/debian-trixie /root/src/debian
+          chmod +x /root/src/debian/rules
+          dver=$(awk -F':= *' '/^DUCKDB_VERSION/ {print $2}' /root/src/debian/rules)
+          arch=$(dpkg --print-architecture)
+          case "$arch" in
+            amd64) duck_arch=amd64 ;;
+            arm64) duck_arch=arm64 ;;
+            *) echo "no prebuilt libduckdb archive for $arch"; exit 1 ;;
+          esac
+          curl -fsSL -o /tmp/libduckdb.zip \
+            "https://github.com/duckdb/duckdb/releases/download/v${dver}/libduckdb-linux-${duck_arch}.zip"
+          unzip -o /tmp/libduckdb.zip -d /tmp/libduckdb
+          mkdir -p /root/src/duckdb-sdk/include /root/src/duckdb-sdk/lib
+          cp /tmp/libduckdb/duckdb.h /root/src/duckdb-sdk/include/
+          cp /tmp/libduckdb/libduckdb.so /root/src/duckdb-sdk/lib/
+
+      # dpkg-buildpackage -b builds the binary debs (landing next to the
+      # source tree); dh_auto_test runs the full .phpt suite with
+      # NO_INTERACTION=1 / REPORT_EXIT_STATUS=1 from debian/rules, with
+      # LD_LIBRARY_PATH pointed at the staged duckdb-sdk/lib
+      # (Swoole/AMPHP/ReactPHP/True-Async tests skip — those extensions
+      # are not installed here).
+      - name: Build deb (with test suite)
+        run: cd /root/src && dpkg-buildpackage -us -uc -b
+
+      - name: Install deb and smoke test with system PHP
+        run: |
+          set -euo pipefail
+          dpkg -i /root/php-duckdb_*.deb
+          php -m | grep -i duckdb
+          php -r '$c = (new DuckDB\Database())->connect(); $r = $c->query("SELECT 42 AS x")->fetchRow(); if ($r["x"] !== 42) { exit(1); } printf("smoke OK: duckdb ext %s, libduckdb %s, PHP %s\n", phpversion("duckdb"), DuckDB\version(), PHP_VERSION);'
+
+      - name: Upload deb artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: debian-13-trixie-deb
           path: /root/php-duckdb*.deb
           if-no-files-found: error
