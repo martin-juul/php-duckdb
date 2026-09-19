@@ -16,7 +16,10 @@ var_dump($stream->fetchRow());
 // silently truncate).
 $conn->beginTransaction();
 try {
-    $stream->fetchRow();
+    // Rows from the first chunk are already buffered, so drain the buffer:
+    // the exception fires when fetchRow() has to pull a fresh chunk.
+    while ($stream->fetchRow() !== null) {
+    }
     echo "NOT DETECTED\n";
 } catch (DuckDB\Exception $e) {
     echo "stale stream detected\n";
