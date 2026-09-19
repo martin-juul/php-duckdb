@@ -123,9 +123,11 @@ Build with `--without tests` to skip the `%check` test suite.
 9 and 10 against the [Remi repository](https://rpms.remirepo.net/)'s PHP
 — the distribution's own PHP is too old for this extension (>= 8.2 is
 required), and Remi is the standard way to run current PHP on the RHEL
-family. The target is Remi's *default-namespace* PHP (the dedicated
-`remi-php82/83/84/85` repos, equivalently the `php:remi-8.x` module
-streams on EL9), **not** the `phpXX-php-*` SCL packages.
+family. The target is Remi's *default-namespace* PHP (the `php:remi-8.x`
+module streams from the `remi-modular` repo), **not** the `phpXX-php-*`
+SCL packages. Current `remi-release` no longer ships the legacy
+dedicated `remi-php82/83/84/85` repos; the module streams are Remi's
+documented flow on both EL9 and EL10.
 
 The spec follows the Fedora/Remi extension conventions (`php-pecl-*`
 naming, `/etc/php.d/40-duckdb.ini`, `%{?dist}` release suffix, the
@@ -143,8 +145,8 @@ CI builds every combination of AlmaLinux 9/10 × Remi PHP
 ```bash
 sudo dnf install epel-release
 sudo dnf install https://rpms.remirepo.net/enterprise/remi-release-9.rpm
-sudo dnf module reset -y php          # EL9 only — unmasks non-modular php
-sudo dnf --enablerepo=remi-php84 install php-cli
+sudo dnf module reset -y php          # drops any AppStream php stream
+sudo dnf module install php:remi-8.4/common
 sudo rpm -ivh php-pecl-duckdb-1.2.0-1.el9.x86_64.rpm
 php -m | grep duckdb
 ```
@@ -154,8 +156,9 @@ php -m | grep duckdb
 ```bash
 sudo dnf install epel-release
 sudo dnf install https://rpms.remirepo.net/enterprise/remi-release-9.rpm
-sudo dnf module reset -y php          # EL9 only
-sudo dnf --enablerepo=remi-safe,remi-php84 install \
+sudo dnf module reset -y php
+sudo dnf module install php:remi-8.4/common
+sudo dnf install \
   php-devel php-cli rpm-build gcc-c++ make libtool chrpath unzip curl
 
 mkdir -p ~/rpmbuild/{SOURCES,SPECS}
