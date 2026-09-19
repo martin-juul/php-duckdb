@@ -36,7 +36,7 @@ RUN set -eux; \
     mv /opt/duckdb/libduckdb.so /opt/duckdb/lib/
 
 WORKDIR /src
-COPY config.m4 duckdb.cpp php_duckdb.h duckdb_arginfo.h ./
+COPY config.m4 duckdb.cpp php_duckdb.h php_duckdb_cxx_compat.h duckdb_arginfo.h ./
 COPY src/ ./src/
 
 RUN phpize \
