@@ -1,0 +1,22 @@
+Source: php-duckdb
+Section: php
+Priority: optional
+Maintainer: Martin Juul Christiansen <code@juul.xyz>
+Build-Depends: debhelper-compat (= 13),
+               dh-php,
+               php-dev (>= 8.2),
+               php-cli,
+               libduckdb-dev (>= 1.1)
+Standards-Version: 4.7.0
+Homepage: https://github.com/martin-juul/php-duckdb
+Rules-Requires-Root: no
+
+Package: php-duckdb
+Architecture: any
+Depends: ${misc:Depends}, ${php:Depends}, ${shlibs:Depends}
+Description: DuckDB in-process analytical database bindings for PHP
+ DuckDB is an in-process SQL OLAP database management system. This
+ extension provides PHP bindings for the DuckDB C API: connections,
+ prepared statements, result sets, and appender support.
+ .
+ The extension links against the system DuckDB library (libduckdb).

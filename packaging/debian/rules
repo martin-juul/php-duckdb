@@ -1,0 +1,26 @@
+#!/usr/bin/make -f
+
+# see FEATURE AREAS in dpkg-buildflags(1)
+export DEB_BUILD_MAINT_OPTIONS = hardening=+all
+export DEB_LDFLAGS_MAINT_APPEND = -Wl,--as-needed
+
+# Never bake a build-tree RPATH into the shared object
+# (honoured by PHP's build/php.m4: ld_runpath_switch is emptied).
+export PHP_RPATH = no
+
+# run-tests.php must not prompt, and must fail the build on test failures.
+export NO_INTERACTION = 1
+
+%:
+	dh $@ --with php
+
+override_dh_auto_configure:
+	phpize
+	dh_auto_configure -- --with-duckdb=/usr --with-php-config=/usr/bin/php-config
+
+# PHP's build system installs with INSTALL_ROOT, not DESTDIR.
+override_dh_auto_install:
+	dh_auto_install -- INSTALL_ROOT=$(CURDIR)/debian/php-duckdb
+
+override_dh_auto_test:
+	REPORT_EXIT_STATUS=1 dh_auto_test
