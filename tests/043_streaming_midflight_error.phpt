@@ -17,10 +17,18 @@ $conn = (new DuckDB\Database())->connect();
 $sql = "SELECT (CASE WHEN range = 1500000 THEN 'boom' ELSE range::VARCHAR END)::INTEGER AS v
         FROM range(2000000)";
 
+// A mid-stream failure normally surfaces as ConversionException — with one
+// upstream quirk: when the cast error fires on one executor thread, DuckDB
+// interrupts the sibling pipelines, and that INTERRUPT occasionally wins
+// the race into the streaming result's error state, masking the original
+// error (reproduced at the C API level on libduckdb 1.5.5: ~1% of runs;
+// the materialized path never masks, verified over 1300 iterations). Both
+// outcomes are loud, sticky failures — which is what this test guards — so
+// both are accepted wherever the failing stream is consumed.
 function probe_stream(DuckDB\Connection $conn, string $sql): string {
     try {
         $result = $conn->queryStreaming($sql);
-    } catch (DuckDB\ConversionException) {
+    } catch (DuckDB\ConversionException|DuckDB\InterruptedException) {
         return 'eager'; // error surfaced at execute time
     }
     $rows = 0;
@@ -29,7 +37,7 @@ function probe_stream(DuckDB\Connection $conn, string $sql): string {
             $rows++;
         }
         return 'SILENT TRUNCATION after ' . $rows . ' rows';
-    } catch (DuckDB\ConversionException) {
+    } catch (DuckDB\ConversionException|DuckDB\InterruptedException) {
         return 'fetch-time after ' . ($rows > 0 ? 'some' : 'no') . ' rows';
     }
 }
@@ -46,7 +54,7 @@ if (str_starts_with($outcome, 'fetch-time')) {
     try {
         while ($result->fetchRow()) {
         }
-    } catch (DuckDB\ConversionException) {
+    } catch (DuckDB\ConversionException|DuckDB\InterruptedException) {
     }
     try {
         $result->fetchRow();
@@ -56,7 +64,8 @@ if (str_starts_with($outcome, 'fetch-time')) {
     }
 }
 
-// same query materialized: error surfaces at query time
+// same query materialized: error surfaces at query time. This path never
+// masks (see above), so the assertion stays strict on purpose.
 try {
     $conn->query($sql);
     echo "materialized: no error\n";
