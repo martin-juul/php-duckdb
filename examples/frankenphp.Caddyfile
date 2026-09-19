@@ -1,0 +1,20 @@
+# FrankenPHP worker-mode example.
+#
+# Serves examples/frankenphp.php with 4 worker threads:
+#
+#     cd examples && frankenphp run --config frankenphp.Caddyfile
+#     curl http://localhost:8080/
+#
+# The extension must be built against the same ZTS PHP that FrankenPHP
+# embeds — see docs/frankenphp.md.
+{
+	frankenphp {
+		worker ./frankenphp.php 4
+	}
+}
+
+:8080 {
+	root .
+	rewrite frankenphp.php
+	php
+}

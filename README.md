@@ -652,6 +652,20 @@ guarantees are covered by the test suite:
   threaded query interrupts the whole connection (cancelling a finished
   query is a no-op and never disturbs newer work).
 
+## FrankenPHP
+
+The extension is ZTS-safe and works under [FrankenPHP](https://frankenphp.dev)
+in both classic and worker mode — verified against FrankenPHP's embedded
+ZTS PHP in CI, including a concurrent worker-mode smoke test and a
+graceful-shutdown check. Because FrankenPHP embeds a **ZTS** PHP, the
+extension must be built against the same PHP version with ZTS enabled;
+the `dunglas/frankenphp:*-builder` images contain everything needed. See
+[docs/frankenphp.md](docs/frankenphp.md) for the build recipe and
+worker-mode semantics (persistent `:memory:` databases per worker thread,
+async queries in workers, safe shutdown), and
+[examples/frankenphp.php](examples/frankenphp.php) for a runnable worker
+script.
+
 ## Development
 
 ### Test harness

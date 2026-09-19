@@ -32,3 +32,4 @@ These have no C API counterpart page because they are idioms of this driver:
 
 - [Error handling & the exception hierarchy](errors.md)
 - [Asynchronous queries, fibers & event-loop integration](async.md)
+- [FrankenPHP (classic & worker mode)](frankenphp.md)
