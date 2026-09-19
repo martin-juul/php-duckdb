@@ -9,6 +9,8 @@ packaging/
     php-duckdb.spec        # RPM spec — openSUSE Tumbleweed/Leap, SLE
   fedora/
     php-pecl-duckdb.spec   # RPM spec — Fedora 43+, EPEL-compatible
+  almalinux/
+    php-pecl-duckdb.spec   # RPM spec — AlmaLinux 9/10, Remi PHP 8.2–8.5
   debian/
     control, rules, ...    # debhelper — Debian sid/forky, Ubuntu (system libduckdb)
   debian-trixie/
@@ -114,6 +116,59 @@ Build with `--without tests` to skip the `%check` test suite.
 - In spec `%install`, the `:`-style pseudo-comments must not contain
   unquoted parentheses — they are parsed as subshell syntax and abort the
   section with "syntax error near unexpected token `('".
+
+## AlmaLinux (RPM — Remi PHP)
+
+`almalinux/php-pecl-duckdb.spec` builds `php-pecl-duckdb` on AlmaLinux
+9 and 10 against the [Remi repository](https://rpms.remirepo.net/)'s PHP
+— the distribution's own PHP is too old for this extension (>= 8.2 is
+required), and Remi is the standard way to run current PHP on the RHEL
+family. The target is Remi's *default-namespace* PHP (the dedicated
+`remi-php82/83/84/85` repos, equivalently the `php:remi-8.x` module
+streams on EL9), **not** the `phpXX-php-*` SCL packages.
+
+The spec follows the Fedora/Remi extension conventions (`php-pecl-*`
+naming, `/etc/php.d/40-duckdb.ini`, `%{?dist}` release suffix, the
+`%prep` version-drift guard), and the `php(api)`/`php(zend-abi)`
+Requires pin the package to the exact PHP ABI it was built against — an
+RPM built against Remi 8.4 also installs on any other PHP 8.4 build
+providing the same ABI (e.g. AppStream php 8.4 where that exists).
+libduckdb is vendored; AlmaLinux/EPEL has no DuckDB package.
+
+CI builds every combination of AlmaLinux 9/10 × Remi PHP
+8.2/8.3/8.4/8.5 × amd64/arm64.
+
+### Install
+
+```bash
+sudo dnf install epel-release
+sudo dnf install https://rpms.remirepo.net/enterprise/remi-release-9.rpm
+sudo dnf module reset -y php          # EL9 only — unmasks non-modular php
+sudo dnf --enablerepo=remi-php84 install php-cli
+sudo rpm -ivh php-pecl-duckdb-1.2.0-1.el9.x86_64.rpm
+php -m | grep duckdb
+```
+
+### Local build
+
+```bash
+sudo dnf install epel-release
+sudo dnf install https://rpms.remirepo.net/enterprise/remi-release-9.rpm
+sudo dnf module reset -y php          # EL9 only
+sudo dnf --enablerepo=remi-safe,remi-php84 install \
+  php-devel php-cli rpm-build gcc-c++ make libtool chrpath unzip curl
+
+mkdir -p ~/rpmbuild/{SOURCES,SPECS}
+git archive --prefix=php-duckdb-1.2.0/ -o ~/rpmbuild/SOURCES/php-duckdb-1.2.0.tar.gz HEAD
+curl -L -o ~/rpmbuild/SOURCES/libduckdb-linux-amd64.zip \
+  https://github.com/duckdb/duckdb/releases/download/v1.5.5/libduckdb-linux-amd64.zip
+
+rpmbuild -ba packaging/almalinux/php-pecl-duckdb.spec
+sudo rpm -ivh ~/rpmbuild/RPMS/x86_64/php-pecl-duckdb-*.rpm
+php -m | grep duckdb
+```
+
+Build with `--without tests` to skip the `%check` test suite.
 
 ## Debian (deb)
 
@@ -259,6 +314,8 @@ php-duckdb_1.2.0-1_amd64.ubuntu-26.04.deb        (+ _arm64)
 php-duckdb_1.2.0-1_amd64.ubuntu-devel.deb        (+ _arm64)
 php8-duckdb-1.2.0-1.x86_64.opensuse-tumbleweed.rpm (+ .aarch64, .src.rpm)
 php-pecl-duckdb-1.2.0-1.fc44.x86_64.fedora-44.rpm  (+ .aarch64, .src.rpm)
+php-pecl-duckdb-1.2.0-1.el9.x86_64.almalinux-9-php8.4.rpm
+  (AlmaLinux: os 9/10 × php 8.2/8.3/8.4/8.5 × x86_64/aarch64 — 16 RPMs)
 ```
 
 dpkg/rpm don't care about the file name, so the suffixed assets install
