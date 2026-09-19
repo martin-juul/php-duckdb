@@ -13,6 +13,8 @@ packaging/
     control, rules, ...    # debhelper — Debian sid/forky, Ubuntu (system libduckdb)
   debian-trixie/
     control, rules, ...    # debhelper — Debian 13 trixie (vendored libduckdb)
+  ubuntu/
+    control, rules, ...    # debhelper — Ubuntu LTS 24.04/26.04 (vendored libduckdb)
 ```
 
 The extension itself is distribution-agnostic (phpize + `--with-duckdb`);
@@ -206,6 +208,37 @@ dpkg-buildpackage -us -uc -b
 sudo dpkg -i ../php-duckdb_*.deb
 php -m | grep duckdb
 ```
+
+## Ubuntu (deb)
+
+Two flavours, depending on whether the release has DuckDB:
+
+- **LTS (24.04 noble, 26.04 resolute) — `ubuntu/`**: no libduckdb
+  package exists (DuckDB first entered Ubuntu 26.10), so the prebuilt
+  archive is vendored, identical to the trixie variant — see "Debian 13
+  (trixie) — vendored libduckdb" above; the staging contract
+  (`duckdb-sdk/{include,lib}`, `DUCKDB_VERSION` pin in `debian/rules`)
+  is the same.
+- **Devel (26.10 stonking and later)**: `libduckdb-dev` is in universe,
+  so use the Debian sid packaging (`debian/`) unchanged — the system
+  strategy, with `${shlibs:Depends}` picking up `libduckdb1.5`.
+
+All Ubuntu targets use `dh --with php`, `phpenmod` activation and
+`${php:Depends}` (`phpapi-*` pinning) exactly like the Debian ones.
+
+### Ubuntu packaging notes
+
+- noble's PHP 8.3.6 headers declare a parameter named `try` in
+  `zend_enum.h` — a keyword in C++, renamed upstream to `try_from` in
+  the 8.2/8.3 patch series but never backported to noble, which freezes
+  the base version. The extension carries `php_duckdb_cxx_compat.h`
+  (included in place of `php.h` by every translation unit), which renames
+  the keyword away for the duration of the PHP header inclusion on PHP
+  < 8.4; nothing distro-specific is needed in the packaging.
+- PHP's `make clean` deletes **every** `*.so` in the tree
+  (`build/Makefile.global`), including a staged vendored libduckdb.
+  Both vendored variants (`debian-trixie/`, `ubuntu/`) stash it across
+  `dh_auto_clean` so consecutive builds in the same tree keep working.
 
 ## Adding another distribution
 
