@@ -425,8 +425,14 @@ PHP_METHOD(DuckDB_Connection, queryStreaming) {
             duckdb_throw_prepare_error(err ? err : "Failed to prepare statement");
             RETURN_THROWS();
         }
-        /* duckdb_execute_prepared_streaming is deprecated upstream; the
-         * replacement is the pending-result API. */
+        /* Streaming execution requires the _streaming pending variant. It
+         * is deprecated upstream, but there is currently NO non-deprecated
+         * alternative that preserves streaming semantics: plain
+         * duckdb_pending_prepared + duckdb_execute_pending materializes
+         * eagerly (verified on libduckdb 1.5.5: an error deep in a 2M-row
+         * scan then surfaces at execute time instead of mid-fetch).
+         * Kept deliberately until upstream ships the promised replacement
+         * (duckdb/duckdb#13384); isolated to this call site. */
         duckdb_pending_result pending = nullptr;
         if (duckdb_pending_prepared_streaming(stmt->stmt, &pending) == DuckDBError) {
             const char *err = pending ? duckdb_pending_error(pending) : nullptr;
