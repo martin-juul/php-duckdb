@@ -1,0 +1,6 @@
+php-duckdb (1.2.0-1) UNRELEASED; urgency=medium
+
+  * New upstream release.
+  * Ubuntu LTS build with vendored libduckdb (no system package exists).
+
+ -- Martin Juul Christiansen <code@juul.xyz>  Sat, 19 Sep 2026 12:00:00 +0000

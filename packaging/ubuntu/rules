@@ -1,9 +1,10 @@
 #!/usr/bin/make -f
 
-# Debian 13 (trixie) has no libduckdb package, so this target vendors the
-# prebuilt archive: stage duckdb-sdk/{include,lib} from
-# libduckdb-linux-<arch>.zip (v$(DUCKDB_VERSION)) before building —
-# see packaging/README.md. The CI job reads the pin from this file.
+# Ubuntu LTS releases have no libduckdb package (DuckDB first entered
+# Ubuntu 26.10), so this target vendors the prebuilt archive: stage
+# duckdb-sdk/{include,lib} from libduckdb-linux-<arch>.zip
+# (v$(DUCKDB_VERSION)) before building — see packaging/README.md.
+# The CI job reads the pin from this file.
 DUCKDB_VERSION := 1.5.5
 
 # see FEATURE AREAS in dpkg-buildflags(1)
@@ -31,8 +32,8 @@ override_dh_auto_configure:
 	dh_auto_configure -- --with-duckdb=$(CURDIR)/duckdb-sdk --with-php-config=/usr/bin/php-config
 
 # PHP's build system installs with INSTALL_ROOT, not DESTDIR.
-# The vendored libduckdb ships inside the package (trixie has none);
-# the archive's SONAME is the unversioned libduckdb.so.
+# The vendored libduckdb ships inside the package (these releases have
+# none); the archive's SONAME is the unversioned libduckdb.so.
 override_dh_auto_install:
 	dh_auto_install -- INSTALL_ROOT=$(CURDIR)/debian/php-duckdb
 	install -D -m 0755 duckdb-sdk/lib/libduckdb.so \
