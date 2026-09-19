@@ -43,6 +43,7 @@ Source1:        https://github.com/duckdb/duckdb/releases/download/v%{duckdb_ver
 # DuckDB ships prebuilt libduckdb archives for linux amd64/arm64 only.
 ExclusiveArch:  x86_64 aarch64
 BuildRequires:  autoconf
+BuildRequires:  chrpath
 BuildRequires:  gcc-c++
 BuildRequires:  make
 BuildRequires:  unzip
@@ -79,6 +80,9 @@ export CXXFLAGS="%{optflags}"
 %install
 make install-modules INSTALL_ROOT=%{buildroot}
 install -D -m 0755 duckdb-sdk/lib/libduckdb.so %{buildroot}%{_libdir}/libduckdb.so
+# Drop the build-tree runpath that PHP_ADD_LIBRARY_WITH_PATH bakes in;
+# libduckdb is resolved via ldconfig from %{_libdir} at runtime.
+chrpath -d %{buildroot}%{php_extdir}/duckdb.so
 mkdir -p %{buildroot}%{php_cfgdir}
 cat > %{buildroot}%{php_cfgdir}/duckdb.ini <<'EOF'
 ; comment out next line to disable the duckdb extension

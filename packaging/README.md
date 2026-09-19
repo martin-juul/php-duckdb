@@ -6,7 +6,9 @@ distribution family:
 ```
 packaging/
   opensuse/
-    php-duckdb.spec     # RPM spec — openSUSE Tumbleweed/Leap, SLE
+    php-duckdb.spec        # RPM spec — openSUSE Tumbleweed/Leap, SLE
+  fedora/
+    php-pecl-duckdb.spec   # RPM spec — Fedora 43+, EPEL-compatible
 ```
 
 The extension itself is distribution-agnostic (phpize + `--with-duckdb`);
@@ -26,7 +28,7 @@ one of:
 2. **Vendored prebuilt archive** — download `libduckdb-linux-<arch>.zip`
    from the [DuckDB releases](https://github.com/duckdb/duckdb/releases)
    and ship `libduckdb.so` inside the package. This is what the openSUSE
-   spec and the project's Docker images do.
+   and Fedora specs and the project's Docker images do.
 
 Pin the vendored archive to the DuckDB version the extension is tested
 against (see `DUCKDB_VERSION` in the Dockerfile) and keep the version in
@@ -42,7 +44,7 @@ test suite + install smoke test on Tumbleweed).
 ### Local build
 
 ```bash
-sudo zypper install rpm-build php8-devel gcc-c++ make autoconf unzip
+sudo zypper install rpm-build php8-devel gcc-c++ make autoconf chrpath unzip
 
 # Stage the two sources rpmbuild expects:
 mkdir -p ~/rpmbuild/{SOURCES,SPECS}
@@ -67,13 +69,53 @@ per-arch `Source1` conditionals. When DuckDB lands in Factory, replace
 the vendored archive with `BuildRequires: duckdb-devel` and a runtime
 `Requires: libduckdb`.
 
+## Fedora (RPM)
+
+`fedora/php-pecl-duckdb.spec` builds `php-pecl-duckdb` on Fedora 43+
+(anything with `php-devel >= 8.2`). It follows the Fedora PECL packaging
+conventions: `php-pecl-*` naming with the `php-duckdb` /
+`php-pecl(DuckDB)` / `php-pie(martinjuul/duckdb)` provides set, ini
+drop-in at `/etc/php.d/40-duckdb.ini`, `%{?dist}` release suffix, and a
+`%prep` guard that fails the build if the spec version and
+`PHP_DUCKDB_VERSION` drift apart.
+
+### Local build
+
+```bash
+sudo dnf install rpm-build php-devel php-cli gcc-c++ make libtool chrpath unzip
+
+mkdir -p ~/rpmbuild/{SOURCES,SPECS}
+git archive --prefix=php-duckdb-1.2.0/ -o ~/rpmbuild/SOURCES/php-duckdb-1.2.0.tar.gz HEAD
+curl -L -o ~/rpmbuild/SOURCES/libduckdb-linux-amd64.zip \
+  https://github.com/duckdb/duckdb/releases/download/v1.5.5/libduckdb-linux-amd64.zip
+
+rpmbuild -ba packaging/fedora/php-pecl-duckdb.spec
+sudo rpm -ivh ~/rpmbuild/RPMS/x86_64/php-pecl-duckdb-*.rpm
+php -m | grep duckdb
+```
+
+Build with `--without tests` to skip the `%check` test suite.
+
+### Fedora packaging notes
+
+- Fedora's `check-rpaths` buildroot policy **errors** on the build-tree
+  runpath that PHP's build system (`PHP_ADD_LIBRARY_WITH_PATH`) bakes
+  into the extension for `--with-duckdb=DIR`. The spec strips it with
+  `chrpath -d` after install; libduckdb resolves via ldconfig from
+  `%{_libdir}`. (openSUSE does not fail on this, but its spec strips the
+  runpath too — a dangling build-tree path is a packaging defect either
+  way.)
+- In spec `%install`, the `:`-style pseudo-comments must not contain
+  unquoted parentheses — they are parsed as subshell syntax and abort the
+  section with "syntax error near unexpected token `('".
+
 ## Adding another distribution
 
 Copy the closest existing target and adjust the distro-specific knobs:
 
 | Knob | openSUSE example | What to check elsewhere |
 |---|---|---|
-| Package name | `php8-duckdb` | Debian: `php-duckdb`, Fedora: `php-duckdb`, Alpine: `php8X-duckdb`, Arch: `php-duckdb` |
+| Package name | `php8-duckdb` | Debian: `php-duckdb`, Fedora: `php-pecl-duckdb`, Alpine: `php8X-duckdb`, Arch: `php-duckdb` |
 | PHP dev package | `php8-devel` | Debian: `php-dev`, Fedora: `php-devel`, Alpine: `php8X-dev` |
 | Extension dir | `%{php_extdir}` macro | `php-config --extension-dir` works everywhere as fallback |
 | Ini drop-in | `/etc/php8/conf.d/*.ini` | Debian: per-SAPI `conf.d` + `phpenmod`, Fedora: `/etc/php.d`, Alpine: `/etc/php8X/conf.d` |
