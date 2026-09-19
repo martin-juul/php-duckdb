@@ -676,7 +676,7 @@ extension must be built against the same PHP version with ZTS enabled.
 The quickest start is the prebuilt image
 (`ghcr.io/martin-juul/php-duckdb:8.5-frankenphp`, see
 [Docker images](#docker-images)); to build your own, the
-`dunglas/frankenphp:*-builder` images contain everything needed. See
+`dunglas/frankenphp:builder-*` images contain everything needed. See
 [docs/frankenphp.md](docs/frankenphp.md) for the build recipe and
 worker-mode semantics (persistent `:memory:` databases per worker thread,
 async queries in workers, safe shutdown), and
