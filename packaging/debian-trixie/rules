@@ -1,0 +1,44 @@
+#!/usr/bin/make -f
+
+# Debian 13 (trixie) has no libduckdb package, so this target vendors the
+# prebuilt archive: stage duckdb-sdk/{include,lib} from
+# libduckdb-linux-<arch>.zip (v$(DUCKDB_VERSION)) before building —
+# see packaging/README.md. The CI job reads the pin from this file.
+DUCKDB_VERSION := 1.5.5
+
+# see FEATURE AREAS in dpkg-buildflags(1)
+export DEB_BUILD_MAINT_OPTIONS = hardening=+all
+export DEB_LDFLAGS_MAINT_APPEND = -Wl,--as-needed
+
+# Never bake a build-tree RPATH into the shared object
+# (honoured by PHP's build/php.m4: ld_runpath_switch is emptied).
+export PHP_RPATH = no
+
+# run-tests.php must not prompt, and must fail the build on test failures.
+export NO_INTERACTION = 1
+
+include /usr/share/dpkg/architecture.mk
+
+%:
+	dh $@ --with php
+
+override_dh_auto_configure:
+	test -f duckdb-sdk/include/duckdb.h -a -f duckdb-sdk/lib/libduckdb.so || { \
+		echo "error: duckdb-sdk/{include,lib} not staged —" \
+		     "unpack libduckdb-linux-<arch>.zip v$(DUCKDB_VERSION) first"; \
+		exit 1; }
+	phpize
+	dh_auto_configure -- --with-duckdb=$(CURDIR)/duckdb-sdk --with-php-config=/usr/bin/php-config
+
+# PHP's build system installs with INSTALL_ROOT, not DESTDIR.
+# The vendored libduckdb ships inside the package (trixie has none);
+# the archive's SONAME is the unversioned libduckdb.so.
+override_dh_auto_install:
+	dh_auto_install -- INSTALL_ROOT=$(CURDIR)/debian/php-duckdb
+	install -D -m 0755 duckdb-sdk/lib/libduckdb.so \
+		$(CURDIR)/debian/php-duckdb/usr/lib/$(DEB_HOST_MULTIARCH)/libduckdb.so
+
+# The vendored lib is not on the loader path during the build, so point
+# the test suite at duckdb-sdk/lib explicitly (same as the RPM %check).
+override_dh_auto_test:
+	LD_LIBRARY_PATH=$(CURDIR)/duckdb-sdk/lib REPORT_EXIT_STATUS=1 dh_auto_test
