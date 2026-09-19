@@ -648,7 +648,9 @@ static bool duckdb_decode_value(decode_ctx *ctx, duckdb_vector vec, duckdb_logic
 
     /* Types without a public vector layout (VARIANT, ...): fall back to
      * the canonical string rendering, which is only available for
-     * materialized results. */
+     * materialized results. duckdb_value_varchar is deprecated upstream,
+     * but no non-deprecated API renders an arbitrary result cell as a
+     * string; kept deliberately, isolated to this call site. */
     if (ctx->depth == 0 && !ctx->data->streaming) {
         char *str = duckdb_value_varchar(&ctx->data->result, ctx->column_index, ctx->abs_row);
         if (str) {
@@ -689,14 +691,17 @@ static bool duckdb_result_fetch_chunk(result_data *d) {
         /* DuckDB permits only one open streaming result per connection: a
          * newer execution invalidates this stream and duckdb_fetch_chunk
          * would silently report end-of-data. Detect that via the connection
-         * epoch and fail loudly instead of truncating the result. */
+         * epoch and fail loudly instead of truncating the result. The
+         * check runs INSIDE the connection mutex: executions bump the
+         * epoch under the same mutex, so a checked-fresh epoch cannot
+         * become stale before the fetch runs. */
+        std::lock_guard<std::mutex> lk(d->stmt_keepalive->conn->mutex);
         if (d->epoch != d->stmt_keepalive->conn->execution_epoch.load(std::memory_order_relaxed)) {
             duckdb_throw_msg("This streaming result was invalidated by a newer query on the same "
                              "connection (DuckDB allows one open streaming result per connection). "
                              "Use a separate connection per concurrent stream.");
             return false;
         }
-        std::lock_guard<std::mutex> lk(d->stmt_keepalive->conn->mutex);
         d->chunk = duckdb_fetch_chunk(d->result);
     } else {
         d->chunk = duckdb_fetch_chunk(d->result);
@@ -823,7 +828,11 @@ PHP_METHOD(DuckDB_Result, columnCount) {
     DUCKDB_TSRMLS_CACHE_UPDATE();
     ZEND_PARSE_PARAMETERS_START(0, 0)
     ZEND_PARSE_PARAMETERS_END();
-    RETURN_LONG((zend_long)Z_DUCKDB_RESULT_P(ZEND_THIS)->data->column_count);
+    php_duckdb_result_object *intern = Z_DUCKDB_RESULT_P(ZEND_THIS);
+    if (!duckdb_initialized_guard(static_cast<bool>(intern->data), "DuckDB\\Result")) {
+        RETURN_THROWS();
+    }
+    RETURN_LONG((zend_long)intern->data->column_count);
 }
 
 /* Bounds-check a column index against a result. Returns false and throws
@@ -846,6 +855,9 @@ PHP_METHOD(DuckDB_Result, columnName) {
     ZEND_PARSE_PARAMETERS_END();
 
     result_data *d = Z_DUCKDB_RESULT_P(ZEND_THIS)->data.get();
+    if (!duckdb_initialized_guard(d != nullptr, "DuckDB\\Result")) {
+        RETURN_THROWS();
+    }
     if (!duckdb_result_check_column(d, index)) {
         RETURN_THROWS();
     }
@@ -861,6 +873,9 @@ PHP_METHOD(DuckDB_Result, columnType) {
     ZEND_PARSE_PARAMETERS_END();
 
     result_data *d = Z_DUCKDB_RESULT_P(ZEND_THIS)->data.get();
+    if (!duckdb_initialized_guard(d != nullptr, "DuckDB\\Result")) {
+        RETURN_THROWS();
+    }
     if (!duckdb_result_check_column(d, index)) {
         RETURN_THROWS();
     }
@@ -877,6 +892,9 @@ PHP_METHOD(DuckDB_Result, columns) {
     ZEND_PARSE_PARAMETERS_END();
 
     result_data *d = Z_DUCKDB_RESULT_P(ZEND_THIS)->data.get();
+    if (!duckdb_initialized_guard(d != nullptr, "DuckDB\\Result")) {
+        RETURN_THROWS();
+    }
     array_init_size(return_value, (uint32_t)d->column_count);
     for (idx_t i = 0; i < d->column_count; i++) {
         zval column;
@@ -893,14 +911,25 @@ PHP_METHOD(DuckDB_Result, rowCount) {
     DUCKDB_TSRMLS_CACHE_UPDATE();
     ZEND_PARSE_PARAMETERS_START(0, 0)
     ZEND_PARSE_PARAMETERS_END();
-    RETURN_LONG((zend_long)duckdb_row_count(&Z_DUCKDB_RESULT_P(ZEND_THIS)->data->result));
+    php_duckdb_result_object *intern = Z_DUCKDB_RESULT_P(ZEND_THIS);
+    if (!duckdb_initialized_guard(static_cast<bool>(intern->data), "DuckDB\\Result")) {
+        RETURN_THROWS();
+    }
+    /* duckdb_row_count is deprecated upstream, but there is no
+     * non-deprecated API for counting the rows of an already-materialized
+     * result. Kept deliberately; isolated to this call site. */
+    RETURN_LONG((zend_long)duckdb_row_count(&intern->data->result));
 }
 
 PHP_METHOD(DuckDB_Result, rowsChanged) {
     DUCKDB_TSRMLS_CACHE_UPDATE();
     ZEND_PARSE_PARAMETERS_START(0, 0)
     ZEND_PARSE_PARAMETERS_END();
-    RETURN_LONG((zend_long)duckdb_rows_changed(&Z_DUCKDB_RESULT_P(ZEND_THIS)->data->result));
+    php_duckdb_result_object *intern = Z_DUCKDB_RESULT_P(ZEND_THIS);
+    if (!duckdb_initialized_guard(static_cast<bool>(intern->data), "DuckDB\\Result")) {
+        RETURN_THROWS();
+    }
+    RETURN_LONG((zend_long)duckdb_rows_changed(&intern->data->result));
 }
 
 PHP_METHOD(DuckDB_Result, statementType) {
@@ -908,6 +937,9 @@ PHP_METHOD(DuckDB_Result, statementType) {
     ZEND_PARSE_PARAMETERS_START(0, 0)
     ZEND_PARSE_PARAMETERS_END();
     result_data *d = Z_DUCKDB_RESULT_P(ZEND_THIS)->data.get();
+    if (!duckdb_initialized_guard(d != nullptr, "DuckDB\\Result")) {
+        RETURN_THROWS();
+    }
     RETURN_STRING(duckdb_statement_type_name(duckdb_result_statement_type(d->result)));
 }
 
@@ -921,6 +953,9 @@ PHP_METHOD(DuckDB_Result, fetchRow) {
     ZEND_PARSE_PARAMETERS_END();
 
     result_data *d = Z_DUCKDB_RESULT_P(ZEND_THIS)->data.get();
+    if (!duckdb_initialized_guard(d != nullptr, "DuckDB\\Result")) {
+        RETURN_THROWS();
+    }
     int mode = mode_obj ? duckdb_parse_fetch_mode(mode_obj) : FETCH_MODE_ASSOC;
 
     zval row;
@@ -943,6 +978,9 @@ PHP_METHOD(DuckDB_Result, fetchAll) {
     ZEND_PARSE_PARAMETERS_END();
 
     result_data *d = Z_DUCKDB_RESULT_P(ZEND_THIS)->data.get();
+    if (!duckdb_initialized_guard(d != nullptr, "DuckDB\\Result")) {
+        RETURN_THROWS();
+    }
     int mode = mode_obj ? duckdb_parse_fetch_mode(mode_obj) : FETCH_MODE_ASSOC;
 
     array_init(return_value);
@@ -969,6 +1007,9 @@ PHP_METHOD(DuckDB_Result, fetchColumn) {
     ZEND_PARSE_PARAMETERS_END();
 
     result_data *d = Z_DUCKDB_RESULT_P(ZEND_THIS)->data.get();
+    if (!duckdb_initialized_guard(d != nullptr, "DuckDB\\Result")) {
+        RETURN_THROWS();
+    }
     if (!duckdb_result_check_column(d, column)) {
         RETURN_THROWS();
     }
@@ -996,6 +1037,9 @@ PHP_METHOD(DuckDB_Result, getIterator) {
     ZEND_PARSE_PARAMETERS_END();
 
     php_duckdb_result_object *intern = Z_DUCKDB_RESULT_P(ZEND_THIS);
+    if (!duckdb_initialized_guard(static_cast<bool>(intern->data), "DuckDB\\Result")) {
+        RETURN_THROWS();
+    }
     if (intern->data->iterator_taken) {
         duckdb_throw_msg("DuckDB\\Result is forward-only: an iterator was already created for this result");
         RETURN_THROWS();
@@ -1040,6 +1084,9 @@ PHP_METHOD(DuckDB_ResultIterator, next) {
     ZEND_PARSE_PARAMETERS_END();
 
     php_duckdb_result_iterator_object *it = Z_DUCKDB_RESULT_ITERATOR_P(ZEND_THIS);
+    if (!duckdb_initialized_guard(static_cast<bool>(it->data), "DuckDB\\ResultIterator")) {
+        RETURN_THROWS();
+    }
     zval_ptr_dtor(&it->current);
     ZVAL_UNDEF(&it->current);
 
@@ -1058,6 +1105,9 @@ PHP_METHOD(DuckDB_ResultIterator, rewind) {
     ZEND_PARSE_PARAMETERS_END();
 
     php_duckdb_result_iterator_object *it = Z_DUCKDB_RESULT_ITERATOR_P(ZEND_THIS);
+    if (!duckdb_initialized_guard(static_cast<bool>(it->data), "DuckDB\\ResultIterator")) {
+        RETURN_THROWS();
+    }
     if (it->started || it->data->row_index > 0 || it->data->exhausted) {
         duckdb_throw_msg("Cannot rewind a DuckDB\\ResultIterator (results are forward-only)");
         RETURN_THROWS();
