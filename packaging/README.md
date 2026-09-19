@@ -11,6 +11,8 @@ packaging/
     php-pecl-duckdb.spec   # RPM spec — Fedora 43+, EPEL-compatible
   almalinux/
     php-pecl-duckdb.spec   # RPM spec — AlmaLinux 9/10, Remi PHP 8.2–8.5
+  macos/
+    build.sh, install.sh   # tarball — macOS 12+, Intel (incl. pre-AVX2) and Apple Silicon
   debian/
     control, rules, ...    # debhelper — Debian sid/forky, Ubuntu (system libduckdb)
   debian-trixie/
@@ -35,8 +37,9 @@ one of:
    in Extra.
 2. **Vendored prebuilt archive** — download `libduckdb-linux-<arch>.zip`
    from the [DuckDB releases](https://github.com/duckdb/duckdb/releases)
-   and ship `libduckdb.so` inside the package. This is what the openSUSE
-   and Fedora specs and the project's Docker images do.
+   and ship `libduckdb.so` inside the package. This is what the openSUSE,
+   Fedora and AlmaLinux specs, the macOS tarballs and the project's
+   Docker images do.
 
 Pin the vendored archive to the DuckDB version the extension is tested
 against (see `DUCKDB_VERSION` in the Dockerfile) and keep the version in
@@ -172,6 +175,59 @@ php -m | grep duckdb
 ```
 
 Build with `--without tests` to skip the `%check` test suite.
+
+## macOS (tarball)
+
+macOS has no distribution package manager with a PHP extension channel
+we can hook into (Homebrew only ships its own formulae), so `macos/`
+ships a **tarball** per PHP minor version and architecture:
+
+```
+php-duckdb-1.2.0-php8.4-macos12-x86_64.tar.gz
+```
+
+containing `duckdb.so`, the vendored `libduckdb.dylib` and an
+`install.sh`. Both archives target **macOS 12+** and run natively on
+Intel and Apple Silicon. Notes on the two builds:
+
+- There is intentionally **no separate AVX2 build**. The vendored
+  `libduckdb-osx-universal` archive has a macOS 11.0 deployment target
+  and its x86_64 slice is baseline x86-64 (verified by disassembly:
+  zero AVX/AVX2 instructions), so the single Intel build covers every
+  Mac that can run macOS 12 — including the AVX2-less Mac Pro 2013 —
+  and also x86_64 PHP under Rosetta (Rosetta only supports AVX2 from
+  macOS 15). DuckDB's own benchmarks show no measurable AVX2 gain for
+  its workload, so an optimized variant would only shrink the supported
+  machine set.
+- `duckdb.so` references the dylib as `@rpath/libduckdb.dylib` with an
+  `@loader_path` rpath, so the pair works from any directory as long as
+  they sit side by side (install.sh puts both in PHP's extension dir).
+- The tarball's PHP minor must match the target PHP exactly (Zend ABI).
+  CI builds PHP 8.2/8.3/8.4/8.5 on both architectures (8 tarballs).
+
+### Install
+
+```bash
+tar -xzf php-duckdb-1.2.0-php8.4-macos12-x86_64.tar.gz
+sh php-duckdb-1.2.0-php8.4-macos12-x86_64/install.sh
+php -m | grep duckdb
+```
+
+If the tarball was downloaded with a browser, macOS may quarantine the
+binaries; `xattr -d com.apple.quarantine` on the extracted files clears
+that (curl downloads are not quarantined).
+
+### Local build
+
+Requires a Homebrew PHP (`brew install php` or the shivammathur/php tap)
+with `phpize` on PATH:
+
+```bash
+sh packaging/macos/build.sh   # stages libduckdb, builds, runs the .phpt suite
+```
+
+The build pins `MACOSX_DEPLOYMENT_TARGET=12.0` and `DUCKDB_VERSION`
+(top of `build.sh`; keep the latter in sync with the other targets).
 
 ## Debian (deb)
 
@@ -319,6 +375,8 @@ php8-duckdb-1.2.0-1.x86_64.opensuse-tumbleweed.rpm (+ .aarch64, .src.rpm)
 php-pecl-duckdb-1.2.0-1.fc44.x86_64.fedora-44.rpm  (+ .aarch64, .src.rpm)
 php-pecl-duckdb-1.2.0-1.el9.x86_64.almalinux-9-php8.4.rpm
   (AlmaLinux: os 9/10 × php 8.2/8.3/8.4/8.5 × x86_64/aarch64 — 16 RPMs)
+php-duckdb-1.2.0-php8.4-macos12-x86_64.tar.gz
+  (macOS: php 8.2/8.3/8.4/8.5 × x86_64/arm64 — 8 tarballs)
 ```
 
 dpkg/rpm don't care about the file name, so the suffixed assets install

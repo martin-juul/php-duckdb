@@ -37,7 +37,11 @@ if test "$PHP_DUCKDB" != "no"; then
     [-L$DUCKDB_DIR/lib])
 
   PHP_REQUIRE_CXX()
-  PHP_ADD_LIBRARY([stdc++], [1], [DUCKDB_SHARED_LIBADD])
+  dnl macOS no longer ships libstdc++; the C++ runtime there is libc++.
+  case $host_os in
+    darwin*) PHP_ADD_LIBRARY([c++], [1], [DUCKDB_SHARED_LIBADD]) ;;
+    *)       PHP_ADD_LIBRARY([stdc++], [1], [DUCKDB_SHARED_LIBADD]) ;;
+  esac
   CXXFLAGS="$CXXFLAGS -std=c++17 -Wall -Wextra"
 
   PHP_SUBST([DUCKDB_SHARED_LIBADD])
