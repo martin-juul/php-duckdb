@@ -41,7 +41,7 @@ jobs:
           zypper --non-interactive --gpg-auto-import-keys refresh
           zypper --non-interactive install --no-recommends \
             rpm-build php8 php8-devel gcc gcc-c++ make autoconf automake \
-            unzip curl tar gzip gawk
+            chrpath unzip curl tar gzip gawk
 
       # rpmbuild never downloads Source URLs itself; stage them exactly as
       # the spec names them. The version is read from the spec so the two
