@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<package xmlns="http://pear.php.net/dtd/package-2.0" xmlns:tasks="http://pear.php.net/dtd/tasks-1.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" packagerversion="1.10.13" version="2.0" xsi:schemaLocation="http://pear.php.net/dtd/tasks-1.0 http://pear.php.net/dtd/tasks-1.0.xsd http://pear.php.net/dtd/package-2.0 http://pear.php.net/dtd/package-2.0.xsd">
+<package xmlns="http://pear.php.net/dtd/package-2.0" xmlns:tasks="http://pear.php.net/dtd/tasks-1.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" packagerversion="1.10.13" version="2.0" xsi:schemaLocation="http://pear.php.net/dtd/package-2.0 http://pear.php.net/dtd/package-2.0.xsd http://pear.php.net/dtd/package-2.0 http://pear.php.net/dtd/package-2.0.xsd">
  <name>duckdb</name>
  <channel>pecl.php.net</channel>
  <summary>Native DuckDB driver for PHP</summary>
@@ -25,8 +25,8 @@
  <date>2026-09-19</date>
  <time>12:00:00</time>
  <version>
-  <release>1.1.0</release>
-  <api>1.1.0</api>
+  <release>1.2.0</release>
+  <api>1.2.0</api>
  </version>
  <stability>
   <release>stable</release>
@@ -34,29 +34,7 @@
  </stability>
  <license uri="https://opensource.org/licenses/MIT">MIT</license>
  <notes>
-  Hardening release.
-
-  - File-backed Database opens now share one DuckDB instance per path
-    process-wide via the DuckDB instance cache, fixing intra-process
-    lock conflicts (POSIX per-process lock semantics).
-  - Database paths and configuration keys/values containing embedded
-    NUL bytes are rejected with ValueError.
-  - Transaction helpers (beginTransaction/commit/rollBack) now bump the
-    connection execution epoch, so open streaming results detect the
-    invalidation and fail loudly instead of silently truncating.
-  - queryAsync()/executeAsync() guard against worker-thread creation
-    failure (resource exhaustion) with a typed InternalException
-    instead of a crash.
-  - All classes guard against construction via reflection
-    (ReflectionClass::newInstanceWithoutConstructor) with a clean Error
-    instead of dereferencing a null handle.
-  - Migrated off the deprecated duckdb_execute_prepared_streaming() C
-    API to the pending-result API.
-  - Fixed a shutdown SIGSEGV when a detached async worker was still in
-    flight while PHP unloaded the extension at process exit: MSHUTDOWN
-    now interrupts and waits out in-flight workers, and the instance
-    cache is destroyed while libduckdb is still mapped.
-  - New tests: 061-065.
+  Development series. Changes since 1.1.0 accumulate here.
  </notes>
  <contents>
   <dir name="/">

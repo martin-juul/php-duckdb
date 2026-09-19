@@ -15,7 +15,7 @@
 extern zend_module_entry duckdb_module_entry;
 #define phpext_duckdb_ptr &duckdb_module_entry
 
-#define PHP_DUCKDB_VERSION "1.1.0"
+#define PHP_DUCKDB_VERSION "1.2.0"
 #define PHP_DUCKDB_NS      "DuckDB"
 
 #if defined(ZTS) && defined(COMPILE_DL_DUCKDB)
