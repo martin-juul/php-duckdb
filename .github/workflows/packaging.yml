@@ -192,6 +192,9 @@ jobs:
       # stream (EL9's php:8.2), so the remi stream wins; the reset is
       # tolerated to fail where no distribution php module exists.
       # After the stream switch, plain php-devel/php-cli resolve from it.
+      # --allowerasing lets dnf swap the container's curl-minimal for the
+      # full curl package (the two conflict; AlmaLinux base images ship
+      # curl-minimal).
       - name: Install Remi repository and build tooling
         run: |
           set -eu
@@ -199,7 +202,7 @@ jobs:
           dnf install -y "https://rpms.remirepo.net/enterprise/remi-release-${{ matrix.os }}.rpm"
           dnf module reset -y php 2>/dev/null || true
           dnf module install -y "php:remi-${{ matrix.php }}/common"
-          dnf install -y --setopt=install_weak_deps=False \
+          dnf install -y --setopt=install_weak_deps=False --allowerasing \
             php-devel php-cli \
             rpm-build gcc gcc-c++ make libtool chrpath unzip curl tar gzip gawk
           php -v | head -1
