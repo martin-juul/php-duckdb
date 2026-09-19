@@ -474,8 +474,13 @@ final class Harness
         $failures = 0;
         foreach ($scripts as $script) {
             $base = basename($script);
+            // xdebug.mode=off: Xdebug's fcall observers segfault at request
+            // shutdown after Swoole coroutine switches (known upstream,
+            // swoole-src#4487 / xdebug bug #2221); the harness collects no
+            // coverage, so Xdebug has no business being active here. The
+            // directive is ignored when Xdebug is not loaded.
             $proc = (new Process(
-                [PHP_BINARY, '-d', "extension={$module}", $script],
+                [PHP_BINARY, '-d', "extension={$module}", '-d', 'xdebug.mode=off', $script],
                 $this->config->rootDir,
                 $this->childEnv(),
             ))->run();

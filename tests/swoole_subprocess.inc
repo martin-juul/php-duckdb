@@ -40,5 +40,17 @@ function duckdb_swoole_spawn_args(): ?array
 
     $args[] = '-d';
     $args[] = 'swoole.hook_flags=0';
+
+    // Xdebug's fcall observers crash at request shutdown once a Swoole
+    // coroutine has suspended/resumed via boost-asm context switching
+    // (zend_observer_fcall_end_all -> xdebug_execute_user_code_end,
+    // SIGSEGV; known upstream, swoole-src#4487 / xdebug bug #2221). The
+    // subprocess inherits the ambient php.ini, so a developer machine or
+    // CI image with Xdebug active would segfault the child even though
+    // the extension under test is not involved. Neutralise Xdebug here;
+    // the directive is ignored when Xdebug is not loaded.
+    $args[] = '-d';
+    $args[] = 'xdebug.mode=off';
+
     return $args;
 }
