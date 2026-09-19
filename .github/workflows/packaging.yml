@@ -182,23 +182,23 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # Remi's default-namespace PHP via the dedicated remi-php82/83/84/85
-      # repos (not the phpXX-php-* SCLs). On EL9 the AppStream php module
-      # masks non-modular php packages, so it must be reset first; EL10
-      # has no modularity. The php packages are version-pinned because
-      # AppStream's php 8.3 on EL10 would otherwise win over remi-php82.
+      # Remi's default-namespace PHP via the remi-8.x php module streams
+      # from the remi-modular repo (enabled by default in remi-release).
+      # This is Remi's documented EL flow; the legacy dedicated
+      # remi-php82/83/84/85 repos no longer ship in remi-release.
+      # Resetting the php module first drops any AppStream default
+      # stream (EL9's php:8.2), so the remi stream wins; the reset is
+      # tolerated to fail where no distribution php module exists.
+      # After the stream switch, plain php-devel/php-cli resolve from it.
       - name: Install Remi repository and build tooling
         run: |
           set -eu
           dnf install -y --setopt=install_weak_deps=False epel-release
           dnf install -y "https://rpms.remirepo.net/enterprise/remi-release-${{ matrix.os }}.rpm"
-          if [ "${{ matrix.os }}" = "9" ]; then
-            dnf module reset -y php
-          fi
-          short=$(echo "${{ matrix.php }}" | tr -d .)
+          dnf module reset -y php 2>/dev/null || true
+          dnf module install -y "php:remi-${{ matrix.php }}/common"
           dnf install -y --setopt=install_weak_deps=False \
-            --enablerepo=remi-safe,remi-php${short} \
-            "php-devel-${{ matrix.php }}.*" "php-cli-${{ matrix.php }}.*" \
+            php-devel php-cli \
             rpm-build gcc gcc-c++ make libtool chrpath unzip curl tar gzip gawk
           php -v | head -1
 
