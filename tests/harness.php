@@ -787,6 +787,8 @@ Stages (default: doctor build unit examples):
   valgrind   run the .phpt suite under Valgrind (definite leaks = failure)
   stress     run tests/stress/*.php (memory stability, concurrency)
 
+  Stage names may also be written as options, e.g. --valgrind.
+
 Options:
   --quick              doctor + unit only
   --full               all six stages
@@ -815,6 +817,13 @@ function parseArgs(array $argv): Config
 
     $explicitStages = [];
     foreach (array_slice($argv, 1) as $arg) {
+        // Stage names work both bare and --prefixed: `valgrind` and
+        // `--valgrind` are equivalent. Every other token on this command
+        // line is a --option, so the bare form trips people up in both
+        // directions — accept both.
+        if (str_starts_with($arg, '--') && in_array(substr($arg, 2), Config::KNOWN_STAGES, true)) {
+            $arg = substr($arg, 2);
+        }
         if (in_array($arg, Config::KNOWN_STAGES, true)) {
             $explicitStages[] = $arg;
         } elseif ($arg === '--quick') {
