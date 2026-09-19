@@ -244,6 +244,9 @@ PHP_METHOD(DuckDB_PendingQuery, isReady) {
     ZEND_PARSE_PARAMETERS_END();
 
     php_duckdb_pending_object *intern = Z_DUCKDB_PENDING_P(ZEND_THIS);
+    if (!duckdb_initialized_guard(static_cast<bool>(intern->task), "DuckDB\\PendingQuery")) {
+        RETURN_THROWS();
+    }
     RETURN_BOOL(duckdb_task_step(intern->task));
 }
 
@@ -253,6 +256,9 @@ PHP_METHOD(DuckDB_PendingQuery, await) {
     ZEND_PARSE_PARAMETERS_END();
 
     php_duckdb_pending_object *intern = Z_DUCKDB_PENDING_P(ZEND_THIS);
+    if (!duckdb_initialized_guard(static_cast<bool>(intern->task), "DuckDB\\PendingQuery")) {
+        RETURN_THROWS();
+    }
     std::shared_ptr<async_task> task = intern->task;
 
     if (task->mode == task_mode::POLLING) {
@@ -273,6 +279,9 @@ PHP_METHOD(DuckDB_PendingQuery, suspend) {
     ZEND_PARSE_PARAMETERS_END();
 
     php_duckdb_pending_object *intern = Z_DUCKDB_PENDING_P(ZEND_THIS);
+    if (!duckdb_initialized_guard(static_cast<bool>(intern->task), "DuckDB\\PendingQuery")) {
+        RETURN_THROWS();
+    }
     std::shared_ptr<async_task> task = intern->task;
 
     /* Runtime integrations, claimed in order: Swoole 6+, True Async,
@@ -317,6 +326,9 @@ PHP_METHOD(DuckDB_PendingQuery, cancel) {
     ZEND_PARSE_PARAMETERS_END();
 
     php_duckdb_pending_object *intern = Z_DUCKDB_PENDING_P(ZEND_THIS);
+    if (!duckdb_initialized_guard(static_cast<bool>(intern->task), "DuckDB\\PendingQuery")) {
+        RETURN_THROWS();
+    }
     duckdb_task_cancel(intern->task);
 }
 

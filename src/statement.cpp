@@ -152,6 +152,9 @@ static void duckdb_statement_bind_impl(INTERNAL_FUNCTION_PARAMETERS, bool as_blo
     }
 
     php_duckdb_statement_object *intern = Z_DUCKDB_STATEMENT_P(ZEND_THIS);
+    if (!duckdb_initialized_guard(static_cast<bool>(intern->inner), "DuckDB\\Statement")) {
+        RETURN_THROWS();
+    }
     if (!duckdb_connection_guard(intern->inner->conn)) {
         RETURN_THROWS();
     }
@@ -213,6 +216,9 @@ PHP_METHOD(DuckDB_Statement, clearBindings) {
     ZEND_PARSE_PARAMETERS_END();
 
     php_duckdb_statement_object *intern = Z_DUCKDB_STATEMENT_P(ZEND_THIS);
+    if (!duckdb_initialized_guard(static_cast<bool>(intern->inner), "DuckDB\\Statement")) {
+        RETURN_THROWS();
+    }
     if (!duckdb_connection_guard(intern->inner->conn)) {
         RETURN_THROWS();
     }
@@ -225,6 +231,9 @@ PHP_METHOD(DuckDB_Statement, parameterCount) {
     ZEND_PARSE_PARAMETERS_END();
 
     php_duckdb_statement_object *intern = Z_DUCKDB_STATEMENT_P(ZEND_THIS);
+    if (!duckdb_initialized_guard(static_cast<bool>(intern->inner), "DuckDB\\Statement")) {
+        RETURN_THROWS();
+    }
     RETURN_LONG((zend_long)duckdb_nparams(intern->inner->stmt));
 }
 
@@ -237,6 +246,9 @@ PHP_METHOD(DuckDB_Statement, parameterName) {
     ZEND_PARSE_PARAMETERS_END();
 
     php_duckdb_statement_object *intern = Z_DUCKDB_STATEMENT_P(ZEND_THIS);
+    if (!duckdb_initialized_guard(static_cast<bool>(intern->inner), "DuckDB\\Statement")) {
+        RETURN_THROWS();
+    }
     idx_t count = duckdb_nparams(intern->inner->stmt);
     if (param < 1 || (uint64_t)param > (uint64_t)count) {
         zend_argument_value_error(1, "must be between 1 and %d", (int)count);
@@ -261,6 +273,9 @@ PHP_METHOD(DuckDB_Statement, parameterType) {
     ZEND_PARSE_PARAMETERS_END();
 
     php_duckdb_statement_object *intern = Z_DUCKDB_STATEMENT_P(ZEND_THIS);
+    if (!duckdb_initialized_guard(static_cast<bool>(intern->inner), "DuckDB\\Statement")) {
+        RETURN_THROWS();
+    }
 
     idx_t index;
     if (!duckdb_resolve_param_index(intern->inner->stmt, param, &index)) {
@@ -283,6 +298,9 @@ PHP_METHOD(DuckDB_Statement, statementType) {
     ZEND_PARSE_PARAMETERS_END();
 
     php_duckdb_statement_object *intern = Z_DUCKDB_STATEMENT_P(ZEND_THIS);
+    if (!duckdb_initialized_guard(static_cast<bool>(intern->inner), "DuckDB\\Statement")) {
+        RETURN_THROWS();
+    }
     RETURN_STRING(duckdb_statement_type_name(duckdb_prepared_statement_type(intern->inner->stmt)));
 }
 
@@ -292,6 +310,9 @@ PHP_METHOD(DuckDB_Statement, columnCount) {
     ZEND_PARSE_PARAMETERS_END();
 
     php_duckdb_statement_object *intern = Z_DUCKDB_STATEMENT_P(ZEND_THIS);
+    if (!duckdb_initialized_guard(static_cast<bool>(intern->inner), "DuckDB\\Statement")) {
+        RETURN_THROWS();
+    }
     RETURN_LONG((zend_long)duckdb_prepared_statement_column_count(intern->inner->stmt));
 }
 
@@ -304,6 +325,9 @@ PHP_METHOD(DuckDB_Statement, columnName) {
     ZEND_PARSE_PARAMETERS_END();
 
     php_duckdb_statement_object *intern = Z_DUCKDB_STATEMENT_P(ZEND_THIS);
+    if (!duckdb_initialized_guard(static_cast<bool>(intern->inner), "DuckDB\\Statement")) {
+        RETURN_THROWS();
+    }
     idx_t count = duckdb_prepared_statement_column_count(intern->inner->stmt);
     if (index < 0 || (uint64_t)index >= (uint64_t)count) {
         zend_argument_value_error(1, "must be between 0 and %d", count > 0 ? (int)count - 1 : 0);
@@ -328,6 +352,9 @@ PHP_METHOD(DuckDB_Statement, columnType) {
     ZEND_PARSE_PARAMETERS_END();
 
     php_duckdb_statement_object *intern = Z_DUCKDB_STATEMENT_P(ZEND_THIS);
+    if (!duckdb_initialized_guard(static_cast<bool>(intern->inner), "DuckDB\\Statement")) {
+        RETURN_THROWS();
+    }
     idx_t count = duckdb_prepared_statement_column_count(intern->inner->stmt);
     if (index < 0 || (uint64_t)index >= (uint64_t)count) {
         zend_argument_value_error(1, "must be between 0 and %d", count > 0 ? (int)count - 1 : 0);
@@ -354,6 +381,9 @@ static void duckdb_statement_execute_impl(INTERNAL_FUNCTION_PARAMETERS, bool str
     ZEND_PARSE_PARAMETERS_END();
 
     php_duckdb_statement_object *intern = Z_DUCKDB_STATEMENT_P(ZEND_THIS);
+    if (!duckdb_initialized_guard(static_cast<bool>(intern->inner), "DuckDB\\Statement")) {
+        RETURN_THROWS();
+    }
     if (!duckdb_connection_guard(intern->inner->conn)) {
         RETURN_THROWS();
     }
@@ -364,9 +394,30 @@ static void duckdb_statement_execute_impl(INTERNAL_FUNCTION_PARAMETERS, bool str
         if (params && !duckdb_bind_params_array(intern->inner->stmt, params)) {
             RETURN_THROWS();
         }
-        duckdb_state st = streaming
-            ? duckdb_execute_prepared_streaming(intern->inner->stmt, &res)
-            : duckdb_execute_prepared(intern->inner->stmt, &res);
+        duckdb_state st;
+        if (streaming) {
+            /* duckdb_execute_prepared_streaming is deprecated upstream;
+             * the replacement is the pending-result API. */
+            duckdb_pending_result pending = nullptr;
+            if (duckdb_pending_prepared_streaming(intern->inner->stmt, &pending) == DuckDBError) {
+                const char *err = pending ? duckdb_pending_error(pending) : nullptr;
+                std::string msg = (err && err[0]) ? err : "Failed to start streaming query";
+                if (pending) {
+                    duckdb_destroy_pending(&pending);
+                }
+                duckdb_error_type type = duckdb_classify_error_message(msg.c_str());
+                if (type == DUCKDB_ERROR_INVALID) {
+                    type = DUCKDB_ERROR_INTERNAL;
+                }
+                duckdb_throw_error(type, msg.c_str());
+                RETURN_THROWS();
+            }
+            st = duckdb_execute_pending(pending, &res);
+            /* duckdb_execute_pending does NOT consume the pending handle. */
+            duckdb_destroy_pending(&pending);
+        } else {
+            st = duckdb_execute_prepared(intern->inner->stmt, &res);
+        }
         if (st == DuckDBError) {
             duckdb_throw_result_error(&res);
             RETURN_THROWS();
@@ -398,6 +449,9 @@ PHP_METHOD(DuckDB_Statement, executeAsync) {
     ZEND_PARSE_PARAMETERS_END();
 
     php_duckdb_statement_object *intern = Z_DUCKDB_STATEMENT_P(ZEND_THIS);
+    if (!duckdb_initialized_guard(static_cast<bool>(intern->inner), "DuckDB\\Statement")) {
+        RETURN_THROWS();
+    }
     if (!duckdb_connection_guard(intern->inner->conn)) {
         RETURN_THROWS();
     }
@@ -423,13 +477,27 @@ PHP_METHOD(DuckDB_Statement, executeAsync) {
     task->stmt = intern->inner; /* keeps the statement alive during execution */
     task->notify_write_fd = fds[1];
 
+    /* Starting a new execution invalidates any open streaming result on
+     * this connection. The bump is sequenced before the thread is
+     * created: thread creation is the happens-before edge that publishes
+     * the task to the worker. */
+    intern->inner->conn->execution_epoch.fetch_add(1, std::memory_order_relaxed);
+
+    try {
+        std::thread(duckdb_async_run, task).detach();
+    } catch (const std::system_error &e) {
+        /* Thread creation failed (resource exhaustion): no worker owns the
+         * write end, so close both fds ourselves. */
+        close(fds[0]);
+        close(fds[1]);
+        task->notify_write_fd = -1;
+        zend_throw_exception_ex(duckdb_internal_exception_ce, DUCKDB_ERROR_INTERNAL,
+                                "Failed to start async worker thread: %s", e.what());
+        RETURN_THROWS();
+    }
+
     object_init_ex(return_value, duckdb_pending_ce);
     php_duckdb_pending_object *p = Z_DUCKDB_PENDING_P(return_value);
     p->task = task;
     p->read_fd = fds[0];
-
-    /* Starting a new execution invalidates any open streaming result on
-     * this connection. */
-    intern->inner->conn->execution_epoch.fetch_add(1, std::memory_order_relaxed);
-    std::thread(duckdb_async_run, task).detach();
 }

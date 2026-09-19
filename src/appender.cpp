@@ -63,6 +63,9 @@ static void duckdb_appender_fail(php_duckdb_appender_object *intern, const char 
 /* Get the live appender handle or throw when it has been closed or its
  * connection is closed. */
 static duckdb_appender duckdb_appender_get(INTERNAL_FUNCTION_PARAMETERS, php_duckdb_appender_object *intern) {
+    if (!duckdb_initialized_guard(static_cast<bool>(intern->inner), "DuckDB\\Appender")) {
+        return nullptr;
+    }
     if (intern->inner->closed || intern->inner->appender == nullptr) {
         duckdb_throw_msg("Appender is closed");
         return nullptr;
@@ -268,6 +271,9 @@ PHP_METHOD(DuckDB_Appender, close) {
     ZEND_PARSE_PARAMETERS_END();
 
     php_duckdb_appender_object *intern = Z_DUCKDB_APPENDER_P(ZEND_THIS);
+    if (!duckdb_initialized_guard(static_cast<bool>(intern->inner), "DuckDB\\Appender")) {
+        RETURN_THROWS();
+    }
     if (intern->inner->closed) {
         return; /* idempotent */
     }
