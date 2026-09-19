@@ -488,6 +488,18 @@ void duckdb_result_instantiate(zval *return_value, duckdb_result *res, bool stre
 /* pending.cpp */
 /* Worker thread entry point for THREAD_* modes. */
 void duckdb_async_run(std::shared_ptr<async_task> task);
+/* Async worker registry. A detached worker outlives its PHP object by
+ * design (it only ever touches C++ state, never Zend memory), but at
+ * process shutdown PHP dlcloses this module — a worker still in flight
+ * would then execute unmapped code (shutdown SIGSEGV).
+ * duckdb_async_worker_start() registers a worker BEFORE std::thread
+ * creation so duckdb_async_shutdown() can interrupt its connection;
+ * duckdb_async_worker_finish() runs after the worker's last touch of
+ * task/connection/DuckDB state; duckdb_async_shutdown() interrupts
+ * stragglers and blocks until every started worker has finished. */
+void duckdb_async_worker_start(const std::shared_ptr<async_task> &task);
+void duckdb_async_worker_finish();
+void duckdb_async_shutdown();
 /* Advance a task one step; returns true when finished. For POLLING mode
  * this executes a slice of the DuckDB task graph on the calling thread. */
 bool duckdb_task_step(std::shared_ptr<async_task> task);

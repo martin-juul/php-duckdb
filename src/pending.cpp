@@ -25,6 +25,8 @@
 #include "php_duckdb.h"
 #include "suspend_internal.h"
 
+#include <algorithm>
+#include <chrono>
 #include <thread>
 
 #if defined(ZTS) && defined(COMPILE_DL_DUCKDB)
@@ -48,7 +50,63 @@ bool duckdb_create_notify_pipe(int fds[2]) {
     return true;
 }
 
-void duckdb_async_run(std::shared_ptr<async_task> task) {
+namespace {
+std::mutex duckdb_async_registry_mu;
+std::condition_variable duckdb_async_registry_cv;
+std::vector<std::weak_ptr<async_task>> duckdb_async_registry;
+size_t duckdb_async_active = 0;
+}
+
+void duckdb_async_worker_start(const std::shared_ptr<async_task> &task) {
+    std::lock_guard<std::mutex> lk(duckdb_async_registry_mu);
+    duckdb_async_registry.emplace_back(task);
+    duckdb_async_active++;
+}
+
+void duckdb_async_worker_finish() {
+    {
+        std::lock_guard<std::mutex> lk(duckdb_async_registry_mu);
+        duckdb_async_active--;
+    }
+    duckdb_async_registry_cv.notify_all();
+}
+
+void duckdb_async_shutdown() {
+    std::unique_lock<std::mutex> lk(duckdb_async_registry_mu);
+    while (duckdb_async_active > 0) {
+        /* Interrupt every connection with an in-flight worker so a
+         * runaway query cannot stall process shutdown; the worker notices
+         * at the next DuckDB task boundary. Holding the shared_ptr keeps
+         * the connection alive across the interrupt call itself. */
+        std::vector<std::shared_ptr<conn_inner>> conns;
+        for (const auto &wp : duckdb_async_registry) {
+            if (auto t = wp.lock()) {
+                if (t->conn) {
+                    conns.push_back(t->conn);
+                }
+            }
+        }
+        duckdb_async_registry.erase(
+            std::remove_if(duckdb_async_registry.begin(), duckdb_async_registry.end(),
+                           [](const std::weak_ptr<async_task> &wp) { return wp.expired(); }),
+            duckdb_async_registry.end());
+        lk.unlock();
+        for (const auto &conn : conns) {
+            duckdb_interrupt(conn->conn);
+        }
+        lk.lock();
+        if (duckdb_async_active > 0) {
+            duckdb_async_registry_cv.wait_for(lk, std::chrono::milliseconds(10));
+        }
+    }
+}
+
+/* Worker body: everything that touches task/connection/DuckDB state. The
+ * parameter's shared_ptr release at this scope's end may run ~async_task
+ * (and even ~conn_inner -> duckdb_disconnect), i.e. libduckdb code, so the
+ * registry decrement in duckdb_async_run() happens strictly after this
+ * returns. */
+static void duckdb_async_run_task(std::shared_ptr<async_task> task) {
     {
         std::lock_guard<std::mutex> lk(task->conn->mutex);
         duckdb_state state;
@@ -89,6 +147,13 @@ void duckdb_async_run(std::shared_ptr<async_task> task) {
     }
 
     task->cv.notify_all();
+}
+
+void duckdb_async_run(std::shared_ptr<async_task> task) {
+    duckdb_async_run_task(std::move(task));
+    /* Only now — after every use of this module's and libduckdb's code —
+     * may MSHUTDOWN proceed towards dlclose. */
+    duckdb_async_worker_finish();
 }
 
 /* Advance a task by one step and report completion.
