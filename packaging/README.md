@@ -9,6 +9,8 @@ packaging/
     php-duckdb.spec        # RPM spec — openSUSE Tumbleweed/Leap, SLE
   fedora/
     php-pecl-duckdb.spec   # RPM spec — Fedora 43+, EPEL-compatible
+  debian/
+    control, rules, ...    # debhelper packaging — Debian sid/forky, Ubuntu
 ```
 
 The extension itself is distribution-agnostic (phpize + `--with-duckdb`);
@@ -108,6 +110,56 @@ Build with `--without tests` to skip the `%check` test suite.
 - In spec `%install`, the `:`-style pseudo-comments must not contain
   unquoted parentheses — they are parsed as subshell syntax and abort the
   section with "syntax error near unexpected token `('".
+
+## Debian (deb)
+
+`debian/` builds `php-duckdb` on Debian sid/forky (and Ubuntu derivatives
+with a `libduckdb-dev` package). This is the one target that can use the
+**system libduckdb strategy**: sid and forky ship
+[`libduckdb-dev`](https://packages.debian.org/sid/libdevel/libduckdb-dev)
+1.5.5, so no vendored archive is involved — the package build-depends on
+`libduckdb-dev` and picks up a versioned runtime dependency on
+`libduckdb1.5` via `${shlibs:Depends}` automatically.
+
+The packaging uses `dh --with php` (`dh-php`): the ini drop-in is
+registered through `debian/php-duckdb.php` into
+`/etc/php/<version>/mods-available/`, activated for all SAPIs by
+`phpenmod` in the maintainer scripts, and `${php:Depends}` pins the
+package to the exact PHP API (`phpapi-*`) it was built against.
+
+### Local build
+
+```bash
+sudo apt-get install build-essential debhelper dh-php php-dev php-cli libduckdb-dev
+
+# dpkg insists on ./debian at the source root; copy it out of packaging/:
+cp -r packaging/debian debian
+chmod +x debian/rules
+
+dpkg-buildpackage -us -uc -b
+sudo dpkg -i ../php-duckdb_*.deb
+php -m | grep duckdb
+```
+
+The test suite runs in `dh_auto_test` with `NO_INTERACTION=1` /
+`REPORT_EXIT_STATUS=1`; skip it with `DEB_BUILD_OPTIONS=nocheck`.
+
+### Debian packaging notes
+
+- `debian/rules` needs the execute bit; git checkouts keep it, but a
+  plain copy may not — `chmod +x debian/rules` before building.
+- `PHP_RPATH=no` is exported in `debian/rules`. PHP's `build/php.m4`
+  honours it by emptying `ld_runpath_switch`, so unlike the RPM specs no
+  `chrpath -d` fix-up is needed: the built `duckdb.so` carries no RPATH
+  at all and resolves `libduckdb.so.1.5` via ldconfig.
+- The install step must pass `INSTALL_ROOT`, not `DESTDIR` — PHP's
+  `Makefile.global` only honours the former.
+- The `unresolvable reference to symbol add_assoc_*` warnings from
+  `dpkg-shlibdeps` are expected: PHP extension symbols resolve against
+  the PHP binary at runtime, not against a linked library.
+- Source format is `3.0 (quilt)`; the CI build is binary-only (`-b`),
+  which needs no orig tarball. To build a source package, place
+  `php-duckdb_<version>.orig.tar.gz` next to the tree first.
 
 ## Adding another distribution
 
