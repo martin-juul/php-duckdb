@@ -64,3 +64,65 @@ jobs:
             PHP_VERSION=${{ matrix.php }}
           cache-from: type=gha,scope=php-duckdb-${{ matrix.php }}
           cache-to: type=gha,mode=max,scope=php-duckdb-${{ matrix.php }}
+
+  docker-zts:
+    name: Docker php${{ matrix.php }}-frankenphp ZTS (amd64 + arm64)
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # ZTS builds matter for FrankenPHP; the frankenphp CI job covers
+        # 8.4 + 8.5, so the published ZTS images track the same set.
+        php: ['8.4', '8.5']
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up QEMU (arm64 emulation)
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to ghcr.io
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Compute image tags
+        id: tags
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAGS="ghcr.io/${{ github.repository }}:${{ matrix.php }}-frankenphp"
+          # latest-frankenphp tracks the newest supported PHP version
+          if [ "${{ matrix.php }}" = "8.5" ]; then
+            TAGS="${TAGS},ghcr.io/${{ github.repository }}:latest-frankenphp"
+          fi
+          # Release tags (v1.2.3) additionally publish 1.2.3-php8.4-frankenphp style tags
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            TAGS="${TAGS},ghcr.io/${{ github.repository }}:${GITHUB_REF_NAME#v}-php${{ matrix.php }}-frankenphp"
+          fi
+          echo "tags=${TAGS}" >> "$GITHUB_OUTPUT"
+
+      # Dockerfile.frankenphp compiles against the builder image's
+      # embedded ZTS PHP and runs its smoke test inside the build for
+      # BOTH platforms. On pull requests nothing is pushed; the build +
+      # in-build smoke test still runs.
+      - name: Build multi-arch ZTS image (publish on master/tags)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.frankenphp
+          platforms: linux/amd64,linux/arm64
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.tags.outputs.tags }}
+          build-args: |
+            PHP_VERSION=${{ matrix.php }}
+          cache-from: type=gha,scope=php-duckdb-frankenphp-${{ matrix.php }}
+          cache-to: type=gha,mode=max,scope=php-duckdb-frankenphp-${{ matrix.php }}
