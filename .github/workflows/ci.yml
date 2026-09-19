@@ -298,7 +298,7 @@ jobs:
         php: ['8.4', '8.5']
     # The builder images ship the exact ZTS PHP that FrankenPHP embeds,
     # plus phpize/php-config and the frankenphp binary.
-    container: dunglas/frankenphp:php${{ matrix.php }}-builder
+    container: dunglas/frankenphp:builder-php${{ matrix.php }}
     steps:
       - uses: actions/checkout@v4
 
