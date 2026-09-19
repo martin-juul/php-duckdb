@@ -15,7 +15,7 @@
 #include "config.h"
 #endif
 
-#include "php.h"
+#include "php_duckdb_cxx_compat.h"
 #include "php_ini.h"
 #include "ext/standard/info.h"
 #include "ext/json/php_json.h"
