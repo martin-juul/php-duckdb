@@ -7,6 +7,11 @@ name: Packaging
 # the resulting package and smoke-tests the system PHP loading it
 # through the distro's own ini mechanism.
 #
+# Every job runs on amd64 (ubuntu-latest) AND arm64 (ubuntu-24.04-arm —
+# native ARM64 runners, free for public repos), so each distro package
+# is built and smoke-tested on both architectures DuckDB ships prebuilt
+# libduckdb archives for.
+#
 # When a GitHub Release is published, all packages are rebuilt from the
 # release tag and attached to the release as downloadable assets by the
 # final release-assets job (which runs only for release events).
@@ -38,8 +43,12 @@ on:
 
 jobs:
   opensuse-rpm:
-    name: openSUSE Tumbleweed RPM
-    runs-on: ubuntu-latest
+    name: openSUSE Tumbleweed RPM (${{ matrix.arch }})
+    runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [amd64, arm64]
     container: opensuse/tumbleweed:latest
     steps:
       - uses: actions/checkout@v4
@@ -53,7 +62,9 @@ jobs:
 
       # rpmbuild never downloads Source URLs itself; stage them exactly as
       # the spec names them. The version is read from the spec so the two
-      # cannot drift apart.
+      # cannot drift apart. The spec's Source1 is arch-conditional
+      # (%ifarch x86_64 -> amd64 zip, aarch64 -> arm64 zip), so the
+      # staged file name must match the build architecture.
       # NOTE: actions/checkout falls back to a REST tarball download when
       # the container has no git — leaving no .git directory — so pack the
       # workspace with tar instead of `git archive`.
@@ -62,11 +73,16 @@ jobs:
           set -eu
           ver=$(awk '/^Version:/ {print $2}' packaging/opensuse/php-duckdb.spec)
           dver=$(awk '/^%define duckdb_version/ {print $3}' packaging/opensuse/php-duckdb.spec)
+          case "$(uname -m)" in
+            x86_64) duck_arch=amd64 ;;
+            aarch64) duck_arch=arm64 ;;
+            *) echo "unsupported build arch: $(uname -m)" >&2; exit 1 ;;
+          esac
           mkdir -p /root/rpmbuild/SOURCES /root/rpmbuild/SPECS /root/rpmbuild/BUILD /root/rpmbuild/RPMS /root/rpmbuild/SRPMS
           tar --exclude='./.git' --transform "s,^\.,php-duckdb-${ver}," \
             -czf "/root/rpmbuild/SOURCES/php-duckdb-${ver}.tar.gz" .
-          curl -fsSL -o /root/rpmbuild/SOURCES/libduckdb-linux-amd64.zip \
-            "https://github.com/duckdb/duckdb/releases/download/v${dver}/libduckdb-linux-amd64.zip"
+          curl -fsSL -o "/root/rpmbuild/SOURCES/libduckdb-linux-${duck_arch}.zip" \
+            "https://github.com/duckdb/duckdb/releases/download/v${dver}/libduckdb-linux-${duck_arch}.zip"
           cp packaging/opensuse/php-duckdb.spec /root/rpmbuild/SPECS/
 
       # -ba builds the binary RPMs AND the SRPM; the spec's %check runs
@@ -78,22 +94,26 @@ jobs:
       - name: Install RPM and smoke test with system PHP
         run: |
           set -eu
-          rpm -ivh /root/rpmbuild/RPMS/x86_64/php8-duckdb-*.rpm
+          rpm -ivh /root/rpmbuild/RPMS/$(uname -m)/php8-duckdb-*.rpm
           php -m | grep -i duckdb
           php -r '$c = (new DuckDB\Database())->connect(); $r = $c->query("SELECT 42 AS x")->fetchRow(); if ($r["x"] !== 42) { exit(1); } printf("smoke OK: duckdb ext %s, libduckdb %s, PHP %s\n", phpversion("duckdb"), DuckDB\version(), PHP_VERSION);'
 
       - name: Upload RPM artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: opensuse-tumbleweed-rpm
+          name: opensuse-tumbleweed-rpm-${{ matrix.arch }}
           path: |
-            /root/rpmbuild/RPMS/x86_64/*.rpm
+            /root/rpmbuild/RPMS/*/*.rpm
             /root/rpmbuild/SRPMS/*.rpm
           if-no-files-found: error
 
   fedora-rpm:
-    name: Fedora 44 RPM
-    runs-on: ubuntu-latest
+    name: Fedora 44 RPM (${{ matrix.arch }})
+    runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [amd64, arm64]
     container: fedora:44
     steps:
       - uses: actions/checkout@v4
@@ -107,16 +127,23 @@ jobs:
       # Same staging story as the openSUSE job: checkout may fall back to
       # a REST tarball (no git in the container, no .git), so pack the
       # workspace with tar; rpmbuild never downloads Source URLs itself.
+      # The spec's Source1 is arch-conditional (%ifarch), so stage the
+      # libduckdb zip under the name matching the build architecture.
       - name: Stage rpmbuild sources
         run: |
           set -eu
           ver=$(awk '/^%global upstream_version/ {print $3}' packaging/fedora/php-pecl-duckdb.spec)
           dver=$(awk '/^%global duckdb_version/ {print $3}' packaging/fedora/php-pecl-duckdb.spec)
+          case "$(uname -m)" in
+            x86_64) duck_arch=amd64 ;;
+            aarch64) duck_arch=arm64 ;;
+            *) echo "unsupported build arch: $(uname -m)" >&2; exit 1 ;;
+          esac
           mkdir -p /root/rpmbuild/SOURCES /root/rpmbuild/SPECS /root/rpmbuild/BUILD /root/rpmbuild/RPMS /root/rpmbuild/SRPMS
           tar --exclude='./.git' --transform "s,^\.,php-duckdb-${ver}," \
             -czf "/root/rpmbuild/SOURCES/php-duckdb-${ver}.tar.gz" .
-          curl -fsSL -o /root/rpmbuild/SOURCES/libduckdb-linux-amd64.zip \
-            "https://github.com/duckdb/duckdb/releases/download/v${dver}/libduckdb-linux-amd64.zip"
+          curl -fsSL -o "/root/rpmbuild/SOURCES/libduckdb-linux-${duck_arch}.zip" \
+            "https://github.com/duckdb/duckdb/releases/download/v${dver}/libduckdb-linux-${duck_arch}.zip"
           cp packaging/fedora/php-pecl-duckdb.spec /root/rpmbuild/SPECS/
 
       # -ba builds the binary RPMs AND the SRPM; the spec's %check runs
@@ -128,28 +155,33 @@ jobs:
       - name: Install RPM and smoke test with system PHP
         run: |
           set -eu
-          rpm -ivh /root/rpmbuild/RPMS/x86_64/php-pecl-duckdb-*.rpm
+          rpm -ivh /root/rpmbuild/RPMS/$(uname -m)/php-pecl-duckdb-*.rpm
           php -m | grep -i duckdb
           php -r '$c = (new DuckDB\Database())->connect(); $r = $c->query("SELECT 42 AS x")->fetchRow(); if ($r["x"] !== 42) { exit(1); } printf("smoke OK: duckdb ext %s, libduckdb %s, PHP %s\n", phpversion("duckdb"), DuckDB\version(), PHP_VERSION);'
 
       - name: Upload RPM artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: fedora-44-rpm
+          name: fedora-44-rpm-${{ matrix.arch }}
           path: |
-            /root/rpmbuild/RPMS/x86_64/*.rpm
+            /root/rpmbuild/RPMS/*/*.rpm
             /root/rpmbuild/SRPMS/*.rpm
           if-no-files-found: error
 
   debian-deb:
-    name: Debian sid deb
-    runs-on: ubuntu-latest
+    name: Debian sid deb (${{ matrix.arch }})
+    runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [amd64, arm64]
     container: debian:sid
     steps:
       - uses: actions/checkout@v4
 
       # Debian is the one target using the system libduckdb strategy:
-      # sid ships libduckdb-dev, so no vendored archive is downloaded.
+      # sid ships libduckdb-dev (amd64 + arm64), so no vendored archive
+      # is downloaded.
       - name: Install build tooling
         run: |
           apt-get update
@@ -196,13 +228,17 @@ jobs:
       - name: Upload deb artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: debian-sid-deb
+          name: debian-sid-deb-${{ matrix.arch }}
           path: /root/php-duckdb*.deb
           if-no-files-found: error
 
   debian-trixie-deb:
-    name: Debian 13 trixie deb
-    runs-on: ubuntu-latest
+    name: Debian 13 trixie deb (${{ matrix.arch }})
+    runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [amd64, arm64]
     container: debian:trixie
     steps:
       - uses: actions/checkout@v4
@@ -231,7 +267,8 @@ jobs:
       # dpkg insists on ./debian at the source root; restore the execute
       # bit on debian/rules. The vendored libduckdb is staged as
       # duckdb-sdk/{include,lib}; the pin lives in debian-trixie/rules
-      # so the two cannot drift apart.
+      # so the two cannot drift apart. The zip is selected per build
+      # architecture (DuckDB publishes amd64 + arm64 archives).
       - name: Stage debian packaging and vendored libduckdb
         run: |
           set -eu
@@ -271,19 +308,20 @@ jobs:
       - name: Upload deb artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: debian-13-trixie-deb
+          name: debian-13-trixie-deb-${{ matrix.arch }}
           path: /root/php-duckdb*.deb
           if-no-files-found: error
 
   ubuntu-lts-deb:
-    name: Ubuntu ${{ matrix.release }} LTS deb
-    runs-on: ubuntu-latest
+    name: Ubuntu ${{ matrix.release }} LTS deb (${{ matrix.arch }})
+    runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
     strategy:
       fail-fast: false
       matrix:
         # noble: PHP 8.3, resolute: PHP 8.5 — neither has a libduckdb
         # package, so both use the vendored strategy (packaging/ubuntu).
         release: ['24.04', '26.04']
+        arch: [amd64, arm64]
     container: ubuntu:${{ matrix.release }}
     steps:
       - uses: actions/checkout@v4
@@ -309,7 +347,8 @@ jobs:
       # dpkg insists on ./debian at the source root; restore the execute
       # bit on debian/rules. The vendored libduckdb is staged as
       # duckdb-sdk/{include,lib}; the pin lives in ubuntu/rules so the
-      # two cannot drift apart.
+      # two cannot drift apart. The zip is selected per build
+      # architecture (DuckDB publishes amd64 + arm64 archives).
       - name: Stage debian packaging and vendored libduckdb
         run: |
           set -eu
@@ -349,13 +388,17 @@ jobs:
       - name: Upload deb artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: ubuntu-${{ matrix.release }}-deb
+          name: ubuntu-${{ matrix.release }}-deb-${{ matrix.arch }}
           path: /root/php-duckdb*.deb
           if-no-files-found: error
 
   ubuntu-devel-deb:
-    name: Ubuntu devel deb
-    runs-on: ubuntu-latest
+    name: Ubuntu devel deb (${{ matrix.arch }})
+    runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [amd64, arm64]
     container: ubuntu:devel
     steps:
       - uses: actions/checkout@v4
@@ -399,7 +442,7 @@ jobs:
       - name: Upload deb artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: ubuntu-devel-deb
+          name: ubuntu-devel-deb-${{ matrix.arch }}
           path: /root/php-duckdb*.deb
           if-no-files-found: error
 
@@ -430,6 +473,10 @@ jobs:
       # ubuntu-26.04.deb): the deb filename is identical across distros,
       # so without the suffix same-named assets would clobber each other.
       # dpkg/rpm don't care about the file name, only the contents.
+      # The architecture is already encoded in the package filename
+      # itself (_amd64/_arm64 for debs, .x86_64/.aarch64 for rpms).
+      # Arch-independent SRPMs are produced by both arch builds; the
+      # second upload simply clobbers the first (identical content).
       - name: Upload packages as release assets
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -437,6 +484,8 @@ jobs:
           set -euo pipefail
           for dir in artifacts/*/; do
             slug=$(basename "$dir")
+            slug=${slug%-amd64}
+            slug=${slug%-arm64}
             slug=${slug%-deb}
             slug=${slug%-rpm}
             for pkg in "$dir"*; do
