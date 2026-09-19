@@ -6,6 +6,10 @@ name: Packaging
 # Ubuntu devel), runs the full test suite at build time, then installs
 # the resulting package and smoke-tests the system PHP loading it
 # through the distro's own ini mechanism.
+#
+# When a GitHub Release is published, all packages are rebuilt from the
+# release tag and attached to the release as downloadable assets by the
+# final release-assets job (which runs only for release events).
 
 on:
   push:
@@ -29,6 +33,8 @@ on:
       - 'duckdb.stub.php'
       - 'src/**'
       - '.github/workflows/packaging.yml'
+  release:
+    types: [published]
 
 jobs:
   opensuse-rpm:
@@ -396,3 +402,52 @@ jobs:
           name: ubuntu-devel-deb
           path: /root/php-duckdb*.deb
           if-no-files-found: error
+
+  # Runs only when the workflow was triggered by publishing a GitHub
+  # Release: waits for every packaging job, then attaches all built
+  # packages to the release as assets.
+  release-assets:
+    name: Attach packages to release
+    if: github.event_name == 'release'
+    needs:
+      - opensuse-rpm
+      - fedora-rpm
+      - debian-deb
+      - debian-trixie-deb
+      - ubuntu-lts-deb
+      - ubuntu-devel-deb
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: write
+    steps:
+      - name: Download all package artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      # Asset names get a distro suffix (php-duckdb_1.2.0-1_amd64.
+      # ubuntu-26.04.deb): the deb filename is identical across distros,
+      # so without the suffix same-named assets would clobber each other.
+      # dpkg/rpm don't care about the file name, only the contents.
+      - name: Upload packages as release assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          for dir in artifacts/*/; do
+            slug=$(basename "$dir")
+            slug=${slug%-deb}
+            slug=${slug%-rpm}
+            for pkg in "$dir"*; do
+              base=$(basename "$pkg")
+              case "$base" in
+                *.deb) asset="${base%.deb}.${slug}.deb" ;;
+                *.rpm) asset="${base%.rpm}.${slug}.rpm" ;;
+                *) asset="${base}.${slug}" ;;
+              esac
+              cp "$pkg" "/tmp/${asset}"
+              gh release upload "$GITHUB_REF_NAME" "/tmp/${asset}" --clobber
+              rm "/tmp/${asset}"
+            done
+          done
