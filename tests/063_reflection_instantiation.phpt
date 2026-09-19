@@ -19,7 +19,10 @@ $cases = [
     'PendingQuery::cancel' => [DuckDB\PendingQuery::class, 'cancel'],
     'Appender::flush'      => [DuckDB\Appender::class, 'flush'],
 ];
-foreach ($cases as $label => [$class, $method, ...$args]) {
+foreach ($cases as $label => $case) {
+    $class  = $case[0];
+    $method = $case[1];
+    $args   = array_slice($case, 2);
     $obj = (new ReflectionClass($class))->newInstanceWithoutConstructor();
     try {
         $obj->$method(...$args);
