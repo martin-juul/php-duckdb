@@ -1,0 +1,82 @@
+name: Packaging
+
+# Keeps the distribution packaging in packaging/ buildable: builds the
+# RPM in a real openSUSE Tumbleweed container, runs the test suite via
+# the spec's %check, then installs the resulting RPM and smoke-tests the
+# system PHP loading it through /etc/php8/conf.d.
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'packaging/**'
+      - 'config.m4'
+      - 'duckdb.cpp'
+      - 'php_duckdb.h'
+      - 'duckdb_arginfo.h'
+      - 'duckdb.stub.php'
+      - 'src/**'
+      - '.github/workflows/packaging.yml'
+  pull_request:
+    paths:
+      - 'packaging/**'
+      - 'config.m4'
+      - 'duckdb.cpp'
+      - 'php_duckdb.h'
+      - 'duckdb_arginfo.h'
+      - 'duckdb.stub.php'
+      - 'src/**'
+      - '.github/workflows/packaging.yml'
+
+jobs:
+  opensuse-rpm:
+    name: openSUSE Tumbleweed RPM
+    runs-on: ubuntu-latest
+    container: opensuse/tumbleweed:latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build tooling
+        run: |
+          zypper --non-interactive --gpg-auto-import-keys refresh
+          zypper --non-interactive install --no-recommends \
+            rpm-build php8 php8-devel gcc gcc-c++ make autoconf automake \
+            unzip curl tar gzip git gawk
+
+      # rpmbuild never downloads Source URLs itself; stage them exactly as
+      # the spec names them. The version is read from the spec so the two
+      # cannot drift apart.
+      - name: Stage rpmbuild sources
+        run: |
+          set -euo pipefail
+          ver=$(awk '/^Version:/ {print $2}' packaging/opensuse/php-duckdb.spec)
+          dver=$(awk '/^%define duckdb_version/ {print $3}' packaging/opensuse/php-duckdb.spec)
+          mkdir -p /root/rpmbuild/{SOURCES,SPECS,BUILD,RPMS,SRPMS}
+          git archive --prefix="php-duckdb-${ver}/" \
+            -o "/root/rpmbuild/SOURCES/php-duckdb-${ver}.tar" HEAD
+          gzip -f "/root/rpmbuild/SOURCES/php-duckdb-${ver}.tar"
+          curl -fsSL -o /root/rpmbuild/SOURCES/libduckdb-linux-amd64.zip \
+            "https://github.com/duckdb/duckdb/releases/download/v${dver}/libduckdb-linux-amd64.zip"
+          cp packaging/opensuse/php-duckdb.spec /root/rpmbuild/SPECS/
+
+      # -ba builds the binary RPMs AND the SRPM; the spec's %check runs
+      # the full .phpt suite (Swoole/AMPHP/ReactPHP/True-Async tests skip
+      # — those extensions are not installed here).
+      - name: Build RPM (with test suite)
+        run: rpmbuild --define '_topdir /root/rpmbuild' -ba /root/rpmbuild/SPECS/php-duckdb.spec
+
+      - name: Install RPM and smoke test with system PHP
+        run: |
+          set -euo pipefail
+          rpm -ivh /root/rpmbuild/RPMS/x86_64/php8-duckdb-*.rpm
+          php -m | grep -i duckdb
+          php -r '$c = (new DuckDB\Database())->connect(); $r = $c->query("SELECT 42 AS x")->fetchRow(); if ($r["x"] !== 42) { exit(1); } printf("smoke OK: duckdb ext %s, libduckdb %s, PHP %s\n", phpversion("duckdb"), DuckDB\version(), PHP_VERSION);'
+
+      - name: Upload RPM artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: opensuse-tumbleweed-rpm
+          path: |
+            /root/rpmbuild/RPMS/x86_64/*.rpm
+            /root/rpmbuild/SRPMS/*.rpm
+          if-no-files-found: error
