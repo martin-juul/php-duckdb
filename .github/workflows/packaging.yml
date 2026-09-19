@@ -6,12 +6,14 @@ name: Packaging
 # PHP, Debian sid, Debian 13 trixie, Ubuntu LTS, Ubuntu devel), runs the
 # full test suite at build time, then installs the resulting package and
 # smoke-tests the system PHP loading it through the distro's own ini
-# mechanism.
+# mechanism. macOS has no such mechanism, so its job ships tarballs
+# (duckdb.so + vendored libduckdb.dylib + install script) built natively
+# on macos-15-intel and macos-15, targeting macOS 12+.
 #
-# Every job runs on amd64 (ubuntu-latest) AND arm64 (ubuntu-24.04-arm —
-# native ARM64 runners, free for public repos), so each distro package
-# is built and smoke-tested on both architectures DuckDB ships prebuilt
-# libduckdb archives for.
+# Every Linux job runs on amd64 (ubuntu-latest) AND arm64
+# (ubuntu-24.04-arm — native ARM64 runners, free for public repos), so
+# each distro package is built and smoke-tested on both architectures
+# DuckDB ships prebuilt libduckdb archives for.
 #
 # When a GitHub Release is published, all packages are rebuilt from the
 # release tag and attached to the release as downloadable assets by the
@@ -524,6 +526,63 @@ jobs:
           path: /root/php-duckdb*.deb
           if-no-files-found: error
 
+  # macOS has no distro package manager story for PHP extensions, so the
+  # deliverable is a tarball per PHP minor version and architecture
+  # (duckdb.so + vendored libduckdb.dylib + install script). Builds are
+  # native: macos-15-intel (GitHub's last Intel image, available until
+  # August 2027) for x86_64 and macos-15 for arm64, both targeting
+  # macOS 12+. The vendored universal libduckdb is baseline x86-64
+  # (verified: zero AVX/AVX2 instructions in its x86_64 slice) with a
+  # macOS 11.0 deployment target, so the single x86_64 build also covers
+  # pre-AVX2 Intel Macs (Mac Pro 2013) and x86_64 PHP under Rosetta,
+  # which only supports AVX2 from macOS 15.
+  macos-tarball:
+    name: macOS 12+ ${{ matrix.arch }} tarball — PHP ${{ matrix.php }}
+    runs-on: ${{ matrix.arch == 'x86_64' && 'macos-15-intel' || 'macos-15' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [x86_64, arm64]
+        php: ['8.2', '8.3', '8.4', '8.5']
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up PHP ${{ matrix.php }}
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '${{ matrix.php }}'
+          extensions: none
+          coverage: none
+
+      # build.sh stages the vendored SDK, phpize-builds duckdb.so,
+      # rewrites its libduckdb reference to @rpath + @loader_path, runs
+      # the full .phpt suite (Swoole/AMPHP/ReactPHP/True-Async tests
+      # skip — those extensions are not installed here) and packs the
+      # tarball. MACOSX_DEPLOYMENT_TARGET pins our own compile to
+      # macOS 12+; the vendored dylib already targets 11.0.
+      - name: Build, test and package
+        env:
+          MACOSX_DEPLOYMENT_TARGET: '12.0'
+        run: sh packaging/macos/build.sh
+
+      # Install the packaged tarball into the runner's PHP exactly like
+      # a user would (sh install.sh, not the distro ini mechanism), then
+      # run a query.
+      - name: Install tarball and smoke test
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/smoke
+          tar -xzf dist/*.tar.gz -C /tmp/smoke
+          (cd /tmp/smoke/php-duckdb-* && sh install.sh)
+          php -r '$c = (new DuckDB\Database())->connect(); $r = $c->query("SELECT 42 AS x")->fetchRow(); if ($r["x"] !== 42) { exit(1); } printf("smoke OK: duckdb ext %s, libduckdb %s, PHP %s\n", phpversion("duckdb"), DuckDB\version(), PHP_VERSION);'
+
+      - name: Upload tarball artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos12-${{ matrix.arch }}-php${{ matrix.php }}
+          path: dist/*.tar.gz
+          if-no-files-found: error
+
   # Runs only when the workflow was triggered by publishing a GitHub
   # Release: waits for every packaging job, then attaches all built
   # packages to the release as assets.
@@ -534,6 +593,7 @@ jobs:
       - opensuse-rpm
       - fedora-rpm
       - almalinux-rpm
+      - macos-tarball
       - debian-deb
       - debian-trixie-deb
       - ubuntu-lts-deb
@@ -556,6 +616,8 @@ jobs:
       # itself (_amd64/_arm64 for debs, .x86_64/.aarch64 for rpms).
       # Arch-independent SRPMs are produced by both arch builds; the
       # second upload simply clobbers the first (identical content).
+      # macOS tarballs pass through unchanged: their names already carry
+      # extension version, PHP minor, macOS floor and architecture.
       - name: Upload packages as release assets
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -572,6 +634,7 @@ jobs:
               case "$base" in
                 *.deb) asset="${base%.deb}.${slug}.deb" ;;
                 *.rpm) asset="${base%.rpm}.${slug}.rpm" ;;
+                *.tar.gz) asset="$base" ;;
                 *) asset="${base}.${slug}" ;;
               esac
               cp "$pkg" "/tmp/${asset}"
