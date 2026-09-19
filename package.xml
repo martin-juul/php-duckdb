@@ -52,7 +52,11 @@
     instead of dereferencing a null handle.
   - Migrated off the deprecated duckdb_execute_prepared_streaming() C
     API to the pending-result API.
-  - New tests: 061-064.
+  - Fixed a shutdown SIGSEGV when a detached async worker was still in
+    flight while PHP unloaded the extension at process exit: MSHUTDOWN
+    now interrupts and waits out in-flight workers, and the instance
+    cache is destroyed while libduckdb is still mapped.
+  - New tests: 061-065.
  </notes>
  <contents>
   <dir name="/">
@@ -172,6 +176,7 @@
     <file name="062_transaction_invalidates_stream.phpt" role="test"/>
     <file name="063_reflection_instantiation.phpt" role="test"/>
     <file name="064_shared_file_instance.phpt" role="test"/>
+    <file name="065_async_shutdown_segfault.phpt" role="test"/>
     <file name="swoole_subprocess.inc" role="test"/>
     <file name="harness.php" role="script"/>
     <file name="duckdb.supp" role="test"/>

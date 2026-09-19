@@ -208,12 +208,23 @@ bool duckdb_connection_guard(const std::shared_ptr<conn_inner> &conn) {
  *
  * The cache is keyed by path string, so ':memory:' databases are exempt
  * (they must stay private to their Database object) and go through
- * duckdb_open_ext() directly. The cache itself is intentionally never
- * destroyed: it is a process-lifetime resource, like the module's
- * registered functions. */
+ * duckdb_open_ext() directly. The cache lives for the whole process and
+ * is destroyed in MSHUTDOWN, while libduckdb is still mapped. */
+namespace {
+std::mutex duckdb_instance_cache_mu;
+/* Created lazily on the first file-backed Database, destroyed in
+ * MSHUTDOWN: closing the cached instances joins DuckDB's background
+ * threads (task scheduler, WAL writer) while libduckdb is still mapped,
+ * instead of leaving them parked in code that dlclose() would unmap. */
+duckdb_instance_cache duckdb_instance_cache_ptr = nullptr;
+}
+
 static duckdb_instance_cache duckdb_instance_cache_global() {
-    static duckdb_instance_cache cache = duckdb_create_instance_cache();
-    return cache;
+    std::lock_guard<std::mutex> lk(duckdb_instance_cache_mu);
+    if (duckdb_instance_cache_ptr == nullptr) {
+        duckdb_instance_cache_ptr = duckdb_create_instance_cache();
+    }
+    return duckdb_instance_cache_ptr;
 }
 
 PHP_METHOD(DuckDB_Database, __construct) {
@@ -480,8 +491,12 @@ PHP_METHOD(DuckDB_Connection, queryAsync) {
     intern->inner->execution_epoch.fetch_add(1, std::memory_order_relaxed);
 
     try {
+        /* Register before creation: MSHUTDOWN may only proceed once every
+         * started worker has also finished. */
+        duckdb_async_worker_start(task);
         std::thread(duckdb_async_run, task).detach();
     } catch (const std::system_error &e) {
+        duckdb_async_worker_finish();
         /* Thread creation failed (resource exhaustion): no worker owns the
          * write end, so close both fds ourselves. */
         close(fds[0]);
@@ -941,6 +956,23 @@ PHP_MINIT_FUNCTION(duckdb) {
 }
 
 PHP_MSHUTDOWN_FUNCTION(duckdb) {
+    /* Wait out in-flight async workers BEFORE this module can be
+     * dlclosed: a detached worker still executing our code (or libduckdb's)
+     * when the mapping disappears is a shutdown SIGSEGV (observed under
+     * Swoole: the worker of a queryAsync() abandoned at script end started
+     * late and ran into the unmapped module). Workers only touch C++
+     * state — never Zend memory — so waiting here cannot deadlock. */
+    duckdb_async_shutdown();
+
+    /* Close databases held by the process-wide instance cache while
+     * libduckdb is still mapped (see duckdb_instance_cache_ptr). */
+    {
+        std::lock_guard<std::mutex> lk(duckdb_instance_cache_mu);
+        if (duckdb_instance_cache_ptr != nullptr) {
+            duckdb_destroy_instance_cache(&duckdb_instance_cache_ptr);
+        }
+    }
+
     /* No function teardown here. The legacy alias registered in MINIT is
      * MODULE_PERSISTENT, and persistent functions are owned by
      * CG(function_table): Zend destroys them wholesale in zend_shutdown().
