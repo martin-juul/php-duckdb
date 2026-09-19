@@ -17,7 +17,7 @@
 #include "config.h"
 #endif
 
-#include "php.h"
+#include "php_duckdb_cxx_compat.h"
 
 /* php_date.h predates C++ linkage guards; wrap it ourselves. */
 extern "C" {
