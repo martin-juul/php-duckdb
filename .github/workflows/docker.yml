@@ -3,7 +3,7 @@ name: Docker
 on:
   push:
     branches: [master]
-    tags: ['v*']
+    tags: ['v*', '[0-9]*']
   pull_request:
 
 jobs:
@@ -44,8 +44,8 @@ jobs:
           if [ "${{ matrix.php }}" = "8.5" ]; then
             TAGS="${TAGS},ghcr.io/${{ github.repository }}:latest"
           fi
-          # Release tags (v1.2.3) additionally publish 1.2.3-php8.4 style tags
-          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+          # Release tags (v1.2.3 or 1.2.3) additionally publish 1.2.3-php8.4 style tags
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
             TAGS="${TAGS},ghcr.io/${{ github.repository }}:${GITHUB_REF_NAME#v}-php${{ matrix.php }}"
           fi
           echo "tags=${TAGS}" >> "$GITHUB_OUTPUT"
@@ -104,8 +104,8 @@ jobs:
           if [ "${{ matrix.php }}" = "8.5" ]; then
             TAGS="${TAGS},ghcr.io/${{ github.repository }}:latest-frankenphp"
           fi
-          # Release tags (v1.2.3) additionally publish 1.2.3-php8.4-frankenphp style tags
-          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+          # Release tags (v1.2.3 or 1.2.3) additionally publish 1.2.3-php8.4-frankenphp style tags
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
             TAGS="${TAGS},ghcr.io/${{ github.repository }}:${GITHUB_REF_NAME#v}-php${{ matrix.php }}-frankenphp"
           fi
           echo "tags=${TAGS}" >> "$GITHUB_OUTPUT"
