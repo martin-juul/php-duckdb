@@ -1,48 +1,48 @@
 --TEST--
-Hardening: objects created via ReflectionClass::newInstanceWithoutConstructor fail with Error
+Hardening: internal final classes refuse constructor bypass (reflection + unserialize)
 --SKIPIF--
 <?php require_once __DIR__ . '/skipif.inc'; ?>
 --FILE--
 <?php
-// Bypassing the constructor leaves the internal C++ handle null; every
-// method must fail with a hard Error instead of dereferencing it.
-$cases = [
-    'Database::connect'    => [DuckDB\Database::class, 'connect'],
-    'Connection::query'    => [DuckDB\Connection::class, 'query', 'SELECT 1'],
-    'Connection::close'    => [DuckDB\Connection::class, 'close'],
-    'Connection::isClosed' => [DuckDB\Connection::class, 'isClosed'],
-    'Statement::execute'   => [DuckDB\Statement::class, 'execute'],
-    'Result::fetchRow'     => [DuckDB\Result::class, 'fetchRow'],
-    'Result::rowCount'     => [DuckDB\Result::class, 'rowCount'],
-    'ResultIterator::next' => [DuckDB\ResultIterator::class, 'next'],
-    'PendingQuery::await'  => [DuckDB\PendingQuery::class, 'await'],
-    'PendingQuery::cancel' => [DuckDB\PendingQuery::class, 'cancel'],
-    'Appender::flush'      => [DuckDB\Appender::class, 'flush'],
+// Every DuckDB class is final and internal, so the engine itself refuses to
+// create an instance without running its constructor: reflection throws and
+// unserialize fails. Lock that invariant in — if a class ever loses `final`
+// or gains an unserialize path, the internal handle could be null and method
+// calls would depend on duckdb_initialized_guard to fail loudly.
+$classes = [
+    'Database'       => DuckDB\Database::class,
+    'Connection'     => DuckDB\Connection::class,
+    'Statement'      => DuckDB\Statement::class,
+    'Result'         => DuckDB\Result::class,
+    'ResultIterator' => DuckDB\ResultIterator::class,
+    'PendingQuery'   => DuckDB\PendingQuery::class,
+    'Appender'       => DuckDB\Appender::class,
 ];
-foreach ($cases as $label => $case) {
-    $class  = $case[0];
-    $method = $case[1];
-    $args   = array_slice($case, 2);
-    $obj = (new ReflectionClass($class))->newInstanceWithoutConstructor();
+foreach ($classes as $label => $class) {
+    $rc = new ReflectionClass($class);
+    echo $label, ': ', $rc->isFinal() ? 'final' : 'NOT FINAL', ', ';
     try {
-        $obj->$method(...$args);
-        echo "$label: NOT GUARDED\n";
-    } catch (\Error $e) {
-        echo "$label: Error\n";
+        $rc->newInstanceWithoutConstructor();
+        echo "reflection NOT REFUSED, ";
+    } catch (ReflectionException $e) {
+        echo "reflection refused, ";
+    }
+    $payload = 'O:' . strlen($class) . ':"' . $class . '":0:{}';
+    try {
+        $obj = @unserialize($payload);
+        echo $obj === false ? "unserialize refused\n" : "unserialize NOT REFUSED\n";
+    } catch (Throwable $e) {
+        echo "unserialize refused\n";
     }
 }
 echo "done\n";
 ?>
 --EXPECT--
-Database::connect: Error
-Connection::query: Error
-Connection::close: Error
-Connection::isClosed: Error
-Statement::execute: Error
-Result::fetchRow: Error
-Result::rowCount: Error
-ResultIterator::next: Error
-PendingQuery::await: Error
-PendingQuery::cancel: Error
-Appender::flush: Error
+Database: final, reflection refused, unserialize refused
+Connection: final, reflection refused, unserialize refused
+Statement: final, reflection refused, unserialize refused
+Result: final, reflection refused, unserialize refused
+ResultIterator: final, reflection refused, unserialize refused
+PendingQuery: final, reflection refused, unserialize refused
+Appender: final, reflection refused, unserialize refused
 done
