@@ -82,3 +82,53 @@ jobs:
             /root/rpmbuild/RPMS/x86_64/*.rpm
             /root/rpmbuild/SRPMS/*.rpm
           if-no-files-found: error
+
+  fedora-rpm:
+    name: Fedora 44 RPM
+    runs-on: ubuntu-latest
+    container: fedora:44
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build tooling
+        run: |
+          dnf install -y --setopt=install_weak_deps=False \
+            rpm-build php-devel php-cli gcc gcc-c++ make libtool chrpath \
+            unzip curl tar gzip gawk
+
+      # Same staging story as the openSUSE job: checkout may fall back to
+      # a REST tarball (no git in the container, no .git), so pack the
+      # workspace with tar; rpmbuild never downloads Source URLs itself.
+      - name: Stage rpmbuild sources
+        run: |
+          set -euo pipefail
+          ver=$(awk '/^%global upstream_version/ {print $3}' packaging/fedora/php-pecl-duckdb.spec)
+          dver=$(awk '/^%global duckdb_version/ {print $3}' packaging/fedora/php-pecl-duckdb.spec)
+          mkdir -p /root/rpmbuild/SOURCES /root/rpmbuild/SPECS /root/rpmbuild/BUILD /root/rpmbuild/RPMS /root/rpmbuild/SRPMS
+          tar --exclude='./.git' --transform "s,^\.,php-duckdb-${ver}," \
+            -czf "/root/rpmbuild/SOURCES/php-duckdb-${ver}.tar.gz" .
+          curl -fsSL -o /root/rpmbuild/SOURCES/libduckdb-linux-amd64.zip \
+            "https://github.com/duckdb/duckdb/releases/download/v${dver}/libduckdb-linux-amd64.zip"
+          cp packaging/fedora/php-pecl-duckdb.spec /root/rpmbuild/SPECS/
+
+      # -ba builds the binary RPMs AND the SRPM; the spec's %check runs
+      # the full .phpt suite (Swoole/AMPHP/ReactPHP/True-Async tests skip
+      # — those extensions are not installed here).
+      - name: Build RPM (with test suite)
+        run: rpmbuild --define '_topdir /root/rpmbuild' -ba /root/rpmbuild/SPECS/php-pecl-duckdb.spec
+
+      - name: Install RPM and smoke test with system PHP
+        run: |
+          set -euo pipefail
+          rpm -ivh /root/rpmbuild/RPMS/x86_64/php-pecl-duckdb-*.rpm
+          php -m | grep -i duckdb
+          php -r '$c = (new DuckDB\Database())->connect(); $r = $c->query("SELECT 42 AS x")->fetchRow(); if ($r["x"] !== 42) { exit(1); } printf("smoke OK: duckdb ext %s, libduckdb %s, PHP %s\n", phpversion("duckdb"), DuckDB\version(), PHP_VERSION);'
+
+      - name: Upload RPM artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: fedora-44-rpm
+          path: |
+            /root/rpmbuild/RPMS/x86_64/*.rpm
+            /root/rpmbuild/SRPMS/*.rpm
+          if-no-files-found: error
