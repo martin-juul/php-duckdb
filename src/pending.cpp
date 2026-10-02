@@ -256,6 +256,22 @@ zend_class_entry *duckdb_lookup_userland_class(const char *name) {
     return ce;
 }
 
+void async_task::discard_pending() {
+    if (!pending) {
+        return;
+    }
+    // Check DuckDB's active result while holding the connection mutex.
+    // The PHP execution epoch also counts queued async workers, which may
+    // not have started yet, so it cannot establish ownership here.
+    if (duckdb_pending_execute_check_state(pending) != DUCKDB_PENDING_ERROR) {
+        duckdb_interrupt(conn->conn);
+    }
+    duckdb_result discarded = {};
+    duckdb_execute_pending(pending, &discarded);
+    duckdb_destroy_result(&discarded);
+    duckdb_destroy_pending(&pending);
+}
+
 /* Interrupt a running task. Safe to call at any time: a finished task is
  * left untouched, and the "result already consumed" path stays the sole
  * owner of double-completion errors. */
@@ -271,8 +287,7 @@ void duckdb_task_cancel(std::shared_ptr<async_task> &task) {
         {
             std::lock_guard<std::mutex> lk(task->conn->mutex);
             if (task->pending) {
-                duckdb_destroy_pending(&task->pending);
-                task->pending = nullptr;
+                task->discard_pending();
             }
         }
         {

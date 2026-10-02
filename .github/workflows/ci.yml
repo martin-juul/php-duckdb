@@ -174,7 +174,7 @@ jobs:
         env:
           LD_LIBRARY_PATH: /opt/duckdb/lib
           USE_ZEND_ALLOC: '0'
-        run: php tests/harness.php --valgrind --no-color
+        run: php tests/harness.php --valgrind --no-color --junit=valgrind-junit.xml
 
       - name: Stress
         env:
@@ -190,7 +190,9 @@ jobs:
             tests/*.out
             tests/*.exp
             tests/*.log
+            tests/*.mem
             junit.xml
+            valgrind-junit.xml
           if-no-files-found: ignore
 
   amphp:

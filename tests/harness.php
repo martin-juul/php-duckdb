@@ -582,15 +582,16 @@ final class Harness
         $bad = [];
         foreach (explode(PHP_EOL, $output) as $line) {
             if (preg_match('/\[(tests\/[^\]]+\.phpt)\]/', $line, $m) === 1
-                && (str_starts_with(trim($line), 'FAIL') || str_contains($line, ' LEAK '))) {
-                $bad[basename($m[1])] = true;
+                && preg_match('/(?:^|\s)(?:FAIL|LEAK(?:&FAIL)?)\s/', trim($line)) === 1) {
+                $bad[basename($m[1])] = trim($line);
             }
         }
-        // run-tests also lists failures in the "FAILED TEST SUMMARY" block.
-        if (preg_match('/=+\nFAILED TEST SUMMARY\n-+\n(.*?)\n=+/s', $output, $m) === 1) {
-            foreach (explode(PHP_EOL, $m[1]) as $line) {
+        // The summary is reliable even when parallel progress lines overlap.
+        preg_match_all('/^=+\R((?:FAILED|LEAKED) TEST SUMMARY\R-+\R.*?)\R=+/ms', $output, $summaries);
+        foreach ($summaries[1] as $summary) {
+            foreach (preg_split('/\R/', $summary) as $line) {
                 if (preg_match('/\[(tests\/[^\]]+\.phpt)\]/', $line, $tm) === 1) {
-                    $bad[basename($tm[1])] = true;
+                    $bad[basename($tm[1])] = trim($line);
                 }
             }
         }
@@ -598,17 +599,18 @@ final class Harness
         $cases = [];
         foreach ($tests as $t) {
             $base = basename($t);
-            $cases[] = ['name' => "{$prefix}/{$base}", 'ok' => !isset($bad[$base]), 'detail' => ''];
+            $cases[] = ['name' => "{$prefix}/{$base}", 'ok' => !isset($bad[$base]), 'detail' => $bad[$base] ?? ''];
         }
         return $cases;
     }
 
-    /** Print the FAILED TEST SUMMARY block (and .diff pointers) for humans. */
+    /** Print failure and leak summaries (and artifact pointers) for humans. */
     private function printFailedTestDetails(string $testsDir, string $output): void
     {
-        if (preg_match('/=+\n(FAILED TEST SUMMARY\n.*?)\n=+/s', $output, $m) === 1) {
+        preg_match_all('/^=+\R((?:FAILED|LEAKED) TEST SUMMARY\R-+\R.*?)\R=+/ms', $output, $summaries);
+        foreach ($summaries[1] as $summary) {
             $this->term->line('');
-            $this->term->line($m[1]);
+            $this->term->line($summary);
             $this->term->line('');
         }
         $this->term->info('see *.diff / *.out / *.mem next to the failing tests for details');

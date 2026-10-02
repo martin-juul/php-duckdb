@@ -218,6 +218,11 @@ struct async_task {
 
     int notify_write_fd = -1;
 
+    /* Caller holds conn->mutex. Drain interrupted polling work before
+     * destroying it; dropping a partially executed DuckDB pending handle
+     * alone can retain its executor and database allocations. */
+    void discard_pending();
+
     ~async_task() {
         /* The destroy calls below touch connection state; serialize them
          * with any in-flight execution on this connection. The connection
@@ -226,8 +231,7 @@ struct async_task {
         if (conn && (pending || !consumed)) {
             std::lock_guard<std::mutex> lk(conn->mutex);
             if (pending) {
-                duckdb_destroy_pending(&pending);
-                pending = nullptr;
+                discard_pending();
             }
             if (!consumed) {
                 duckdb_destroy_result(&result);
