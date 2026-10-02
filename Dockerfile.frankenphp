@@ -19,7 +19,7 @@ ARG PHP_VERSION=8.5
 # ==================================================================== #
 FROM dunglas/frankenphp:builder-php${PHP_VERSION} AS build
 
-ARG DUCKDB_VERSION=v1.5.5
+ARG DUCKDB_VERSION=v1.5.6
 ARG TARGETPLATFORM
 
 RUN apt-get update \

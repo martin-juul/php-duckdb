@@ -37,6 +37,13 @@ Rules:
 | `temp_directory` | `'/fast/ssp/tmp'` | Spill location |
 | `default_order` | `'DESC'` | Default sort order |
 | `enable_object_cache` | `true` | Cache parsed objects |
+| `enable_optimistic_write` | `false` | DuckDB 1.5.6+: disable optimistic writes during large appends (default `true`) |
+
+The new `enable_optimistic_write` setting works through the existing constructor
+configuration array or `SET enable_optimistic_write = false`. No new PHP method
+is needed. Check the linked engine version when using a distribution-provided
+library; older engines may reject the setting. See the
+[upstream change](https://github.com/duckdb/duckdb/pull/26102).
 
 The full, always-current list lives in the upstream docs:
 <https://duckdb.org/docs/stable/configuration/overview>

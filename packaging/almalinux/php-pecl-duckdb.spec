@@ -9,12 +9,12 @@
 #
 
 %global pecl_name        duckdb
-%global upstream_version 1.2.1
+%global upstream_version 1.2.2
 
 # libduckdb is not packaged for AlmaLinux/EPEL, so the prebuilt upstream
 # archive is used (same provenance as the project's Docker images).
 # Switch to a system duckdb-devel package once EPEL ships one.
-%global duckdb_version   1.5.5
+%global duckdb_version   1.5.6
 
 # duckdb is a normal extension without load-order constraints: the
 # standard PECL ini priority is 40. Remi's default-namespace PHP uses
@@ -154,6 +154,9 @@ export NO_INTERACTION=1 REPORT_EXIT_STATUS=1
 %{_libdir}/libduckdb.so
 
 %changelog
+* Fri Oct 02 2026 Martin Juul Christiansen <code@juul.xyz> - 1.2.2-1
+- Update to DuckDB 1.5.6 and extension 1.2.2.
+
 * Fri Oct 02 2026 Martin Juul Christiansen <code@juul.xyz> - 1.2.1-1
 - Prepare 1.2.1 release with synchronized extension and package versions.
 

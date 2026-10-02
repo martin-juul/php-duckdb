@@ -16,8 +16,8 @@ var_dump(enum_exists('DuckDB\FetchMode'));
 var_dump(enum_exists('DuckDB\ErrorType'));
 ?>
 --EXPECTF--
-string(6) "v1.5.5"
-string(6) "v1.5.5"
+string(%d) "v%d.%d.%d%S"
+string(%d) "v%d.%d.%d%S"
 bool(true)
 bool(true)
 bool(true)

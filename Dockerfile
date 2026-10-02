@@ -15,7 +15,7 @@ ARG PHP_VERSION=8.4
 # ==================================================================== #
 FROM php:${PHP_VERSION}-cli-bookworm AS build
 
-ARG DUCKDB_VERSION=v1.5.5
+ARG DUCKDB_VERSION=v1.5.6
 ARG TARGETPLATFORM
 
 RUN apt-get update \

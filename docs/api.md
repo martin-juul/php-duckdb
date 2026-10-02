@@ -10,7 +10,7 @@ Namespace: `DuckDB`.
 
 ### `DuckDB\version(): string`
 
-Version of the linked DuckDB library, e.g. `"v1.5.5"`. Also available as the
+Version of the linked DuckDB library, e.g. `"v1.5.6"`. Also available as the
 global `duckdb_version()` for backwards compatibility.
 
 ## Enums

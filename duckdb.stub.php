@@ -676,7 +676,7 @@ final class Appender
 }
 
 /**
- * Version of the linked DuckDB library, e.g. `"v1.5.5"`.
+ * Version of the linked DuckDB library, e.g. `"v1.5.6"`.
  *
  * Also available as the global `duckdb_version()` for backwards
  * compatibility with pre-1.0 releases of this extension.

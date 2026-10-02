@@ -75,13 +75,17 @@ your data (memory / .duckdb file / Parquet / CSV / …)
   silently truncating data or crashing the process (see
   *Safety guarantees*).
 
+For application integration, see the [PHP developer guide](docs/php-developer-guide.md).
+Check the [compatibility matrix](docs/compatibility.md) and
+[migration guide](docs/migrations.md) before upgrading.
+
 ## Requirements
 
 - PHP **8.2+** (8.2–8.5 supported; enums are used in the public API)
 - A C++17 compiler
 - The DuckDB C library (`libduckdb` + `duckdb.h`), e.g. from
   <https://duckdb.org/docs/installation/> — this driver is developed and
-  tested against **DuckDB v1.5.x**
+  tested against **DuckDB v1.5.6**
 
 ```
 /opt/duckdb
@@ -115,7 +119,7 @@ phpize
 make -j$(nproc)
 make install          # copies duckdb.so into the PHP extension dir
 echo "extension=duckdb.so" > $(php --ini | grep 'Scan for' | awk '{print $NF}')/99-duckdb.ini
-php -r 'var_dump(DuckDB\version());'   # e.g. "v1.5.5"
+php -r 'var_dump(DuckDB\version());'   # e.g. "v1.5.6"
 ```
 
 On macOS use `--with-duckdb=$(brew --prefix duckdb)`. On Windows use
@@ -636,7 +640,7 @@ Other introspection:
 $conn->getTableNames('SELECT * FROM orders JOIN customers USING (customer_id)');
 // ['orders', 'customers'] — query analysis, not a catalog listing
 
-DuckDB\version();        // 'v1.5.5' (linked library version)
+DuckDB\version();        // 'v1.5.6' (linked library version)
 duckdb_version();        // legacy alias
 ```
 

@@ -51,7 +51,7 @@ The easiest route is the official builder image:
 FROM dunglas/frankenphp:builder-php8.5 AS builder
 
 # libduckdb v1.5.x
-RUN curl -sL https://github.com/duckdb/duckdb/releases/download/v1.5.5/libduckdb-linux-amd64.zip -o /tmp/libduckdb.zip \
+RUN curl -sL https://github.com/duckdb/duckdb/releases/download/v1.5.6/libduckdb-linux-amd64.zip -o /tmp/libduckdb.zip \
  && unzip -o /tmp/libduckdb.zip -d /opt/duckdb \
  && mkdir -p /opt/duckdb/include /opt/duckdb/lib \
  && mv /opt/duckdb/duckdb.h /opt/duckdb/include/ \
