@@ -33,8 +33,12 @@ jobs:
 
       - name: Install checkout through PIE
         run: |
-          pie repository:add path "$GITHUB_WORKSPACE"
-          pie install 'martinjuul/duckdb:*@dev' --with-duckdb=/opt/duckdb --no-interaction
+          # PIE cannot elevate from a non-interactive terminal. Run both
+          # commands as root so they share the same PIE repository config.
+          PHP_BIN="$(command -v php)"
+          PIE_BIN="$(command -v pie)"
+          sudo -nH env LD_LIBRARY_PATH="$LD_LIBRARY_PATH" "$PHP_BIN" "$PIE_BIN" repository:add path "$GITHUB_WORKSPACE"
+          sudo -nH env LD_LIBRARY_PATH="$LD_LIBRARY_PATH" "$PHP_BIN" "$PIE_BIN" install 'martinjuul/duckdb:*@dev' --with-duckdb=/opt/duckdb --no-interaction
 
       - name: Verify installed extension
         run: |
