@@ -58,10 +58,27 @@ jobs:
 
       - name: Install build tooling
         run: |
+          set -eu
           zypper --non-interactive --gpg-auto-import-keys refresh
-          zypper --non-interactive install --no-recommends \
-            rpm-build php8 php8-devel gcc gcc-c++ make autoconf automake \
-            chrpath unzip curl tar gzip gawk
+          for attempt in 1 2 3; do
+            if zypper --non-interactive install --no-recommends \
+              rpm-build php8 php8-devel gcc gcc-c++ make autoconf automake \
+              chrpath unzip curl tar gzip gawk; then
+              break
+            else
+              status=$?
+            fi
+            # Tumbleweed mirrors can serve mismatched metadata/packages
+            # during updates. Retry transaction failures with fresh caches;
+            # never bypass package signature or checksum verification.
+            if [ "$status" -ne 8 ] || [ "$attempt" -eq 3 ]; then
+              exit "$status"
+            fi
+            echo "Zypper transaction failed; refreshing caches before retry $((attempt + 1))/3"
+            zypper --non-interactive clean --all
+            sleep 15
+            zypper --non-interactive --gpg-auto-import-keys refresh --force
+          done
 
       # rpmbuild never downloads Source URLs itself; stage them exactly as
       # the spec names them. The version is read from the spec so the two
