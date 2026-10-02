@@ -12,7 +12,7 @@
 # libduckdb is not packaged for openSUSE yet, so the prebuilt upstream
 # archive is used (same provenance as the project's Docker images).
 # Switch to a system duckdb-devel package once the distribution ships one.
-%define duckdb_version 1.5.5
+%define duckdb_version 1.5.6
 
 # php8-devel ships rpm macros for php_extdir/php_cfgdir/php_core_api/
 # php_zend_api on suse_version > 1500; define the paths by hand for older
@@ -27,7 +27,7 @@
 %bcond_without tests
 
 Name:           php8-duckdb
-Version:        1.2.1
+Version:        1.2.2
 Release:        0
 Summary:        Native DuckDB driver for PHP
 License:        MIT
@@ -106,6 +106,9 @@ export NO_INTERACTION=1 REPORT_EXIT_STATUS=1
 %{_libdir}/libduckdb.so
 
 %changelog
+* Fri Oct 02 2026 Martin Juul Christiansen <code@juul.xyz> - 1.2.2-0
+- Update to DuckDB 1.5.6 and extension 1.2.2.
+
 * Fri Oct 02 2026 Martin Juul Christiansen <code@juul.xyz> - 1.2.1-0
 - Prepare 1.2.1 release with synchronized extension and package versions.
 

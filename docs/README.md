@@ -30,6 +30,9 @@ including the things that are deliberately *not* exposed and why.
 
 These have no C API counterpart page because they are idioms of this driver:
 
+- [PHP application developer guide](php-developer-guide.md)
 - [Error handling & the exception hierarchy](errors.md)
 - [Asynchronous queries, fibers & event-loop integration](async.md)
 - [FrankenPHP (classic & worker mode)](frankenphp.md)
+- [PHP, DuckDB, and platform compatibility](compatibility.md)
+- [Upgrade, rollback, and future migration policy](migrations.md)

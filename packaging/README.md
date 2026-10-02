@@ -64,9 +64,9 @@ sudo zypper install rpm-build php8-devel gcc-c++ make autoconf chrpath unzip
 
 # Stage the two sources rpmbuild expects:
 mkdir -p ~/rpmbuild/{SOURCES,SPECS}
-git archive --prefix=php-duckdb-1.2.1/ -o ~/rpmbuild/SOURCES/php-duckdb-1.2.1.tar.gz HEAD
+git archive --prefix=php-duckdb-1.2.2/ -o ~/rpmbuild/SOURCES/php-duckdb-1.2.2.tar.gz HEAD
 curl -L -o ~/rpmbuild/SOURCES/libduckdb-linux-amd64.zip \
-  https://github.com/duckdb/duckdb/releases/download/v1.5.5/libduckdb-linux-amd64.zip
+  https://github.com/duckdb/duckdb/releases/download/v1.5.6/libduckdb-linux-amd64.zip
 
 rpmbuild -ba packaging/opensuse/php-duckdb.spec
 sudo rpm -ivh ~/rpmbuild/RPMS/x86_64/php8-duckdb-*.rpm
@@ -101,9 +101,9 @@ drop-in at `/etc/php.d/40-duckdb.ini`, `%{?dist}` release suffix, and a
 sudo dnf install rpm-build php-devel php-cli gcc-c++ make libtool chrpath unzip
 
 mkdir -p ~/rpmbuild/{SOURCES,SPECS}
-git archive --prefix=php-duckdb-1.2.1/ -o ~/rpmbuild/SOURCES/php-duckdb-1.2.1.tar.gz HEAD
+git archive --prefix=php-duckdb-1.2.2/ -o ~/rpmbuild/SOURCES/php-duckdb-1.2.2.tar.gz HEAD
 curl -L -o ~/rpmbuild/SOURCES/libduckdb-linux-amd64.zip \
-  https://github.com/duckdb/duckdb/releases/download/v1.5.5/libduckdb-linux-amd64.zip
+  https://github.com/duckdb/duckdb/releases/download/v1.5.6/libduckdb-linux-amd64.zip
 
 rpmbuild -ba packaging/fedora/php-pecl-duckdb.spec
 sudo rpm -ivh ~/rpmbuild/RPMS/x86_64/php-pecl-duckdb-*.rpm
@@ -155,7 +155,7 @@ sudo dnf install epel-release
 sudo dnf install https://rpms.remirepo.net/enterprise/remi-release-9.rpm
 sudo dnf module reset -y php          # drops any AppStream php stream
 sudo dnf module install php:remi-8.4/common
-sudo rpm -ivh php-pecl-duckdb-1.2.1-1.el9.x86_64.rpm
+sudo rpm -ivh php-pecl-duckdb-1.2.2-1.el9.x86_64.rpm
 php -m | grep duckdb
 ```
 
@@ -170,9 +170,9 @@ sudo dnf install \
   php-devel php-cli rpm-build gcc-c++ make libtool chrpath unzip curl
 
 mkdir -p ~/rpmbuild/{SOURCES,SPECS}
-git archive --prefix=php-duckdb-1.2.1/ -o ~/rpmbuild/SOURCES/php-duckdb-1.2.1.tar.gz HEAD
+git archive --prefix=php-duckdb-1.2.2/ -o ~/rpmbuild/SOURCES/php-duckdb-1.2.2.tar.gz HEAD
 curl -L -o ~/rpmbuild/SOURCES/libduckdb-linux-amd64.zip \
-  https://github.com/duckdb/duckdb/releases/download/v1.5.5/libduckdb-linux-amd64.zip
+  https://github.com/duckdb/duckdb/releases/download/v1.5.6/libduckdb-linux-amd64.zip
 
 rpmbuild -ba packaging/almalinux/php-pecl-duckdb.spec
 sudo rpm -ivh ~/rpmbuild/RPMS/x86_64/php-pecl-duckdb-*.rpm
@@ -188,7 +188,7 @@ we can hook into (Homebrew only ships its own formulae), so `macos/`
 ships a **tarball** per PHP minor version and architecture:
 
 ```
-php-duckdb-1.2.1-php8.4-macos12-x86_64.tar.gz
+php-duckdb-1.2.2-php8.4-macos12-x86_64.tar.gz
 ```
 
 containing `duckdb.so`, the vendored `libduckdb.dylib` and an
@@ -213,8 +213,8 @@ Intel and Apple Silicon. Notes on the two builds:
 ### Install
 
 ```bash
-tar -xzf php-duckdb-1.2.1-php8.4-macos12-x86_64.tar.gz
-sh php-duckdb-1.2.1-php8.4-macos12-x86_64/install.sh
+tar -xzf php-duckdb-1.2.2-php8.4-macos12-x86_64.tar.gz
+sh php-duckdb-1.2.2-php8.4-macos12-x86_64/install.sh
 php -m | grep duckdb
 ```
 
@@ -238,10 +238,10 @@ The build pins `MACOSX_DEPLOYMENT_TARGET=12.0` and `DUCKDB_VERSION`
 
 `debian/` builds `php-duckdb` on Debian sid/forky (and Ubuntu derivatives
 with a `libduckdb-dev` package). This is the one target that can use the
-**system libduckdb strategy**: sid and forky ship
+**system libduckdb strategy**: the package build-depends on
 [`libduckdb-dev`](https://packages.debian.org/sid/libdevel/libduckdb-dev)
-1.5.5, so no vendored archive is involved — the package build-depends on
-`libduckdb-dev` and picks up a versioned runtime dependency on
+from the distribution, so no vendored archive is involved. It picks up a
+versioned runtime dependency on
 `libduckdb1.5` via `${shlibs:Depends}` automatically.
 
 The packaging uses `dh --with php` (`dh-php`): the ini drop-in is
@@ -313,7 +313,7 @@ Local build:
 ```bash
 sudo apt-get install build-essential debhelper dh-php php-dev php-cli curl unzip
 
-ver=1.5.5  # keep in sync with DUCKDB_VERSION in debian-trixie/rules
+ver=1.5.6  # keep in sync with DUCKDB_VERSION in debian-trixie/rules
 curl -fsSL -o /tmp/libduckdb.zip \
   https://github.com/duckdb/duckdb/releases/download/v${ver}/libduckdb-linux-amd64.zip
 unzip -o /tmp/libduckdb.zip -d /tmp/libduckdb
@@ -392,16 +392,16 @@ filename itself (`_amd64`/`_arm64` for debs, `.x86_64`/`.aarch64` for
 rpms):
 
 ```
-php-duckdb_1.2.1-1_amd64.debian-sid.deb          (+ _arm64)
-php-duckdb_1.2.1-1_amd64.debian-13-trixie.deb    (+ _arm64)
-php-duckdb_1.2.1-1_amd64.ubuntu-24.04.deb        (+ _arm64)
-php-duckdb_1.2.1-1_amd64.ubuntu-26.04.deb        (+ _arm64)
-php-duckdb_1.2.1-1_amd64.ubuntu-devel.deb        (+ _arm64)
-php8-duckdb-1.2.1-1.x86_64.opensuse-tumbleweed.rpm (+ .aarch64, .src.rpm)
-php-pecl-duckdb-1.2.1-1.fc44.x86_64.fedora-44.rpm  (+ .aarch64, .src.rpm)
-php-pecl-duckdb-1.2.1-1.el9.x86_64.almalinux-9-php8.4.rpm
+php-duckdb_1.2.2-1_amd64.debian-sid.deb          (+ _arm64)
+php-duckdb_1.2.2-1_amd64.debian-13-trixie.deb    (+ _arm64)
+php-duckdb_1.2.2-1_amd64.ubuntu-24.04.deb        (+ _arm64)
+php-duckdb_1.2.2-1_amd64.ubuntu-26.04.deb        (+ _arm64)
+php-duckdb_1.2.2-1_amd64.ubuntu-devel.deb        (+ _arm64)
+php8-duckdb-1.2.2-1.x86_64.opensuse-tumbleweed.rpm (+ .aarch64, .src.rpm)
+php-pecl-duckdb-1.2.2-1.fc44.x86_64.fedora-44.rpm  (+ .aarch64, .src.rpm)
+php-pecl-duckdb-1.2.2-1.el9.x86_64.almalinux-9-php8.4.rpm
   (AlmaLinux: os 9/10 × php 8.2/8.3/8.4/8.5 × x86_64/aarch64 — 16 RPMs)
-php-duckdb-1.2.1-php8.4-macos12-x86_64.tar.gz
+php-duckdb-1.2.2-php8.4-macos12-x86_64.tar.gz
   (macOS: php 8.2/8.3/8.4/8.5 × x86_64/arm64 — 8 tarballs)
 ```
 

@@ -25,7 +25,7 @@ jobs:
 
       - name: Install libduckdb
         run: |
-          curl -fLsS "https://github.com/duckdb/duckdb/releases/download/v1.5.5/libduckdb-linux-amd64.zip" -o /tmp/libduckdb.zip
+          curl -fLsS "https://github.com/duckdb/duckdb/releases/download/v1.5.6/libduckdb-linux-amd64.zip" -o /tmp/libduckdb.zip
           sudo mkdir -p /opt/duckdb/include /opt/duckdb/lib
           sudo unzip -o /tmp/libduckdb.zip -d /opt/duckdb
           sudo mv /opt/duckdb/duckdb.h /opt/duckdb/include/
@@ -76,7 +76,7 @@ jobs:
       - name: Install libduckdb (Linux)
         if: runner.os == 'Linux'
         run: |
-          curl -sL "https://github.com/duckdb/duckdb/releases/download/v1.5.5/libduckdb-linux-amd64.zip" -o /tmp/libduckdb.zip
+          curl -sL "https://github.com/duckdb/duckdb/releases/download/v1.5.6/libduckdb-linux-amd64.zip" -o /tmp/libduckdb.zip
           sudo mkdir -p /opt/duckdb/include /opt/duckdb/lib
           sudo unzip -o /tmp/libduckdb.zip -d /opt/duckdb
           sudo mv /opt/duckdb/duckdb.h /opt/duckdb/include/
@@ -85,7 +85,7 @@ jobs:
       - name: Install libduckdb (macOS)
         if: runner.os == 'macOS'
         run: |
-          curl -sL "https://github.com/duckdb/duckdb/releases/download/v1.5.5/libduckdb-osx-universal.zip" -o /tmp/libduckdb.zip
+          curl -sL "https://github.com/duckdb/duckdb/releases/download/v1.5.6/libduckdb-osx-universal.zip" -o /tmp/libduckdb.zip
           sudo mkdir -p /opt/duckdb/include /opt/duckdb/lib
           sudo unzip -o /tmp/libduckdb.zip -d /opt/duckdb
           sudo mv /opt/duckdb/duckdb.h /opt/duckdb/include/
@@ -154,7 +154,7 @@ jobs:
 
       - name: Install libduckdb
         run: |
-          curl -sL "https://github.com/duckdb/duckdb/releases/download/v1.5.5/libduckdb-linux-amd64.zip" -o /tmp/libduckdb.zip
+          curl -sL "https://github.com/duckdb/duckdb/releases/download/v1.5.6/libduckdb-linux-amd64.zip" -o /tmp/libduckdb.zip
           sudo mkdir -p /opt/duckdb/include /opt/duckdb/lib
           sudo unzip -o /tmp/libduckdb.zip -d /opt/duckdb
           sudo mv /opt/duckdb/duckdb.h /opt/duckdb/include/
@@ -212,7 +212,7 @@ jobs:
 
       - name: Install libduckdb
         run: |
-          curl -sL "https://github.com/duckdb/duckdb/releases/download/v1.5.5/libduckdb-linux-amd64.zip" -o /tmp/libduckdb.zip
+          curl -sL "https://github.com/duckdb/duckdb/releases/download/v1.5.6/libduckdb-linux-amd64.zip" -o /tmp/libduckdb.zip
           sudo mkdir -p /opt/duckdb/include /opt/duckdb/lib
           sudo unzip -o /tmp/libduckdb.zip -d /opt/duckdb
           sudo mv /opt/duckdb/duckdb.h /opt/duckdb/include/
@@ -262,7 +262,7 @@ jobs:
 
       - name: Install libduckdb
         run: |
-          curl -sL "https://github.com/duckdb/duckdb/releases/download/v1.5.5/libduckdb-linux-amd64.zip" -o /tmp/libduckdb.zip
+          curl -sL "https://github.com/duckdb/duckdb/releases/download/v1.5.6/libduckdb-linux-amd64.zip" -o /tmp/libduckdb.zip
           sudo mkdir -p /opt/duckdb/include /opt/duckdb/lib
           sudo unzip -o /tmp/libduckdb.zip -d /opt/duckdb
           sudo mv /opt/duckdb/duckdb.h /opt/duckdb/include/
@@ -306,7 +306,7 @@ jobs:
           set -eux
           apt-get update
           apt-get install -y build-essential autoconf pkg-config unzip curl git gdb
-          curl -sL "https://github.com/duckdb/duckdb/releases/download/v1.5.5/libduckdb-linux-amd64.zip" -o /tmp/libduckdb.zip
+          curl -sL "https://github.com/duckdb/duckdb/releases/download/v1.5.6/libduckdb-linux-amd64.zip" -o /tmp/libduckdb.zip
           mkdir -p /opt/duckdb/include /opt/duckdb/lib
           unzip -o /tmp/libduckdb.zip -d /opt/duckdb
           mv /opt/duckdb/duckdb.h /opt/duckdb/include/
@@ -367,7 +367,7 @@ jobs:
           set -eux
           apt-get update
           apt-get install -y unzip curl git
-          curl -sL "https://github.com/duckdb/duckdb/releases/download/v1.5.5/libduckdb-linux-amd64.zip" -o /tmp/libduckdb.zip
+          curl -sL "https://github.com/duckdb/duckdb/releases/download/v1.5.6/libduckdb-linux-amd64.zip" -o /tmp/libduckdb.zip
           mkdir -p /opt/duckdb/include /opt/duckdb/lib
           unzip -o /tmp/libduckdb.zip -d /opt/duckdb
           mv /opt/duckdb/duckdb.h /opt/duckdb/include/

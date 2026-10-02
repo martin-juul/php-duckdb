@@ -6,7 +6,7 @@ PHP. There is no server, no socket and no daemon: the database engine runs
 inside the PHP process, linked through the stable DuckDB C API (`libduckdb`).
 
 - **Package**: [`martinjuul/duckdb`](https://packagist.org/packages/martinjuul/duckdb) (PIE), extension name `duckdb`
-- **Requirements**: PHP 8.2+, `libduckdb` v1.1+ (v1.5.x recommended)
+- **Requirements**: PHP 8.2+; pinned builds target `libduckdb` v1.5.6 (see [compatibility](compatibility.md))
 - **License**: MIT
 
 ## Installation
@@ -46,7 +46,7 @@ Pre-built images with the extension compiled in are published for PHP 8.2–8.5
 on `linux/amd64` and `linux/arm64`:
 
 ```bash
-docker pull ghcr.io/martin-juul/php-duckdb:8.4-cli
+docker pull ghcr.io/martin-juul/php-duckdb:8.4
 ```
 
 ## Quickstart
@@ -105,7 +105,12 @@ API, the PHP surface will feel familiar:
 
 ## Stability
 
-The extension pins the *stable* DuckDB C API. Two entry points it uses
-(`duckdb_row_count`, `duckdb_value_varchar`) are deprecated upstream but have
-no non-deprecated replacement; they remain functional and are isolated to
-single, clearly commented call sites.
+The current pinned builds target DuckDB 1.5.6. The driver uses three C entry
+points deprecated upstream: `duckdb_pending_prepared_streaming` for streaming
+prepared execution, `duckdb_row_count` for materialized row counts, and
+`duckdb_value_varchar` for fallback string rendering. These internal dependencies
+do not deprecate the corresponding PHP methods. Replacements must preserve
+existing behavior before they are adopted.
+
+See [compatibility](compatibility.md) for configured platform coverage and the
+1.5.6 API audit, and [migrations](migrations.md) for upgrade and rollback guidance.

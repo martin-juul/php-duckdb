@@ -20,7 +20,7 @@ set -eu
 
 cd "$(dirname "$0")/../.."
 
-: "${DUCKDB_VERSION:=1.5.5}"
+: "${DUCKDB_VERSION:=1.5.6}"
 : "${MACOSX_DEPLOYMENT_TARGET:=12.0}"
 export MACOSX_DEPLOYMENT_TARGET
 
