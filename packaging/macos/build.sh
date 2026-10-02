@@ -61,7 +61,7 @@ vtool -show-build modules/duckdb.so
 
 echo "==> Running test suite"
 DYLD_LIBRARY_PATH="$PWD/duckdb-sdk/lib${DYLD_LIBRARY_PATH:+:$DYLD_LIBRARY_PATH}" \
-  make test NO_INTERACTION=1 REPORT_EXIT_STATUS=1
+  make test NO_INTERACTION=1 REPORT_EXIT_STATUS=1 TESTS="--show-diff"
 
 echo "==> Packaging tarball"
 extver=$(sed -n 's/.*PHP_DUCKDB_VERSION "\([^"]*\)".*/\1/p' php_duckdb.h)
