@@ -9,7 +9,7 @@
 #
 
 %global pecl_name        duckdb
-%global upstream_version 1.2.0
+%global upstream_version 1.2.1
 
 # libduckdb is not packaged for AlmaLinux/EPEL, so the prebuilt upstream
 # archive is used (same provenance as the project's Docker images).
@@ -154,5 +154,8 @@ export NO_INTERACTION=1 REPORT_EXIT_STATUS=1
 %{_libdir}/libduckdb.so
 
 %changelog
+* Fri Oct 02 2026 Martin Juul Christiansen <code@juul.xyz> - 1.2.1-1
+- Prepare 1.2.1 release with synchronized extension and package versions.
+
 * Sat Sep 19 2026 Martin Juul Christiansen <code@juul.xyz> - 1.2.0-1
 - Initial AlmaLinux package (Remi PHP target).
