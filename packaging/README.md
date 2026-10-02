@@ -25,6 +25,11 @@ The extension itself is distribution-agnostic (phpize + `--with-duckdb`);
 what differs per distro is package naming, the PHP dev package, the ini
 drop-in directory, and how libduckdb is provided.
 
+PHP extension distribution uses PIE as `martinjuul/duckdb`. Existing RPM
+names and provides such as `php-pecl-duckdb` and `php-pecl(DuckDB)` are
+retained for compatibility with distribution packaging conventions; they
+do not imply publication on PECL.
+
 ## libduckdb strategy
 
 The extension links against the DuckDB C API library (`libduckdb`), which
@@ -353,6 +358,27 @@ All Ubuntu targets use `dh --with php`, `phpenmod` activation and
   (`build/Makefile.global`), including a staged vendored libduckdb.
   Both vendored variants (`debian-trixie/`, `ubuntu/`) stash it across
   `dh_auto_clean` so consecutive builds in the same tree keep working.
+
+## Publishing to Packagist for PIE
+
+1. Sign in to [Packagist](https://packagist.org/) as `martin-juul` and
+   submit `https://github.com/martin-juul/php-duckdb`. The package name in
+   `composer.json` is `martinjuul/duckdb`; the vendor prefix does not need
+   to match the account name.
+2. Enable Packagist automatic updates through its GitHub integration or
+   repository webhook, and verify the package's update status.
+3. Validate `composer.json` and pass the PIE installation CI check before
+   releasing. Create and push a new version tag containing the top-level
+   `php-ext` metadata and the value-taking `with-duckdb` configure option.
+   Existing tags still contain their original metadata; publish a new
+   version rather than moving an existing tag.
+4. Verify Packagist discovers the tagged version, then test it with
+   `pie install martinjuul/duckdb --with-duckdb=/opt/duckdb` against a
+   separately installed DuckDB C library.
+
+See the [PIE maintainer guide](https://php.github.io/pie/#docs/extension-maintainers)
+for extension metadata requirements. Publishing a GitHub Release from the
+same tag additionally builds the distribution assets described below.
 
 ## Release assets
 

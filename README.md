@@ -89,7 +89,25 @@ your data (memory / .duckdb file / Parquet / CSV / …)
 └── lib/libduckdb.(so|dylib|lib)
 ```
 
-## Building & installing
+## Installing with PIE
+
+On Linux and macOS, install [PIE](https://php.github.io/pie/) and the
+requirements above, plus the target PHP version's development tools
+(`phpize` and `php-config`), `make`, and `autoconf`. Install the DuckDB C
+library separately; PIE builds this extension against the supplied prefix:
+
+```bash
+pie install martinjuul/duckdb --with-duckdb=/opt/duckdb
+php -r '$c = (new DuckDB\Database())->connect(); var_dump($c->query("SELECT 42 AS x")->fetchRow());'
+```
+
+On macOS, use `--with-duckdb=$(brew --prefix duckdb)`. PIE installs into
+the PHP installation used to run it and attempts to enable the extension
+automatically. If enabling fails, follow its instructions to add
+`extension=duckdb.so` to that PHP installation's configuration. Windows
+PIE binary distribution is not provided yet; use the source build below.
+
+## Building from source
 
 ```bash
 phpize
@@ -102,6 +120,9 @@ php -r 'var_dump(DuckDB\version());'   # e.g. "v1.5.5"
 
 On macOS use `--with-duckdb=$(brew --prefix duckdb)`. On Windows use
 `config.w32` with `phpize` from the PHP SDK.
+
+For Packagist registration and tagged PIE releases, see the
+[publishing instructions](packaging/README.md#publishing-to-packagist-for-pie).
 
 Run the test suite:
 

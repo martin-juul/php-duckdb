@@ -28,16 +28,15 @@
         "amphp/amp": "^3.0: PendingQuery::suspend() suspends fibers on the Revolt event loop instead of blocking",
         "react/async": "^4.0: PendingQuery::suspend() awaits on the ReactPHP event loop instead of blocking"
     },
-    "extra": {
-        "php-ext": {
-            "extension-name": "duckdb",
-            "configure-options": [
-                {
-                    "name": "with-duckdb",
-                    "description": "Path to the DuckDB C library installation (contains include/duckdb.h and lib/libduckdb)"
-                }
-            ]
-        }
+    "php-ext": {
+        "extension-name": "duckdb",
+        "configure-options": [
+            {
+                "name": "with-duckdb",
+                "description": "Path to the DuckDB C library installation (contains include/duckdb.h and lib/libduckdb)",
+                "needs-value": true
+            }
+        ]
     },
     "scripts": {
         "test": "php tests/harness.php",

@@ -5,19 +5,26 @@
 PHP. There is no server, no socket and no daemon: the database engine runs
 inside the PHP process, linked through the stable DuckDB C API (`libduckdb`).
 
-- **Package**: [`martinjuul/duckdb`](https://packagist.org/packages/martinjuul/duckdb) (Composer metadata), PECL name `duckdb`
+- **Package**: [`martinjuul/duckdb`](https://packagist.org/packages/martinjuul/duckdb) (PIE), extension name `duckdb`
 - **Requirements**: PHP 8.2+, `libduckdb` v1.1+ (v1.5.x recommended)
 - **License**: MIT
 
 ## Installation
 
-### PECL
+### PIE (Linux/macOS)
+
+Install [PIE](https://php.github.io/pie/), a C++17 compiler, `make`,
+`autoconf`, and the target PHP version's development tools (`phpize` and
+`php-config`). Install `libduckdb` separately under a prefix containing
+`include/duckdb.h` and `lib/libduckdb.so` (or `.dylib` on macOS).
 
 ```bash
-pecl install duckdb
-# then enable it
-echo 'extension=duckdb.so' > "$(php -i | grep '^Scan this dir' | cut -d'>' -f2 | xargs)/duckdb.ini"
+pie install martinjuul/duckdb --with-duckdb=/opt/duckdb
 ```
+
+On macOS, use `--with-duckdb=$(brew --prefix duckdb)`. PIE attempts to
+enable the extension automatically; follow its instructions if enabling
+fails. Windows PIE binaries are not provided yet.
 
 ### From source
 
@@ -29,6 +36,9 @@ phpize
 make -j$(nproc)
 sudo make install
 ```
+
+Enable the source-built extension by adding `extension=duckdb.so` to
+your PHP configuration. On Windows, build using `config.w32` and the PHP SDK.
 
 ### Docker
 
