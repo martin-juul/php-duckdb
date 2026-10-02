@@ -11,13 +11,15 @@ $fiber = new Fiber(function () use ($conn) {
     return $pending->suspend();
 });
 $fiber->start();
-$loops = 0;
+$deadline = hrtime(true) + 10_000_000_000;
 while (!$fiber->isTerminated()) {
-    $fiber->resume();
-    if (++$loops > 100000) {
+    if (hrtime(true) >= $deadline) {
         echo "fiber never finished\n";
         exit(1);
     }
+    // Give the worker CPU time; a resume-count limit depends on scheduling.
+    usleep(1000);
+    $fiber->resume();
 }
 var_dump($fiber->getReturn()->fetchRow());
 
@@ -36,17 +38,18 @@ if ($asyncRoot) {
     $r = $conn->queryAsync('SELECT 1 AS n')->suspend();
     echo 'outside fiber: async root coroutine, n=', $r->fetchRow()['n'], "\n";
 } else {
-    // Heavy enough that the worker cannot finish before the first
-    // duckdb_task_step, so Fiber::suspend is reliably reached and throws
-    // (a trivial query can complete first, skip the loop and never throw).
-    $pending = $conn->queryAsync('SELECT count(*) FROM range(1000000) t1, range(100) t2');
+    // Drive a multi-morsel aggregate on this thread. Unlike queryAsync(),
+    // polling execution cannot finish while PHP is descheduled before
+    // suspend(). One execution slice still leaves work to suspend for.
+    $polling = (new DuckDB\Database(':memory:', ['threads' => 1]))->connect();
+    $pending = $polling->queryPending('SELECT sum(i) FROM range(50000000) t(i)');
     try {
         $pending->suspend();
         echo "outside fiber: BAD - no error\n";
     } catch (FiberError $e) {
         echo 'outside fiber: ', $e->getMessage(), "\n";
     }
-    // Interrupt the abandoned worker so request shutdown does not race it.
+    // Release the unfinished polling query.
     $pending->cancel();
 }
 ?>
