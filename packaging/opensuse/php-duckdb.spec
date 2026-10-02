@@ -27,7 +27,7 @@
 %bcond_without tests
 
 Name:           php8-duckdb
-Version:        1.2.0
+Version:        1.2.1
 Release:        0
 Summary:        Native DuckDB driver for PHP
 License:        MIT
@@ -106,5 +106,8 @@ export NO_INTERACTION=1 REPORT_EXIT_STATUS=1
 %{_libdir}/libduckdb.so
 
 %changelog
+* Fri Oct 02 2026 Martin Juul Christiansen <code@juul.xyz> - 1.2.1-0
+- Prepare 1.2.1 release with synchronized extension and package versions.
+
 * Sat Sep 19 2026 Martin Juul Christiansen <code@juul.xyz> - 1.2.0-0
 - Initial openSUSE package.
