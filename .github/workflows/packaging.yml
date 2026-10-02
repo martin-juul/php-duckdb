@@ -642,8 +642,8 @@ jobs:
       # dpkg/rpm don't care about the file name, only the contents.
       # The architecture is already encoded in the package filename
       # itself (_amd64/_arm64 for debs, .x86_64/.aarch64 for rpms).
-      # Arch-independent SRPMs are produced by both arch builds; the
-      # second upload simply clobbers the first (identical content).
+      # SRPMs vendor architecture-specific DuckDB archives, so retain
+      # the build architecture in their asset names too.
       # macOS tarballs pass through unchanged: their names already carry
       # extension version, PHP minor, macOS floor and architecture.
       - name: Upload packages as release assets
@@ -653,20 +653,24 @@ jobs:
           set -euo pipefail
           for dir in artifacts/*/; do
             slug=$(basename "$dir")
+            arch=${slug##*-}
             slug=${slug%-amd64}
             slug=${slug%-arm64}
             slug=${slug%-deb}
             slug=${slug%-rpm}
-            for pkg in "$dir"*; do
+            # RPM artifacts retain RPMS/<arch>/ and SRPMS/ directories.
+            while IFS= read -r -d '' pkg; do
               base=$(basename "$pkg")
               case "$base" in
                 *.deb) asset="${base%.deb}.${slug}.deb" ;;
+                *.src.rpm) asset="${base%.rpm}.${slug}.${arch}.rpm" ;;
                 *.rpm) asset="${base%.rpm}.${slug}.rpm" ;;
                 *.tar.gz) asset="$base" ;;
                 *) asset="${base}.${slug}" ;;
               esac
               cp "$pkg" "/tmp/${asset}"
-              gh release upload "$GITHUB_REF_NAME" "/tmp/${asset}" --clobber
+              gh release upload "$GITHUB_REF_NAME" "/tmp/${asset}" \
+                --repo "$GITHUB_REPOSITORY" --clobber
               rm "/tmp/${asset}"
-            done
+            done < <(find "$dir" -type f -print0)
           done
