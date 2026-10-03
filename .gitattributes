@@ -1,0 +1,3 @@
+# Unified patches prefix unchanged tab-indented and blank lines with a space.
+# Preserve that context exactly; whitespace checks apply to the source files.
+*.patch whitespace=-blank-at-eol,-space-before-tab

@@ -5,35 +5,42 @@
 #
 #   docker build --build-arg PHP_VERSION=8.4 -t php-duckdb:8.4 .
 #
-# Platforms: linux/amd64 and linux/arm64 — the architectures DuckDB ships
-# prebuilt libduckdb archives for.
+# Platforms: linux/amd64 and linux/arm64.
 
 ARG PHP_VERSION=8.4
+
+# Build the engine independently of the PHP version.
+FROM debian:bookworm-slim AS duckdb-sdk
+
+ARG TARGETPLATFORM
+ARG DUCKDB_BUILD_JOBS=2
+
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends build-essential curl ca-certificates cmake ninja-build python3 patch \
+ && rm -rf /var/lib/apt/lists/*
+
+# Compile the pinned engine with the nullable-bitpacking fix.
+COPY packaging/duckdb/build-sdk.sh packaging/duckdb/source.json /opt/duckdb-build-tools/
+COPY packaging/duckdb/patches/ /opt/duckdb-build-tools/patches/
+RUN set -eux; \
+    case "$TARGETPLATFORM" in \
+        linux/amd64|linux/arm64) ;; \
+        *) echo "unsupported platform: $TARGETPLATFORM" >&2; exit 1 ;; \
+    esac; \
+    sh /opt/duckdb-build-tools/build-sdk.sh \
+        --prefix /opt/duckdb --work-dir /tmp/duckdb-sdk-build --jobs "$DUCKDB_BUILD_JOBS"
+
 
 # ==================================================================== #
 # Build stage: compile the extension against the matching libduckdb.   #
 # ==================================================================== #
 FROM php:${PHP_VERSION}-cli-bookworm AS build
 
-ARG DUCKDB_VERSION=v1.5.6
-ARG TARGETPLATFORM
-
 RUN apt-get update \
- && apt-get install -y --no-install-recommends $PHPIZE_DEPS unzip curl ca-certificates \
+ && apt-get install -y --no-install-recommends $PHPIZE_DEPS ca-certificates \
  && rm -rf /var/lib/apt/lists/*
 
-# libduckdb ships per-arch prebuilt archives; select by target platform.
-RUN set -eux; \
-    case "$TARGETPLATFORM" in \
-        linux/amd64) duckdb_arch=amd64 ;; \
-        linux/arm64) duckdb_arch=arm64 ;; \
-        *) echo "unsupported platform: $TARGETPLATFORM" >&2; exit 1 ;; \
-    esac; \
-    curl -fsSL "https://github.com/duckdb/duckdb/releases/download/${DUCKDB_VERSION}/libduckdb-linux-${duckdb_arch}.zip" -o /tmp/libduckdb.zip; \
-    mkdir -p /opt/duckdb/include /opt/duckdb/lib; \
-    unzip -o /tmp/libduckdb.zip -d /opt/duckdb; \
-    mv /opt/duckdb/duckdb.h /opt/duckdb/include/; \
-    mv /opt/duckdb/libduckdb.so /opt/duckdb/lib/
+COPY --from=duckdb-sdk /opt/duckdb/ /opt/duckdb/
 
 WORKDIR /src
 COPY config.m4 duckdb.cpp php_duckdb.h php_duckdb_cxx_compat.h duckdb_arginfo.h ./
@@ -59,6 +66,7 @@ RUN mkdir -p /dist \
 FROM php:${PHP_VERSION}-cli-bookworm
 
 COPY --from=build /dist/libduckdb.so /usr/local/lib/libduckdb.so
+COPY --from=build /opt/duckdb/share/duckdb-sdk/ /usr/local/share/duckdb-sdk/
 COPY --from=build /dist/duckdb.so /tmp/duckdb.so
 
 RUN set -eux; \

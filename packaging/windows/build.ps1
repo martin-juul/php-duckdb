@@ -38,27 +38,25 @@ try {
     Get-PhpDevelBuild -Config $config -BuildDetails $details | Out-Null
     Add-Dependencies -Config $config -Prefix $php
 
-    $duckVersion = '1.5.6'
-    $archive = Join-Path $BuildRoot 'libduckdb-windows-amd64.zip'
-    Invoke-WebRequest "https://github.com/duckdb/duckdb/releases/download/v$duckVersion/libduckdb-windows-amd64.zip" -OutFile $archive
-    $expectedHash = '44cf59583f9951d2cb09b1bf115a63ecb2d8901e363903029d86c7d8683fe96a'
-    if ((Get-FileHash $archive -Algorithm SHA256).Hash.ToLowerInvariant() -ne $expectedHash) {
-        throw 'DuckDB archive SHA-256 mismatch'
-    }
-    $duck = Join-Path $BuildRoot 'duckdb'
-    Expand-Archive $archive $duck
-    foreach ($file in 'duckdb.h', 'duckdb.lib', 'duckdb.dll') {
+    # Build the hash-pinned source and apply the nullable-bitpacking fix.
+    # Engine VS2022 selection is independent of PHP's vs16/vs17 selection.
+    $duck = Join-Path $BuildRoot 'duckdb-sdk'
+    & "$source/packaging/duckdb/build-sdk.ps1" -Prefix $duck `
+        -WorkDirectory (Join-Path $BuildRoot 'duckdb-sdk-build') -Jobs 2
+    $duckPins = Get-Content "$duck/share/duckdb-sdk/source.json" -Raw | ConvertFrom-Json
+    $duckVersion = $duckPins.version
+    foreach ($file in 'include/duckdb.h', 'lib/duckdb.lib', 'bin/duckdb.dll') {
         if (!(Test-Path "$duck/$file" -PathType Leaf)) { throw "Missing DuckDB dependency: $file" }
     }
-    Copy-Item "$duck/duckdb.h" "$deps/include/duckdb.h"
-    Copy-Item "$duck/duckdb.lib" "$deps/lib/duckdb.lib"
-    Copy-Item "$duck/duckdb.dll" "$deps/bin/duckdb.dll"
+    Copy-Item "$duck/include/duckdb.h" "$deps/include/duckdb.h"
+    Copy-Item "$duck/lib/duckdb.lib" "$deps/lib/duckdb.lib"
+    Copy-Item "$duck/bin/duckdb.dll" "$deps/bin/duckdb.dll"
     Invoke-Build -Config $config
     $extension = Join-Path $build "$($config.build_directory)/php_duckdb.dll"
     if (!(Test-Path $extension -PathType Leaf)) { throw 'Build did not produce php_duckdb.dll' }
 
     # Put the dependency next to the matching PHP executable, just as users do.
-    Copy-Item "$duck/duckdb.dll" "$php/duckdb.dll"
+    Copy-Item "$duck/bin/duckdb.dll" "$php/duckdb.dll"
     foreach ($file in 'php_ffi.dll', 'php_sockets.dll') {
         if (!(Test-Path "$php/ext/$file")) { throw "Missing test extension: $file" }
     }
@@ -79,15 +77,19 @@ try {
     $package = Join-Path $BuildRoot 'package'
     New-Item -ItemType Directory $package | Out-Null
     Copy-Item $extension "$package/php_duckdb.dll"
-    Copy-Item "$duck/duckdb.dll" "$package/duckdb.dll"
+    Copy-Item "$duck/bin/duckdb.dll" "$package/duckdb.dll"
     Copy-Item "$source/LICENSE" "$package/LICENSE.php-duckdb"
-    Invoke-WebRequest "https://raw.githubusercontent.com/duckdb/duckdb/v$duckVersion/LICENSE" -OutFile "$package/LICENSE.duckdb"
+    Copy-Item "$duck/share/duckdb-sdk/LICENSE.duckdb" "$package/LICENSE.duckdb"
+    Copy-Item "$duck/share/duckdb-sdk" "$package/duckdb-sdk" -Recurse
     Copy-Item "$source/packaging/windows/README.md" "$package/INSTALL.md"
     @{
         extension_version = $version; duckdb_version = $duckVersion
         php_version = $details.phpSemver; php_minor = $PhpVersion
         thread_safety = $ThreadSafety; compiler = $vs.vs; architecture = 'x64'
         source_commit = $env:GITHUB_SHA
+        duckdb_source_commit = $duckPins.commit; duckdb_source_sha256 = $duckPins.sha256
+        duckdb_patch_sha256 = (Get-FileHash "$duck/share/duckdb-sdk/nullable-bitpacking.patch" -Algorithm SHA256).Hash.ToLowerInvariant()
+        duckdb_dll_sha256 = (Get-FileHash "$duck/bin/duckdb.dll" -Algorithm SHA256).Hash.ToLowerInvariant()
     } | ConvertTo-Json | Set-Content "$package/build-info.json" -Encoding utf8
     $output = Join-Path $source 'dist'
     New-Item -ItemType Directory -Force $output | Out-Null

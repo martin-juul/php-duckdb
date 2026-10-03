@@ -1,10 +1,9 @@
 #!/usr/bin/make -f
 
-# Debian 13 (trixie) has no libduckdb package, so this target vendors the
-# prebuilt archive: stage duckdb-sdk/{include,lib} from
-# libduckdb-linux-<arch>.zip (v$(DUCKDB_VERSION)) before building —
-# see packaging/README.md. The CI job reads the pin from this file.
-DUCKDB_VERSION := 1.5.6
+# Build the pinned, patched engine from a staged source archive. Pins and the
+# patch live in packaging/duckdb; builds do not download dependencies here.
+DUCKDB_SOURCE_ARCHIVE ?= $(CURDIR)/duckdb-source.tar.gz
+DUCKDB_BUILD_DIR ?= /tmp/php-duckdb-deb-engine
 
 # see FEATURE AREAS in dpkg-buildflags(1)
 export DEB_BUILD_MAINT_OPTIONS = hardening=+all
@@ -16,27 +15,31 @@ export PHP_RPATH = no
 
 # run-tests.php must not prompt, and must fail the build on test failures.
 export NO_INTERACTION = 1
+export DUCKDB_EXTENSION_PATH = $(CURDIR)/modules/duckdb.so
 
 include /usr/share/dpkg/architecture.mk
+DPKG_EXPORT_BUILDFLAGS = 1
+include /usr/share/dpkg/buildflags.mk
 
 %:
 	dh $@ --with php
 
 override_dh_auto_configure:
-	test -f duckdb-sdk/include/duckdb.h -a -f duckdb-sdk/lib/libduckdb.so || { \
-		echo "error: duckdb-sdk/{include,lib} not staged —" \
-		     "unpack libduckdb-linux-<arch>.zip v$(DUCKDB_VERSION) first"; \
-		exit 1; }
+	DUCKDB_SOURCE_ARCHIVE="$(DUCKDB_SOURCE_ARCHIVE)" sh packaging/duckdb/build-sdk.sh \
+		--prefix "$(CURDIR)/duckdb-sdk" --work-dir "$(DUCKDB_BUILD_DIR)"
 	phpize
 	dh_auto_configure -- --with-duckdb=$(CURDIR)/duckdb-sdk --with-php-config=/usr/bin/php-config
 
 # PHP's build system installs with INSTALL_ROOT, not DESTDIR.
 # The vendored libduckdb ships inside the package (trixie has none);
-# the archive's SONAME is the unversioned libduckdb.so.
+# the library's SONAME is the unversioned libduckdb.so.
 override_dh_auto_install:
 	dh_auto_install -- INSTALL_ROOT=$(CURDIR)/debian/php-duckdb
 	install -D -m 0755 duckdb-sdk/lib/libduckdb.so \
 		$(CURDIR)/debian/php-duckdb/usr/lib/$(DEB_HOST_MULTIARCH)/libduckdb.so
+	mkdir -p $(CURDIR)/debian/php-duckdb/usr/share/doc/php-duckdb/duckdb-sdk
+	cp -a duckdb-sdk/share/duckdb-sdk/. \
+		$(CURDIR)/debian/php-duckdb/usr/share/doc/php-duckdb/duckdb-sdk/
 
 # The vendored lib is not on the loader path during the build, so point
 # the test suite at duckdb-sdk/lib explicitly (same as the RPM %check).
