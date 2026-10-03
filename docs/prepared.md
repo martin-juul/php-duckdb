@@ -20,18 +20,19 @@ $result = $stmt->execute();
 ```
 
 Prepared statements are the fastest way to run the same statement repeatedly,
-and the safe way to interpolate values — parameters are never string-concatenated
-into SQL.
+and the safe way to interpolate values — parameters are never
+string-concatenated into SQL.
 
 ## Parameter styles
 
-| Style | SQL | Bind with |
-|---|---|---|
-| Positional | `?` | 1-based positions: `execute([$a, $b])` or `bindValue(1, $a)` |
-| Numbered | `$1`, `$2` | same as positional |
-| Named | `$name` or `:name` | `execute(['name' => $v])` or `bindValue('name', $v)` (the `$`/`:` prefix is optional) |
+| Style      | SQL                | Bind with                                                                             |
+| ---------- | ------------------ | ------------------------------------------------------------------------------------- |
+| Positional | `?`                | 1-based positions: `execute([$a, $b])` or `bindValue(1, $a)`                          |
+| Numbered   | `$1`, `$2`         | same as positional                                                                    |
+| Named      | `$name` or `:name` | `execute(['name' => $v])` or `bindValue('name', $v)` (the `$`/`:` prefix is optional) |
 
-Rules for `execute($params)` / `executeStreaming($params)` / `executeAsync($params)`:
+Rules for `execute($params)` / `executeStreaming($params)` /
+`executeAsync($params)`:
 
 - A **list** binds positionally, in order; the count must match.
 - An array with **string keys** binds named parameters.
@@ -39,19 +40,19 @@ Rules for `execute($params)` / `executeStreaming($params)` / `executeAsync($para
 
 ## Binding types
 
-| PHP value | DuckDB type |
-|---|---|
+| PHP value                                      | DuckDB type                                                                   |
+| ---------------------------------------------- | ----------------------------------------------------------------------------- |
 | `DuckDB\Value` and its native typed subclasses | Explicit SQL type; conversion at execution ([classes and contract](value.md)) |
-| `null` | NULL |
-| `bool` | BOOLEAN |
-| `int` | BIGINT |
-| `float` | DOUBLE |
-| `string` | VARCHAR |
-| `string` via `bindBlob()` | BLOB (binary-safe) |
-| `DuckDB\Interval` | INTERVAL |
-| `DateTimeInterface` | TIMESTAMP (microsecond precision) |
-| `list<mixed>` | LIST |
-| `array<string, mixed>` | STRUCT |
+| `null`                                         | NULL                                                                          |
+| `bool`                                         | BOOLEAN                                                                       |
+| `int`                                          | BIGINT                                                                        |
+| `float`                                        | DOUBLE                                                                        |
+| `string`                                       | VARCHAR                                                                       |
+| `string` via `bindBlob()`                      | BLOB (binary-safe)                                                            |
+| `DuckDB\Interval`                              | INTERVAL                                                                      |
+| `DateTimeInterface`                            | TIMESTAMP (microsecond precision)                                             |
+| `list<mixed>`                                  | LIST                                                                          |
+| `array<string, mixed>`                         | STRUCT                                                                        |
 
 ```php
 $stmt->bindValue(1, new DateTimeImmutable('2026-01-01 12:00:00 UTC'));
@@ -67,9 +68,9 @@ $stmt->bindValue('amount', new DuckDB\Decimal('12.345', precision: 18, scale: 2)
 $stmt->bindValue('ids', new DuckDB\ListValue([], DuckDB\Integer::class));
 ```
 
-Invalid parameter indexes or unsupported values throw `\ValueError`;
-DuckDB-side binding failures throw the typed exceptions (usually
-`BinderException` / `ConversionException`).
+Invalid parameter indexes or unsupported values throw `\ValueError`; DuckDB-side
+binding failures throw the typed exceptions (usually `BinderException` /
+`ConversionException`).
 
 ## Introspection
 
@@ -94,7 +95,8 @@ $pending = $stmt->executeAsync([$id]);      // background thread, see async.md
 ## Not exposed
 
 - `duckdb_extract_statements()` (splitting a multi-statement string into
-  individual prepared statements) has no PHP wrapper. Issue statements one at
-  a time, or send the whole script to `Connection::query()`, which executes
+  individual prepared statements) has no PHP wrapper. Issue statements one at a
+  time, or send the whole script to `Connection::query()`, which executes
   multiple statements.
+
 Typed native value binding is exposed through [`DuckDB\Value`](value.md).
