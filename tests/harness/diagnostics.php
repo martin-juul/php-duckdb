@@ -9,6 +9,15 @@ copy(dirname(__DIR__) . '/harness.php', $fixtureRoot . '/tests/harness.php');
 file_put_contents($fixtureRoot . '/duckdb.so', 'fixture');
 file_put_contents($fixtureRoot . '/run-tests.php', <<<'PHP'
 <?php
+$options = explode(' ', getenv('VALGRIND_OPTS') ?: '');
+foreach (['--fair-sched=try', '--error-exitcode=99', '--errors-for-leak-kinds=definite', '--leak-check=full'] as $option) {
+    if (!in_array($option, $options, true)) {
+        throw new RuntimeException("Missing Valgrind option: $option");
+    }
+}
+if (getenv('USE_ZEND_ALLOC') !== '0') {
+    throw new RuntimeException('Zend allocator must be disabled for Memcheck');
+}
 echo file_get_contents(__DIR__ . '/runner-output.txt');
 exit((int) getenv('FIXTURE_EXIT'));
 PHP);
@@ -16,6 +25,7 @@ PHP);
 $scenarios = [
     'mixed' => [['pass', 'fail', 'leak', 'warn', 'bork'], 1, 1],
     'warning only' => [['pass', 'warn'], 0, 1],
+    'passed on retry' => [['pass', 'warn'], 0, 1],
     'bork only' => [['pass', 'bork'], 0, 1],
     'runner failure' => [['pass'], 17, 1],
     'missing summary' => [[], 17, 2],
@@ -52,6 +62,10 @@ foreach ($scenarios as $scenario => [$names, $runnerExit, $expectedExit]) {
     }
     if ($scenario === 'missing summary') {
         $output = "runner stopped before producing a summary\n";
+    }
+    if ($scenario === 'passed on retry') {
+        $output = "first attempt output: timeout while fetching rows\n"
+            . "WARN fixture passed on retry [tests/warn.phpt]\n" . $output;
     }
     foreach ([false, true] as $crlf) {
         $raw = $crlf ? str_replace("\n", "\r\n", $output) : $output;
@@ -131,6 +145,13 @@ foreach ($scenarios as $scenario => [$names, $runnerExit, $expectedExit]) {
         if ($hasRawLog && file_get_contents(trim($match[1])) !== $raw) {
             throw new RuntimeException("$scenario: saved output differs from runner output");
         }
+        if ($hasRawLog) {
+            $saved = trim($match[1]);
+            $uploadFiles = glob($fixtureRoot . '/duckdb-*-run-tests-*') ?: [];
+            if (!in_array($saved, $uploadFiles, true)) {
+                throw new RuntimeException("$scenario: raw output does not match CI upload pattern");
+            }
+        }
     }
 }
 
@@ -144,4 +165,4 @@ $remove = static function (string $dir) use (&$remove): void {
     rmdir($dir);
 };
 $remove($fixtureRoot);
-echo "PASS harness diagnostics: six scenarios, LF/CRLF, console, exit status, JUnit and raw logs\n";
+echo "PASS harness diagnostics: seven scenarios, LF/CRLF, console, exit status, JUnit and uploaded raw logs\n";

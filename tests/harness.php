@@ -373,8 +373,8 @@ final class Harness
         if ($valgrind) {
             // Tests containing a --VALGRIND-SKIP-- line are excluded here:
             // they are slow-path stress tests whose runtime under Memcheck
-            // exceeds any sane per-test timeout, and whose memory behavior
-            // is already covered by the stress stage under Valgrind.
+            // exceeds the per-test timeout. The stress stage runs separately
+            // without Memcheck; these exclusions are reported below.
             $before = count($tests);
             $tests = array_values(array_filter($tests, static function (string $t): bool {
                 $contents = file_get_contents($t);
@@ -410,7 +410,10 @@ final class Harness
             // Zend's allocator hides leaks from Valgrind; disable it.
             $env['USE_ZEND_ALLOC'] = '0';
             $supp = "{$root}/tests/duckdb.supp";
+            // Let DuckDB workers progress while another thread polls for tasks.
+            // Unsupported platforms retain Valgrind's default scheduler.
             $env['VALGRIND_OPTS'] = '--error-exitcode=99 --errors-for-leak-kinds=definite --leak-check=full --num-callers=30'
+                . ' --fair-sched=try'
                 . (is_file($supp) ? " --suppressions={$supp}" : '');
         }
 

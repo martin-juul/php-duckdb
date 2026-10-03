@@ -80,6 +80,7 @@ jobs:
 
       - name: Harness (build + unit + examples)
         env:
+          TMPDIR: ${{ runner.temp }}
           LD_LIBRARY_PATH: /opt/duckdb/lib
           DYLD_LIBRARY_PATH: /opt/duckdb/lib
         run: php tests/harness.php --no-color --junit=junit.xml
@@ -107,6 +108,7 @@ jobs:
         with:
           name: test-failures-${{ matrix.os }}-php${{ matrix.php }}
           path: |
+            ${{ runner.temp }}/duckdb-*-run-tests-*
             tests/*.diff
             tests/*.out
             tests/*.exp
@@ -155,17 +157,19 @@ jobs:
             tests/native/nullable_bitpacking_matrix.c -L/opt/duckdb/lib -lduckdb \
             -o /tmp/nullable-bitpacking
           test_dir=$(mktemp -d)
-          valgrind --error-exitcode=99 --leak-check=full \
+          valgrind --fair-sched=try --error-exitcode=99 --leak-check=full \
             --errors-for-leak-kinds=definite \
             /tmp/nullable-bitpacking "$test_dir/checkpoint.duckdb"
 
       - name: Harness (build + unit + Swoole examples)
         env:
+          TMPDIR: ${{ runner.temp }}
           LD_LIBRARY_PATH: /opt/duckdb/lib
         run: php tests/harness.php --no-color --junit=junit.xml
 
       - name: Valgrind
         env:
+          TMPDIR: ${{ runner.temp }}
           LD_LIBRARY_PATH: /opt/duckdb/lib
           USE_ZEND_ALLOC: '0'
         run: php tests/harness.php --valgrind --no-color --junit=valgrind-junit.xml
@@ -180,6 +184,7 @@ jobs:
         with:
           name: extended-failures
           path: |
+            ${{ runner.temp }}/duckdb-*-run-tests-*
             tests/*.diff
             tests/*.out
             tests/*.exp
@@ -217,6 +222,7 @@ jobs:
 
       - name: Harness (unit + Amp examples)
         env:
+          TMPDIR: ${{ runner.temp }}
           LD_LIBRARY_PATH: /opt/duckdb/lib
           DUCKDB_AMPHP_AUTOLOAD: /tmp/amphp/vendor/autoload.php
         run: php tests/harness.php --no-color --junit=junit.xml
@@ -227,6 +233,7 @@ jobs:
         with:
           name: amphp-failures-php${{ matrix.php }}
           path: |
+            ${{ runner.temp }}/duckdb-*-run-tests-*
             tests/*.diff
             tests/*.out
             tests/*.exp
@@ -262,6 +269,7 @@ jobs:
 
       - name: Harness (unit + ReactPHP examples)
         env:
+          TMPDIR: ${{ runner.temp }}
           LD_LIBRARY_PATH: /opt/duckdb/lib
           DUCKDB_REACTPHP_AUTOLOAD: /tmp/reactphp/vendor/autoload.php
         run: php tests/harness.php --no-color --junit=junit.xml
@@ -272,6 +280,7 @@ jobs:
         with:
           name: reactphp-failures-php${{ matrix.php }}
           path: |
+            ${{ runner.temp }}/duckdb-*-run-tests-*
             tests/*.diff
             tests/*.out
             tests/*.exp
@@ -295,6 +304,7 @@ jobs:
       - name: Harness (build + unit + true-async examples)
         shell: bash
         env:
+          TMPDIR: ${{ runner.temp }}
           LD_LIBRARY_PATH: /opt/duckdb/lib
         run: php tests/harness.php --no-color --junit=junit.xml
 
@@ -321,6 +331,7 @@ jobs:
         with:
           name: true-async-failures
           path: |
+            ${{ runner.temp }}/duckdb-*-run-tests-*
             tests/*.diff
             tests/*.out
             tests/*.exp
@@ -347,6 +358,7 @@ jobs:
       - name: Harness (ZTS build + unit + examples)
         shell: bash
         env:
+          TMPDIR: ${{ runner.temp }}
           LD_LIBRARY_PATH: /opt/duckdb/lib
         run: php tests/harness.php --no-color --junit=junit.xml
 
@@ -377,6 +389,7 @@ jobs:
         with:
           name: frankenphp-failures-php${{ matrix.php }}
           path: |
+            ${{ runner.temp }}/duckdb-*-run-tests-*
             tests/*.diff
             tests/*.out
             tests/*.exp
