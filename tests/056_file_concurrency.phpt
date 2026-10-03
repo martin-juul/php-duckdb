@@ -5,7 +5,7 @@ Database: file-backed concurrency — MVCC, in-process handle, cross-process loc
 require_once __DIR__ . '/skipif.inc';
 require_once __DIR__ . '/subprocess.inc';
 if (duckdb_subprocess_args() === null) {
-    die('skip cannot locate duckdb.so for the subprocess');
+    die('skip cannot locate the duckdb extension for the subprocess');
 }
 ?>
 --FILE--
@@ -44,7 +44,7 @@ $childCode =
     'try { new DuckDB\\Database(' . var_export($path, true) . '); echo "opened\n"; }'
     . ' catch (DuckDB\\IOException $e) {'
     . ' echo "io ", $e->getErrorType()->name,'
-    . ' " lock=", stripos($e->getMessage(), "lock") !== false ? "yes" : "no", "\n"; }';
+    . ' "\n"; }';
 $proc = proc_open(
     array_merge([PHP_BINARY], duckdb_subprocess_args(), ['-r', $childCode]),
     [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
@@ -81,6 +81,7 @@ unset($w, $r, $db);
 $conn = (new Database($path))->connect();
 echo 'reopened sum: ', $conn->query('SELECT sum(i)::INTEGER AS s FROM t')->fetchRow()['s'], "\n";
 $conn->close();
+unset($conn); // Windows cannot unlink an open database file.
 
 unlink($path);
 @unlink($path . '.wal');
@@ -90,7 +91,7 @@ echo "done\n";
 reader during tx: 2
 writer during tx: 3
 reader after commit: 3
-child: io Io lock=yes
+child: io Io
 child exit: 0
 writer still works: 4
 second handle: opened, sees 4

@@ -108,15 +108,33 @@ using scoped_duckdb_chunk = duckdb_scoped<duckdb_data_chunk, duckdb_destroy_data
 using scoped_duckdb_prepared = duckdb_scoped<duckdb_prepared_statement, duckdb_destroy_prepare>;
 
 #ifdef PHP_WIN32
-#include <io.h>
-#include <fcntl.h>
-#define close(fd) _close(fd)
-#define write(fd, buf, n) _write(fd, buf, n)
+#include <winsock2.h>
+using duckdb_notify_fd = SOCKET;
+constexpr duckdb_notify_fd DUCKDB_INVALID_NOTIFY_FD = INVALID_SOCKET;
 #else
 #include <errno.h>
 #include <sys/socket.h>
 #include <unistd.h>
+using duckdb_notify_fd = int;
+constexpr duckdb_notify_fd DUCKDB_INVALID_NOTIFY_FD = -1;
 #endif
+
+inline bool duckdb_notify_fd_valid(duckdb_notify_fd fd) {
+    return fd != DUCKDB_INVALID_NOTIFY_FD;
+}
+
+inline void duckdb_notify_fd_close(duckdb_notify_fd fd) {
+    if (!duckdb_notify_fd_valid(fd)) {
+        return;
+    }
+#ifdef PHP_WIN32
+    closesocket(fd);
+#else
+    close(fd);
+#endif
+}
+
+duckdb_notify_fd duckdb_notify_fd_duplicate(duckdb_notify_fd fd);
 
 /* ================================================================== */
 /* Internal handle wrappers (no PHP state)                            */
@@ -216,7 +234,7 @@ struct async_task {
      * ownership). Destroyed after the pending result. */
     duckdb_prepared_statement owned_stmt = nullptr;
 
-    int notify_write_fd = -1;
+    duckdb_notify_fd notify_write_fd = DUCKDB_INVALID_NOTIFY_FD;
 
     /* Caller holds conn->mutex. Drain interrupted polling work before
      * destroying it; dropping a partially executed DuckDB pending handle
@@ -331,7 +349,7 @@ typedef struct _php_duckdb_result_iterator_object {
 
 typedef struct _php_duckdb_pending_object {
     std::shared_ptr<async_task> task;
-    int read_fd = -1; /* transferred to a php_stream by getStream() */
+    duckdb_notify_fd read_fd = DUCKDB_INVALID_NOTIFY_FD; /* transferred to a php_stream by getStream() */
     zend_object std;
 } php_duckdb_pending_object;
 
@@ -512,6 +530,6 @@ bool duckdb_task_step(std::shared_ptr<async_task> task);
 void duckdb_pending_complete(php_duckdb_pending_object *intern, zval *return_value);
 /* Create the completion-notification fd pair. Returns false and throws
  * on failure. */
-bool duckdb_create_notify_pipe(int fds[2]);
+bool duckdb_create_notify_pipe(duckdb_notify_fd fds[2]);
 
 #endif /* PHP_DUCKDB_H */

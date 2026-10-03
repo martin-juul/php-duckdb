@@ -77,7 +77,7 @@ static bool duckdb_true_async_delay(zend_long ms) {
     return ok;
 }
 
-/* Park the coroutine until `stream` (a dup of the completion pipe) is
+/* Park the coroutine until `stream` (a dup of the completion socket) is
  * readable, with a 250ms watchdog that re-checks the done flag. Under
  * True Async stream_select() suspends the coroutine inside the libuv
  * reactor instead of blocking the thread. Returns false when the call
@@ -111,7 +111,7 @@ static bool duckdb_true_async_wait_stream(zval *stream_zval) {
 }
 
 /* Suspend the current True Async coroutine until the query completes.
- * Worker modes park on the completion pipe via stream_select(); polling
+ * Worker modes park on the completion socket via stream_select(); polling
  * mode alternates duckdb_task_step() slices with Async\delay() yields.
  * Either way the scheduler thread stays free to run other coroutines. */
 static void duckdb_pending_suspend_true_async(php_duckdb_pending_object *intern, std::shared_ptr<async_task> &task) {
@@ -119,18 +119,20 @@ static void duckdb_pending_suspend_true_async(php_duckdb_pending_object *intern,
     ZVAL_UNDEF(&stream_zval);
 
 #ifndef PHP_WIN32
-    if (intern->read_fd >= 0) {
-        /* dup() so the stream cannot steal the pipe from the PendingQuery.
+    if (duckdb_notify_fd_valid(intern->read_fd)) {
+        /* Duplicate so the stream cannot steal the socket from the PendingQuery.
          * On dup failure (fd exhaustion) degrade to the polling-style
          * delay loop below. */
-        int fd = dup(intern->read_fd);
-        if (fd >= 0) {
+        duckdb_notify_fd fd = duckdb_notify_fd_duplicate(intern->read_fd);
+        if (duckdb_notify_fd_valid(fd)) {
             php_stream *stream = php_stream_sock_open_from_socket(fd, NULL);
             if (stream != NULL) {
                 /* Ownership transfers to the stream's resource: after
                  * php_stream_to_zval() a stream must be released via the
                  * zval, never via php_stream_close(). */
                 php_stream_to_zval(stream, &stream_zval);
+            } else {
+                duckdb_notify_fd_close(fd);
             }
         }
     }

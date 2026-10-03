@@ -40,6 +40,14 @@ sudo make install
 Enable the source-built extension by adding `extension=duckdb.so` to
 your PHP configuration. On Windows, build using `config.w32` and the PHP SDK.
 
+### Windows ZIP packages
+
+The packaging workflow builds x64 ZIPs for PHP 8.2–8.5, in both TS and NTS
+variants. Choose the archive matching your PHP minor version, thread-safety
+mode, and compiler. Follow the [Windows installation guide](../packaging/windows/README.md)
+for DLL placement, runtime prerequisites, and configuration. Availability is
+determined by the assets on the selected release; older tags are not backfilled.
+
 ### Docker
 
 Pre-built images with the extension compiled in are published for PHP 8.2–8.5

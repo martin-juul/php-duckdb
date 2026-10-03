@@ -8,7 +8,8 @@ name: Packaging
 # smoke-tests the system PHP loading it through the distro's own ini
 # mechanism. macOS has no such mechanism, so its job ships tarballs
 # (duckdb.so + vendored libduckdb.dylib + install script) built natively
-# on macos-15-intel and macos-15, targeting macOS 12+.
+# on macos-15-intel and macos-15, targeting macOS 12+. Windows ships
+# x64 ZIPs for PHP 8.2–8.5 TS/NTS with the matching DuckDB runtime DLL.
 #
 # Every Linux job runs on amd64 (ubuntu-latest) AND arm64
 # (ubuntu-24.04-arm — native ARM64 runners, free for public repos), so
@@ -25,21 +26,25 @@ on:
     paths:
       - 'packaging/**'
       - 'config.m4'
+      - 'config.w32'
       - 'duckdb.cpp'
       - 'php_duckdb.h'
       - 'duckdb_arginfo.h'
       - 'duckdb.stub.php'
       - 'src/**'
+      - 'tests/**'
       - '.github/workflows/packaging.yml'
   pull_request:
     paths:
       - 'packaging/**'
       - 'config.m4'
+      - 'config.w32'
       - 'duckdb.cpp'
       - 'php_duckdb.h'
       - 'duckdb_arginfo.h'
       - 'duckdb.stub.php'
       - 'src/**'
+      - 'tests/**'
       - '.github/workflows/packaging.yml'
   release:
     types: [published]
@@ -611,6 +616,62 @@ jobs:
           path: dist/*.tar.gz
           if-no-files-found: error
 
+  windows-zip:
+    name: Windows x64 ZIP — PHP ${{ matrix.php }} ${{ matrix.ts }}
+    runs-on: windows-2022
+    strategy:
+      fail-fast: false
+      matrix:
+        php: ['8.2', '8.3', '8.4', '8.5']
+        ts: [ts, nts]
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+
+      # Reviewed module APIs, SDK 2.8.2 and compiler mappings at this commit.
+      # Import the module directly: the composite action has no pre-build
+      # dependency hook and uploads its own ZIP to the artifact collector.
+      - name: Fetch pinned official PHP Windows builder
+        env:
+          BUILDER_SHA: 5f63433eb2bda2ca8d0d970fe487be84f7ab195c
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $builder = Join-Path $env:RUNNER_TEMP 'php-windows-builder'
+          git clone --no-checkout https://github.com/php/php-windows-builder.git $builder
+          if ($LASTEXITCODE -ne 0) { throw 'Builder clone failed' }
+          git -C $builder checkout --detach $env:BUILDER_SHA
+          if ($LASTEXITCODE -ne 0) { throw 'Builder checkout failed' }
+          if ((git -C $builder rev-parse HEAD) -ne $env:BUILDER_SHA) { throw 'Builder revision mismatch' }
+
+      - name: Build, test, package and smoke-test extracted ZIP
+        run: |
+          ./packaging/windows/build.ps1 -PhpVersion '${{ matrix.php }}' -ThreadSafety '${{ matrix.ts }}' `
+            -BuilderPath "$env:RUNNER_TEMP/php-windows-builder" -BuildRoot "$env:RUNNER_TEMP/duckdb-windows"
+
+      - name: Upload Windows package
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-x64-php${{ matrix.php }}-${{ matrix.ts }}-zip
+          path: dist/php-duckdb-*-windows-x64.zip
+          if-no-files-found: error
+
+      - name: Upload Windows failure diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-diagnostics-php${{ matrix.php }}-${{ matrix.ts }}
+          path: |
+            ${{ runner.temp }}/duckdb-windows/extension/build-*.txt
+            ${{ runner.temp }}/duckdb-windows/extension/tests/**/*.diff
+            ${{ runner.temp }}/duckdb-windows/extension/tests/**/*.out
+            ${{ runner.temp }}/duckdb-windows/extension/tests/**/*.exp
+            ${{ runner.temp }}/duckdb-windows/extension/tests/**/*.log
+            ${{ runner.temp }}/duckdb-windows/extension/tests/**/*.php
+            ${{ runner.temp }}/duckdb-windows/extension/tests/**/*.sh
+          if-no-files-found: warn
+
   # Runs only when the workflow was triggered by publishing a GitHub
   # Release: waits for every packaging job, then attaches all built
   # packages to the release as assets.
@@ -622,6 +683,7 @@ jobs:
       - fedora-rpm
       - almalinux-rpm
       - macos-tarball
+      - windows-zip
       - debian-deb
       - debian-trixie-deb
       - ubuntu-lts-deb
@@ -653,6 +715,8 @@ jobs:
           set -euo pipefail
           for dir in artifacts/*/; do
             slug=$(basename "$dir")
+            # Diagnostics are intentionally separate from downloadable packages.
+            case "$slug" in windows-diagnostics-*) continue ;; esac
             arch=${slug##*-}
             slug=${slug%-amd64}
             slug=${slug%-arm64}
@@ -665,7 +729,7 @@ jobs:
                 *.deb) asset="${base%.deb}.${slug}.deb" ;;
                 *.src.rpm) asset="${base%.rpm}.${slug}.${arch}.rpm" ;;
                 *.rpm) asset="${base%.rpm}.${slug}.rpm" ;;
-                *.tar.gz) asset="$base" ;;
+                *.tar.gz|php-duckdb-*-windows-x64.zip) asset="$base" ;;
                 *) asset="${base}.${slug}" ;;
               esac
               cp "$pkg" "/tmp/${asset}"

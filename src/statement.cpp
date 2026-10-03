@@ -473,7 +473,7 @@ PHP_METHOD(DuckDB_Statement, executeAsync) {
         }
     }
 
-    int fds[2] = {-1, -1};
+    duckdb_notify_fd fds[2] = {DUCKDB_INVALID_NOTIFY_FD, DUCKDB_INVALID_NOTIFY_FD};
     if (!duckdb_create_notify_pipe(fds)) {
         RETURN_THROWS();
     }
@@ -499,9 +499,9 @@ PHP_METHOD(DuckDB_Statement, executeAsync) {
         duckdb_async_worker_finish();
         /* Thread creation failed (resource exhaustion): no worker owns the
          * write end, so close both fds ourselves. */
-        close(fds[0]);
-        close(fds[1]);
-        task->notify_write_fd = -1;
+        duckdb_notify_fd_close(fds[0]);
+        duckdb_notify_fd_close(fds[1]);
+        task->notify_write_fd = DUCKDB_INVALID_NOTIFY_FD;
         zend_throw_exception_ex(duckdb_internal_exception_ce, DUCKDB_ERROR_INTERNAL,
                                 "Failed to start async worker thread: %s", e.what());
         RETURN_THROWS();

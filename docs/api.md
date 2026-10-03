@@ -179,7 +179,7 @@ Handle to an asynchronously running query (`queryAsync()`, `queryPending()`,
 | `await(): Result` | Block until completion; throws on query failure |
 | `suspend(): Result` | Suspend the current fiber/coroutine until completion (Swoole 6+, True Async, AMPHP v3, react/async v4+, or generic fibers) |
 | `cancel(): void` | Cancel the query; it fails with `InterruptedException` |
-| `getFd(): int` | Raw completion fd for event loops (`uv_poll`, …); -1 in polling mode |
+| `getFd(): int` | Caller-owned duplicate completion handle; Unix fd or Windows Winsock SOCKET; -1 if unavailable. See [ownership](async.md#event-loops-completion-descriptor) |
 | `getStream(): mixed` | Readable PHP stream that fires on completion (`stream_select()`-able). Can be taken only once |
 
 See [async.md](async.md).

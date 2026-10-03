@@ -33,12 +33,25 @@ for this checkout. See [CI](../.github/workflows/ci.yml),
 | AlmaLinux 9 / 10 | Remi PHP 8.2–8.5 | Vendored 1.5.6 | amd64, arm64 |
 | openSUSE Tumbleweed | Distribution PHP | Vendored 1.5.6 | amd64, arm64 |
 | macOS tarballs | PHP 8.2–8.5 | Vendored 1.5.6 | x86_64, arm64 |
+| Windows ZIPs | PHP 8.2–8.5, TS and NTS | Vendored 1.5.6 | x64 |
 | Docker | PHP 8.2–8.5 | Pinned 1.5.6 | amd64, arm64 |
 
-Windows has a source build configuration but no equivalent configured CI or
-prebuilt package coverage here. A PHP extension binary must match the target
+Windows packaging uses `windows-2022` and matching official PHP toolchains:
+VS16 for PHP 8.2/8.3 and VS17 for PHP 8.4/8.5. These eight combinations must
+pass their Windows packaging jobs before being considered tested; local Linux
+tests do not verify Windows binaries. See the
+[Windows installation guide](../packaging/windows/README.md).
+
+A PHP extension binary must match the target
 PHP module ABI, architecture, and thread-safety configuration; rebuild when
 those change.
+
+Windows supports queries, prepared statements, appenders, polling, background
+execution, Fibers, and selectable completion streams. The completion channel
+uses loopback Winsock sockets. Swoole is unavailable on Windows; True Async
+runtime builds are not part of this Windows matrix. AMPHP/ReactPHP are optional
+application dependencies, not bundled in the ZIP. No Windows x86, ARM64, or
+Valgrind coverage is claimed.
 
 ## DuckDB versions
 

@@ -35,12 +35,67 @@
 #define DUCKDB_TSRMLS_CACHE_UPDATE()
 #endif
 
-bool duckdb_create_notify_pipe(int fds[2]) {
+duckdb_notify_fd duckdb_notify_fd_duplicate(duckdb_notify_fd fd) {
+    if (!duckdb_notify_fd_valid(fd)) {
+        return DUCKDB_INVALID_NOTIFY_FD;
+    }
 #ifdef PHP_WIN32
-    if (_pipe(fds, 64, O_BINARY) != 0) {
-        zend_throw_exception_ex(duckdb_exception_ce, 0, "pipe() failed (%d)", errno);
+    WSAPROTOCOL_INFO protocol_info;
+    if (WSADuplicateSocket(fd, GetCurrentProcessId(), &protocol_info) != 0) {
+        return DUCKDB_INVALID_NOTIFY_FD;
+    }
+    return WSASocket(FROM_PROTOCOL_INFO, FROM_PROTOCOL_INFO, FROM_PROTOCOL_INFO,
+                     &protocol_info, 0, WSA_FLAG_OVERLAPPED | WSA_FLAG_NO_HANDLE_INHERIT);
+#else
+    return dup(fd);
+#endif
+}
+
+bool duckdb_create_notify_pipe(duckdb_notify_fd fds[2]) {
+    fds[0] = fds[1] = DUCKDB_INVALID_NOTIFY_FD;
+#ifdef PHP_WIN32
+    /* PHP initializes Winsock before extension startup. A loopback socket
+     * pair works with PHP's socket streams and Windows select(), whereas
+     * CRT pipe descriptors cannot be monitored by stream_select(). */
+    SOCKET listener = WSASocket(AF_INET, SOCK_STREAM, IPPROTO_TCP, NULL, 0,
+                                WSA_FLAG_OVERLAPPED | WSA_FLAG_NO_HANDLE_INHERIT);
+    SOCKET writer = INVALID_SOCKET;
+    SOCKET reader = INVALID_SOCKET;
+    int error = 0;
+    sockaddr_in address = {};
+    address.sin_family = AF_INET;
+    address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    int address_len = sizeof(address);
+    if (listener == INVALID_SOCKET ||
+        bind(listener, reinterpret_cast<sockaddr *>(&address), sizeof(address)) == SOCKET_ERROR ||
+        getsockname(listener, reinterpret_cast<sockaddr *>(&address), &address_len) == SOCKET_ERROR ||
+        listen(listener, 1) == SOCKET_ERROR) {
+        error = WSAGetLastError();
+    } else {
+        writer = WSASocket(AF_INET, SOCK_STREAM, IPPROTO_TCP, NULL, 0,
+                           WSA_FLAG_OVERLAPPED | WSA_FLAG_NO_HANDLE_INHERIT);
+        if (writer == INVALID_SOCKET ||
+            connect(writer, reinterpret_cast<sockaddr *>(&address), sizeof(address)) == SOCKET_ERROR) {
+            error = WSAGetLastError();
+        } else {
+            reader = accept(listener, NULL, NULL);
+            if (reader == INVALID_SOCKET) {
+                error = WSAGetLastError();
+            } else if (!SetHandleInformation(reinterpret_cast<HANDLE>(reader), HANDLE_FLAG_INHERIT, 0)) {
+                error = static_cast<int>(GetLastError());
+            }
+        }
+    }
+    duckdb_notify_fd_close(listener);
+    if (error != 0) {
+        duckdb_notify_fd_close(reader);
+        duckdb_notify_fd_close(writer);
+        zend_throw_exception_ex(duckdb_exception_ce, 0,
+                                "Unable to create query completion sockets (%d)", error);
         return false;
     }
+    fds[0] = reader;
+    fds[1] = writer;
 #else
     if (socketpair(AF_UNIX, SOCK_STREAM, 0, fds) != 0) {
         zend_throw_exception_ex(duckdb_exception_ce, 0, "socketpair() failed (%d)", errno);
@@ -128,10 +183,13 @@ static void duckdb_async_run_task(std::shared_ptr<async_task> task) {
         task->done = true;
     }
 
-    if (task->notify_write_fd >= 0) {
+    if (duckdb_notify_fd_valid(task->notify_write_fd)) {
         char b = 1;
 #ifdef PHP_WIN32
-        (void)!write(task->notify_write_fd, &b, 1);
+        int n;
+        do {
+            n = send(task->notify_write_fd, &b, 1, 0);
+        } while (n == SOCKET_ERROR && WSAGetLastError() == WSAEINTR);
 #else
         /* send() with MSG_NOSIGNAL: the PHP side may have closed its read
          * end (PendingQuery dropped before completion), and a plain
@@ -142,8 +200,8 @@ static void duckdb_async_run_task(std::shared_ptr<async_task> task) {
             n = send(task->notify_write_fd, &b, 1, MSG_NOSIGNAL);
         } while (n == -1 && errno == EINTR);
 #endif
-        close(task->notify_write_fd);
-        task->notify_write_fd = -1;
+        duckdb_notify_fd_close(task->notify_write_fd);
+        task->notify_write_fd = DUCKDB_INVALID_NOTIFY_FD;
     }
 
     task->cv.notify_all();
@@ -417,18 +475,15 @@ PHP_METHOD(DuckDB_PendingQuery, getFd) {
     ZEND_PARSE_PARAMETERS_START(0, 0)
     ZEND_PARSE_PARAMETERS_END();
 
-    int fd = Z_DUCKDB_PENDING_P(ZEND_THIS)->read_fd;
-    if (fd < 0) {
+    duckdb_notify_fd fd = Z_DUCKDB_PENDING_P(ZEND_THIS)->read_fd;
+    if (!duckdb_notify_fd_valid(fd)) {
         RETURN_LONG(-1);
     }
     /* Hand out a duplicate: the PendingQuery keeps owning the original, so
      * a caller that closes the returned descriptor cannot cause a
      * double-close (or close a recycled fd) later. */
-#ifdef PHP_WIN32
-    RETURN_LONG(_dup(fd));
-#else
-    RETURN_LONG(dup(fd));
-#endif
+    duckdb_notify_fd duplicate = duckdb_notify_fd_duplicate(fd);
+    RETURN_LONG(duckdb_notify_fd_valid(duplicate) ? static_cast<zend_long>(duplicate) : -1);
 }
 
 PHP_METHOD(DuckDB_PendingQuery, getStream) {
@@ -437,7 +492,7 @@ PHP_METHOD(DuckDB_PendingQuery, getStream) {
     ZEND_PARSE_PARAMETERS_END();
 
     php_duckdb_pending_object *intern = Z_DUCKDB_PENDING_P(ZEND_THIS);
-    if (intern->read_fd < 0) {
+    if (!duckdb_notify_fd_valid(intern->read_fd)) {
         duckdb_throw_msg("No completion stream is available for this pending query "
                          "(already taken, or polling mode)");
         RETURN_THROWS();
@@ -448,6 +503,6 @@ PHP_METHOD(DuckDB_PendingQuery, getStream) {
         duckdb_throw_msg("Unable to create stream from file descriptor");
         RETURN_THROWS();
     }
-    intern->read_fd = -1; /* ownership transferred to the stream */
+    intern->read_fd = DUCKDB_INVALID_NOTIFY_FD; /* ownership transferred to the stream */
     php_stream_to_zval(stream, return_value);
 }

@@ -94,7 +94,7 @@ static bool duckdb_amphp_ensure_glue(void) {
 }
 
 /* Park on the loop until `stream_zval` (resource of the dup'd completion
- * pipe) is readable. Returns false when an exception escaped suspend(). */
+ * socket) is readable. Returns false when an exception escaped suspend(). */
 static bool duckdb_amphp_wait_stream(zval *stream_zval) {
     zval arg, rv;
     ZVAL_COPY(&arg, stream_zval);
@@ -124,22 +124,22 @@ static bool duckdb_pending_suspend_amphp(php_duckdb_pending_object *intern, std:
     zval stream_zval;
     ZVAL_UNDEF(&stream_zval);
 
-#ifndef PHP_WIN32
-    if (intern->read_fd >= 0) {
-        /* dup() so the stream cannot steal the pipe from the PendingQuery;
+    if (duckdb_notify_fd_valid(intern->read_fd)) {
+        /* Duplicate so the stream cannot steal the socket from the PendingQuery;
          * on dup failure degrade to the delay loop. Revolt's stream-select
          * driver needs a stream resource, not a raw fd. */
-        int fd = dup(intern->read_fd);
-        if (fd >= 0) {
+        duckdb_notify_fd fd = duckdb_notify_fd_duplicate(intern->read_fd);
+        if (duckdb_notify_fd_valid(fd)) {
             php_stream *stream = php_stream_sock_open_from_socket(fd, NULL);
             if (stream != NULL) {
                 /* Ownership transfers to the stream's resource: released
                  * via the zval below, never via php_stream_close(). */
                 php_stream_to_zval(stream, &stream_zval);
+            } else {
+                duckdb_notify_fd_close(fd);
             }
         }
     }
-#endif
 
     while (!duckdb_task_step(task)) {
         bool ok = !Z_ISUNDEF(stream_zval) ? duckdb_amphp_wait_stream(&stream_zval)
