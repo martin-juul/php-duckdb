@@ -1,7 +1,7 @@
 # Compatibility
 
 The extension version and the embedded database version are separate. For this
-checkout, the extension is **1.2.2** and pinned build recipes use **DuckDB
+checkout, the extension is **1.3.0** and pinned build recipes use **DuckDB
 1.5.6**. Check the actual process before upgrading:
 
 ```php
@@ -21,7 +21,7 @@ for this checkout. See [CI](../.github/workflows/ci.yml),
 | 8.2 | Linux and macOS | amd64 and arm64 | Not run locally |
 | 8.3 | Linux and macOS | amd64 and arm64 | Not run locally |
 | 8.4 | Linux and macOS; PIE install smoke test | amd64 and arm64 | Not run locally |
-| 8.5 | Linux and macOS | amd64 and arm64 | Linux x86_64, PHP 8.5.11: build, 60 existing tests + 1 new test passed; 3 optional-runtime tests skipped; 12 example scripts completed |
+| 8.5 | Linux and macOS | amd64 and arm64 | Linux x86_64, PHP 8.5.11: build, 62 tests passed; 3 optional-runtime tests skipped; 12 example scripts completed |
 
 | Packaging target | PHP selection | DuckDB source | Architectures |
 |---|---|---|---|
@@ -65,7 +65,7 @@ formerly unstable functions as stable**. Twelve were already used by this
 driver: instance caching, table-name discovery, prepared column metadata, and
 structured appender/error reporting.
 
-| Newly stable family | PHP binding status in 1.2.2 |
+| Newly stable family | PHP binding status in 1.3.0 |
 |---|---|
 | Instance cache, table-name discovery, prepared metadata, error data | Already used internally or exposed through existing methods |
 | Query appenders, appender clear/default-to-chunk | Additional capability requiring explicit binding work |

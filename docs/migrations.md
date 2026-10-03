@@ -1,5 +1,19 @@
 # Migrations
 
+## Upgrade 1.2.2 → 1.3.0
+
+DuckDB remains pinned to **1.5.6**. No PHP signatures or return types change,
+and no PHP APIs are removed or newly deprecated. Cancelling or dropping a
+partially executed polling query now interrupts and drains its work before
+releasing the handle, preventing retained executor/database allocations.
+Cleanup also preserves newer queries on the same connection.
+
+Update your extension dependency to **1.3.0**, rebuild or install the package
+for the target PHP ABI, and restart persistent PHP workers. Re-run application
+cancellation and connection-reuse tests. The backup, paired-binary rollback,
+and engine-extension guidance below still applies; this release does not
+require an additional DuckDB engine upgrade from 1.2.2.
+
 ## Upgrade 1.2.1 → 1.2.2
 
 The pinned engine changes from DuckDB 1.5.5 to 1.5.6. Existing query,

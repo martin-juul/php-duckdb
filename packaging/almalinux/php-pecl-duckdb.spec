@@ -9,7 +9,7 @@
 #
 
 %global pecl_name        duckdb
-%global upstream_version 1.2.2
+%global upstream_version 1.3.0
 
 # libduckdb is not packaged for AlmaLinux/EPEL, so the prebuilt upstream
 # archive is used (same provenance as the project's Docker images).
@@ -154,6 +154,9 @@ export NO_INTERACTION=1 REPORT_EXIT_STATUS=1
 %{_libdir}/libduckdb.so
 
 %changelog
+* Sat Oct 03 2026 Martin Juul Christiansen <code@juul.xyz> - 1.3.0-1
+- Release 1.3.0 with polling query cleanup and Valgrind diagnostics fixes.
+
 * Fri Oct 02 2026 Martin Juul Christiansen <code@juul.xyz> - 1.2.2-1
 - Update to DuckDB 1.5.6 and extension 1.2.2.
 
