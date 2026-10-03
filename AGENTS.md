@@ -17,6 +17,9 @@
   recoverable operations, with bounded attempts and timeouts.
 - After pushing, check CI and address failures. Report exact checks, skips and
   unresolved failures; never call a partial pass complete.
+- After each push, cancel queued and running CI workflows for older commits
+  on the same branch. Keep only the latest commit's runs; do not retain stale
+  builds just to populate caches. Confirm cancellation has completed.
 - Edit `duckdb.stub.php` and regenerate arginfo; do not hand-edit generated
   signatures.
 - Update affected docs/examples; use the
