@@ -1,6 +1,13 @@
 # Migrations
 
-## Moving to a Windows package
+## Upgrade 1.3.0 → 1.3.1
+
+DuckDB remains pinned to **1.5.6**. No PHP APIs are removed or newly
+deprecated. Rebuild or install the matching 1.3.1 package and restart
+persistent PHP workers. Windows ZIP packages are available starting with
+this release.
+
+### Moving to a Windows package
 
 Use the [Windows installation guide](../packaging/windows/README.md) to match
 PHP minor version, TS/NTS, x64 architecture, and compiler/runtime. Replace the

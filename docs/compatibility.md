@@ -1,7 +1,7 @@
 # Compatibility
 
 The extension version and the embedded database version are separate. For this
-checkout, the extension is **1.3.0** and pinned build recipes use **DuckDB
+checkout, the extension is **1.3.1** and pinned build recipes use **DuckDB
 1.5.6**. Check the actual process before upgrading:
 
 ```php
@@ -78,7 +78,7 @@ formerly unstable functions as stable**. Twelve were already used by this
 driver: instance caching, table-name discovery, prepared column metadata, and
 structured appender/error reporting.
 
-| Newly stable family | PHP binding status in 1.3.0 |
+| Newly stable family | PHP binding status in 1.3.1 |
 |---|---|
 | Instance cache, table-name discovery, prepared metadata, error data | Already used internally or exposed through existing methods |
 | Query appenders, appender clear/default-to-chunk | Additional capability requiring explicit binding work |
