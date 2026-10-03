@@ -147,11 +147,26 @@ docker run --rm ghcr.io/martin-juul/php-duckdb:8.4 \
   -r '$c = (new DuckDB\Database())->connect(); var_dump($c->query("SELECT 42 AS x")->fetchRow());'
 ```
 
-Tags: `8.2`, `8.3`, `8.4`, `8.5` (moving tags, rebuilt on every master push),
-`latest` (alias for the newest PHP version), and `<release>-php<X.Y>` for tagged
-releases (e.g. `1.0.0-php8.4`). Images are based on `php:X.Y-cli-bookworm` and
-ship the matching libduckdb, so the extension loads with no extra setup. To
-build locally instead:
+Choose how closely to pin the extension and PHP versions:
+
+| Tag examples             | Selection                                                                          |
+| ------------------------ | ---------------------------------------------------------------------------------- |
+| `8.4`, `php8.4`          | Moving build for PHP 8.4; also available for PHP 8.2, 8.3 and 8.5                  |
+| `latest`                 | Moving build for the newest supported PHP version (currently 8.5)                  |
+| `1.3.1-php8.4`           | Extension release 1.3.1 with PHP 8.4                                               |
+| `1.3-php8.4`, `1-php8.4` | Moving extension minor/major release aliases with PHP 8.4                          |
+| `1.3.1`                  | Extension release 1.3.1 with the newest supported PHP version                      |
+| `1.3`, `1`               | Moving extension minor/major release aliases with the newest supported PHP version |
+
+PHP-only aliases update on master pushes and stable release builds. Extension
+release aliases are published on Git tags such as `v1.3.1` or `1.3.1`;
+major/minor aliases follow the most recently published matching release build.
+Prereleases such as `1.4.0-rc.1` publish only their full release tags, with and
+without the PHP suffix, and leave stable aliases unchanged. Pull requests build
+images without publishing tags.
+
+Images are based on `php:X.Y-cli-bookworm` and ship the matching libduckdb, so
+the extension loads with no extra setup. To build locally instead:
 
 ```bash
 docker build --build-arg PHP_VERSION=8.4 -t php-duckdb:8.4 .
@@ -167,6 +182,10 @@ docker run --rm --entrypoint php \
   ghcr.io/martin-juul/php-duckdb:8.5-frankenphp \
   -r 'var_dump(DuckDB\version());'
 ```
+
+Every tag form above also has a `-frankenphp` variant for PHP 8.4 and 8.5, such
+as `php8.4-frankenphp`, `1.3.1-php8.4-frankenphp`, `1.3-php8.4-frankenphp`,
+`1.3.1-frankenphp` and `1-frankenphp`. Release-only FrankenPHP tags use PHP 8.5.
 
 They are built from `Dockerfile.frankenphp` in this repository; see
 [docs/frankenphp.md](docs/frankenphp.md) for worker-mode details.
