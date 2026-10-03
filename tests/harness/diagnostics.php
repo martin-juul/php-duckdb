@@ -63,6 +63,7 @@ foreach ($scenarios as $scenario => [$names, $runnerExit, $expectedExit]) {
             $fixtureRoot . '/tests/harness.php',
             '--valgrind',
             '--no-color',
+            '--jobs=1',
             '--extension=' . $fixtureRoot . '/duckdb.so',
             '--junit=' . $report
         ];

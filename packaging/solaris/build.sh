@@ -23,7 +23,6 @@ python3 -c 'import pathlib; assert "Oracle Solaris 11.4" in pathlib.Path("/etc/r
 : "${PHPIZE:=phpize}"
 : "${PHP_CONFIG:=php-config}"
 : "${PUBLISHER:=php-duckdb-local}"
-: "${DUCKDB_BUILD_JOBS:=2}"
 : "${CC:=gcc}"
 : "${CXX:=g++}"
 : "${CFLAGS:=-m64}"
@@ -83,11 +82,21 @@ for path in (source / 'src').rglob('*'):
         shutil.copy2(path, destination)
 PY
 
+mkdir -p "$BUILD_DIR/extension/packaging/resources"
+cp "$root/packaging/resources/jobs.py" "$BUILD_DIR/extension/packaging/resources/"
+
 cd "$BUILD_DIR/extension"
 "$PHPIZE"
 PHP_RPATH=no LDFLAGS="${LDFLAGS:-} -Wl,-R,$prefix/lib" \
     ./configure --with-duckdb="$sdk" --with-php-config="$PHP_CONFIG"
-gmake -j"$DUCKDB_BUILD_JOBS"
+build_jobs=${DUCKDB_JOBS:-$(python3 "$root/packaging/resources/jobs.py" --profile extension)}
+case "$build_jobs" in
+    ''|0*|*[!0-9]*)
+        echo 'DUCKDB_JOBS must be a positive integer' >&2
+        exit 2
+        ;;
+esac
+gmake -j"$build_jobs"
 
 elfdump -d modules/duckdb.so > "$BUILD_DIR/extension-elf.txt"
 python3 - "$BUILD_DIR/extension-elf.txt" "$prefix/lib" "$BUILD_DIR" <<'PY'
@@ -130,7 +139,7 @@ PY
 
 LD_LIBRARY_PATH="$sdk/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
     DUCKDB_EXTENSION_PATH="$BUILD_DIR/extension/modules/duckdb.so" \
-    "$PHP" tests/harness.php unit --jobs="$DUCKDB_BUILD_JOBS" \
+    "$PHP" tests/harness.php unit \
     --extension="$BUILD_DIR/extension/modules/duckdb.so" --duckdb-dir="$sdk"
 
 proto=$BUILD_DIR/proto

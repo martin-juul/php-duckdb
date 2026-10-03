@@ -1,7 +1,7 @@
 param(
     [Parameter(Mandatory)][string]$Prefix,
     [Parameter(Mandatory)][string]$WorkDirectory,
-    [ValidateRange(1, 64)][int]$Jobs = 2,
+    [ValidateRange(1, 2147483647)][int]$Jobs = 0,
     [string]$SourceArchive = $env:DUCKDB_SOURCE_ARCHIVE,
     [ValidateSet('ON', 'OFF')][string]$DisableUnity = $(if ($env:DUCKDB_DISABLE_UNITY) { $env:DUCKDB_DISABLE_UNITY } else { 'OFF' })
 )
@@ -12,6 +12,45 @@ Set-StrictMode -Version Latest
 if ($env:OS -ne 'Windows_NT') {
     throw 'This builder requires Windows and Visual Studio 2022 x64'
 }
+
+function Get-DuckDBPython3 {
+    foreach ($name in 'python3', 'python') {
+        $candidate = Get-Command $name -ErrorAction SilentlyContinue
+        if (!$candidate) {
+            continue
+        }
+        try {
+            $major = & $candidate -c 'import sys; print(sys.version_info.major)' 2>$null
+            if ($LASTEXITCODE -eq 0 -and "$major".Trim() -eq '3') {
+                return $candidate
+            }
+        } catch {
+            # Try the other command, including when a Windows app alias fails.
+        }
+    }
+    throw 'Python 3 is required; install python3 or python on PATH'
+}
+
+$resolvedJobs = 0
+if (!$PSBoundParameters.ContainsKey('Jobs') -and ![string]::IsNullOrEmpty($env:DUCKDB_BUILD_JOBS)) {
+    if ($env:DUCKDB_BUILD_JOBS -notmatch '^[1-9][0-9]*$' -or
+        ![int]::TryParse($env:DUCKDB_BUILD_JOBS, [ref]$resolvedJobs) -or $resolvedJobs -lt 1) {
+        throw 'DUCKDB_BUILD_JOBS must be a positive integer'
+    }
+    $Jobs = $resolvedJobs
+}
+
+$python = Get-DuckDBPython3
+if ($Jobs -eq 0) {
+    $jobsHelper = Join-Path $PSScriptRoot '../resources/jobs.py'
+    $selectedJobs = & $python $jobsHelper --profile sdk
+    if ($LASTEXITCODE -ne 0 -or "$selectedJobs" -notmatch '^[1-9][0-9]*$' -or
+        ![int]::TryParse("$selectedJobs", [ref]$resolvedJobs) -or $resolvedJobs -lt 1) {
+        throw 'Cannot select DuckDB SDK workers from packaging/resources/jobs.py'
+    }
+    $Jobs = $resolvedJobs
+}
+Write-Host "DuckDB SDK build workers: $Jobs"
 
 $manifestPath = Join-Path $PSScriptRoot 'source.json'
 $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json

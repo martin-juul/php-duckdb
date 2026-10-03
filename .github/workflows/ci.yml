@@ -72,6 +72,12 @@ jobs:
         uses: ./.github/actions/duckdb-sdk
 
 
+      - name: Resource allocation and harness regression checks
+        run: |
+          python3 -m unittest discover -s packaging/resources/tests
+          php tests/harness/resources.php
+          php tests/harness/diagnostics.php
+
       - name: Harness (build + unit + examples)
         env:
           LD_LIBRARY_PATH: /opt/duckdb/lib

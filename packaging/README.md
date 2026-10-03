@@ -36,6 +36,9 @@ provides such as `php-pecl-duckdb` and `php-pecl(DuckDB)` retain the existing
 distribution packaging conventions; those names do not imply publication on
 PECL.
 
+Build scripts select parallel workers from
+[available CPU and memory](resources/README.md), unless explicitly overridden.
+
 ## libduckdb strategy
 
 The extension links against the DuckDB C API library (`libduckdb`). Most

@@ -4,12 +4,12 @@ set -eu
 root=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
 : "${DUCKDB_SDK_PREFIX:?Set DUCKDB_SDK_PREFIX}"
 : "${DUCKDB_BUILD_DIR:?Set DUCKDB_BUILD_DIR to an empty, dedicated directory}"
-: "${DUCKDB_BUILD_JOBS:=2}"
+: "${DUCKDB_BUILD_JOBS:=$(python3 "$root/packaging/resources/jobs.py" --profile sdk)}"
 : "${DUCKDB_DISABLE_UNITY:=OFF}"
 : "${CC:=gcc}"
 : "${CXX:=g++}"
 case "$DUCKDB_BUILD_JOBS" in
-    ''|*[!0-9]*|0)
+    ''|0*|*[!0-9]*)
         echo 'Invalid job count' >&2
         exit 2
         ;;

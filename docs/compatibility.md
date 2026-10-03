@@ -147,9 +147,9 @@ check layout and payload bounds and retain DuckDB's MIT attribution.
 The full PHP 8.4 harness passes with the patched DuckDB 1.5.6 SDK: 81 PHPTs
 pass with three optional-runtime skips, all 79 Memcheck tests pass without
 warnings or errors, and all 14 examples and both stress scripts pass. Five
-tests retain their existing Memcheck exclusions. The final SDK also restores
-upstream's autocomplete built-in; its native persistence matrix passes
-separately under Memcheck.
+tests retain their existing Memcheck exclusions. This run uses the final SDK
+with all five built-in extensions, including autocomplete, under CI's two-CPU
+quota. The native persistence matrix also passes under Memcheck.
 
 DuckDB 1.5.6 writes uninitialized bitpacking bytes while persisting nullable
 integers. The [standalone C reproducer](../tests/native/nullable_bitpacking.c)

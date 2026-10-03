@@ -26,7 +26,8 @@
  * Options:
  *   --quick              doctor + unit only
  *   --full               all six stages
- *   --jobs=N             parallel test workers (default: CPU count)
+ *   --jobs=N             build/test workers (default: resource budget per stage)
+ *   DUCKDB_JOBS          worker override when --jobs is absent
  *   --filter=PATTERN     only .phpt files matching PATTERN (fnmatch)
  *   --duckdb-dir=DIR     DuckDB install prefix (default: /opt/duckdb,
  *                        or $DUCKDB_DIR)
@@ -56,7 +57,7 @@ final class Config
     public ?string $junit = null;
     public string $duckdbDir;
     public ?string $extension = null;
-    public int $jobs;
+    public ?int $jobs = null;
     public string $rootDir;
 
     public const ALL_STAGES = ['doctor', 'build', 'unit', 'examples', 'valgrind', 'stress'];
@@ -337,7 +338,7 @@ final class Harness
             throw new HarnessException('configure failed', Config::EXIT_BUILD);
         }
 
-        $jobs = $this->config->jobs;
+        $jobs = $this->workers('extension');
         $make = (new Process(['make', "-j{$jobs}"], $root, $env))->run();
         if ($make->exitCode !== 0 || $this->modulePath() === null) {
             $this->term->line($make->output);
@@ -385,11 +386,12 @@ final class Harness
             }
         }
 
+        $jobs = $this->workers($valgrind ? 'valgrind' : 'test');
         $args = [
             PHP_BINARY,
             $runTests,
             '-q',
-            "-j{$this->config->jobs}",
+            "-j{$jobs}",
             '-P',
             // Keep the first attempt's output when PHP retries a flaky test.
             // Unsuccessful stages preserve this runner output for diagnosis.
@@ -749,6 +751,39 @@ final class Harness
         return $copy;
     }
 
+    private function workers(string $profile): int
+    {
+        if ($this->config->jobs !== null) {
+            $this->term->info("Workers: {$this->config->jobs} ({$profile}; explicit override)");
+            return $this->config->jobs;
+        }
+
+        $helper = "{$this->config->rootDir}/packaging/resources/jobs.py";
+        $python = $this->which('python3') ?? $this->which('python');
+        $reason = null;
+        if (!is_file($helper)) {
+            $reason = 'resource helper unavailable';
+        } elseif ($python === null) {
+            $reason = 'Python unavailable';
+        } else {
+            try {
+                $probe = (new Process([$python, $helper, '--profile', $profile], $this->config->rootDir))->run();
+                $value = trim($probe->output);
+                if ($probe->exitCode === 0 && validJobs($value)) {
+                    $jobs = (int) $value;
+                    $this->term->info("Workers: {$jobs} ({$profile}; CPU/memory budget)");
+                    return $jobs;
+                }
+                $reason = 'resource probe failed';
+            } catch (HarnessException) {
+                $reason = 'resource probe could not start';
+            }
+        }
+
+        $this->term->info("Workers: 1 ({$profile}; {$reason})");
+        return 1;
+    }
+
     private function which(string $binary): ?string
     {
         foreach (explode(PATH_SEPARATOR, getenv('PATH') ?: '') as $dir) {
@@ -821,7 +856,8 @@ Stages (default: doctor build unit examples):
 Options:
   --quick              doctor + unit only
   --full               all six stages
-  --jobs=N             parallel test workers (default: CPU count)
+  --jobs=N             build/test workers (default: resource budget per stage)
+  DUCKDB_JOBS          worker override when --jobs is absent
   --filter=PATTERN     only .phpt files matching PATTERN (fnmatch, case-insensitive)
   --duckdb-dir=DIR     DuckDB install prefix (default: $DUCKDB_DIR or /opt/duckdb)
   --extension=PATH     test this .so instead of modules/duckdb.so
@@ -834,14 +870,19 @@ Exit codes: 0 ok, 1 stage failed, 2 environment problem, 3 build failure, 64 usa
 TXT;
 }
 
+/** Accept positive decimal integers that fit PHP's integer range. */
+function validJobs(string $value): bool
+{
+    return preg_match('/^[1-9][0-9]*$/D', $value) === 1
+        && filter_var($value, FILTER_VALIDATE_INT) !== false;
+}
+
 /** @param list<string> $argv */
 function parseArgs(array $argv): Config
 {
     $config = new Config();
     $config->rootDir = dirname(__DIR__);
     $config->duckdbDir = getenv('DUCKDB_DIR') ?: '/opt/duckdb';
-    $nproc = trim((string) @shell_exec('nproc 2>/dev/null'));
-    $config->jobs = preg_match('/^\d+$/', $nproc) === 1 && (int) $nproc > 0 ? (int) $nproc : 1;
     $config->color = function_exists('posix_isatty') && @posix_isatty(STDOUT);
 
     $explicitStages = [];
@@ -864,7 +905,12 @@ function parseArgs(array $argv): Config
         } elseif ($arg === '--no-color') {
             $config->color = false;
         } elseif (str_starts_with($arg, '--jobs=')) {
-            $config->jobs = max(1, (int) substr($arg, 7));
+            $value = substr($arg, 7);
+            if (!validJobs($value)) {
+                fwrite(STDERR, '--jobs requires a positive integer' . PHP_EOL);
+                exit(Config::EXIT_USAGE);
+            }
+            $config->jobs = (int) $value;
         } elseif (str_starts_with($arg, '--filter=')) {
             $config->filter = substr($arg, 9);
         } elseif (str_starts_with($arg, '--duckdb-dir=')) {
@@ -880,6 +926,15 @@ function parseArgs(array $argv): Config
             fwrite(STDERR, "Unknown argument: {$arg}" . PHP_EOL . PHP_EOL . usage() . PHP_EOL);
             exit(Config::EXIT_USAGE);
         }
+    }
+
+    $environmentJobs = getenv('DUCKDB_JOBS');
+    if ($config->jobs === null && $environmentJobs !== false && $environmentJobs !== '') {
+        if (!validJobs($environmentJobs)) {
+            fwrite(STDERR, 'DUCKDB_JOBS requires a positive integer' . PHP_EOL);
+            exit(Config::EXIT_USAGE);
+        }
+        $config->jobs = (int) $environmentJobs;
     }
 
     if ($config->quick && $config->full) {
@@ -901,7 +956,6 @@ function parseArgs(array $argv): Config
     return $config;
 }
 
-// PHP on Linux: detect CPUs via nproc fallback chain handled in parseArgs.
 if (PHP_SAPI !== 'cli') {
     fwrite(STDERR, 'The harness must run under the CLI SAPI' . PHP_EOL);
     exit(Config::EXIT_USAGE);

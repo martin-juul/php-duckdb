@@ -1,8 +1,9 @@
 # Repository instructions
 
 - Use `php tests/harness.php` for builds and validation.
-- Use available local resources for independent work, up to 12 workers on this
-  machine. Preserve the original CPU quota when reproducing CI failures.
+- Allocate workers dynamically from available CPU and memory using
+  `packaging/resources/jobs.py`; honor explicit overrides and CI reproduction
+  quotas. Parallelize independent work within that budget.
 - Before pushing native-code or PHPT changes, run `php tests/harness.php --full`
   (build, unit, examples, full Valgrind suite, stress). Focused checks do not
   replace the full suite.

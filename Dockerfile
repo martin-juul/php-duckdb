@@ -13,22 +13,23 @@ ARG PHP_VERSION=8.4
 FROM debian:bookworm-slim AS duckdb-sdk
 
 ARG TARGETPLATFORM
-ARG DUCKDB_BUILD_JOBS=2
+ARG DUCKDB_BUILD_JOBS
 
 RUN apt-get update \
  && apt-get install -y --no-install-recommends build-essential curl ca-certificates cmake ninja-build python3 patch \
  && rm -rf /var/lib/apt/lists/*
 
 # Compile the pinned engine with the nullable-bitpacking fix.
-COPY packaging/duckdb/build-sdk.sh packaging/duckdb/source.json /opt/duckdb-build-tools/
-COPY packaging/duckdb/patches/ /opt/duckdb-build-tools/patches/
+COPY packaging/duckdb/build-sdk.sh packaging/duckdb/source.json /opt/duckdb-build-tools/duckdb/
+COPY packaging/duckdb/patches/ /opt/duckdb-build-tools/duckdb/patches/
+COPY packaging/resources/jobs.py /opt/duckdb-build-tools/resources/jobs.py
 RUN set -eux; \
     case "$TARGETPLATFORM" in \
         linux/amd64|linux/arm64) ;; \
         *) echo "unsupported platform: $TARGETPLATFORM" >&2; exit 1 ;; \
     esac; \
-    sh /opt/duckdb-build-tools/build-sdk.sh \
-        --prefix /opt/duckdb --work-dir /tmp/duckdb-sdk-build --jobs "$DUCKDB_BUILD_JOBS"
+    sh /opt/duckdb-build-tools/duckdb/build-sdk.sh \
+        --prefix /opt/duckdb --work-dir /tmp/duckdb-sdk-build --jobs "${DUCKDB_BUILD_JOBS:-}"
 
 
 # ==================================================================== #
@@ -36,11 +37,14 @@ RUN set -eux; \
 # ==================================================================== #
 FROM php:${PHP_VERSION}-cli-bookworm AS build
 
+ARG DUCKDB_BUILD_JOBS
+
 RUN apt-get update \
- && apt-get install -y --no-install-recommends $PHPIZE_DEPS ca-certificates \
+ && apt-get install -y --no-install-recommends $PHPIZE_DEPS ca-certificates python3 \
  && rm -rf /var/lib/apt/lists/*
 
 COPY --from=duckdb-sdk /opt/duckdb/ /opt/duckdb/
+COPY packaging/resources/jobs.py /opt/duckdb-build-tools/resources/jobs.py
 
 WORKDIR /src
 COPY config.m4 duckdb.cpp php_duckdb.h php_duckdb_cxx_compat.h duckdb_arginfo.h ./
@@ -48,7 +52,9 @@ COPY src/ ./src/
 
 RUN phpize \
  && ./configure --with-duckdb=/opt/duckdb \
- && make -j"$(nproc)"
+ && jobs="${DUCKDB_BUILD_JOBS:-$(python3 /opt/duckdb-build-tools/resources/jobs.py --profile extension)}" \
+ && case "$jobs" in ''|0*|*[!0-9]*) echo "Invalid worker count: $jobs" >&2; exit 2 ;; esac \
+ && make -j"$jobs"
 
 # Smoke test at build time: proves the module loads and queries on THIS
 # architecture — under QEMU for cross builds, so a broken arm64 build

@@ -33,6 +33,9 @@ mkinstalldirs
 run-tests.php
 scan_makefile_in.awk
 
+# Python helper caches
+__pycache__/
+
 # Test artifacts
 tests/*.diff
 tests/*.exp

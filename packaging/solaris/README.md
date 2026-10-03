@@ -65,8 +65,10 @@ this directory supplies the Solaris build adapter.
 The adapter preserves upstream's SunOS handling and builds core functions,
 Parquet, JSON, ICU and autocomplete, with autoloading and automatic
 installation enabled. It disables host-specific CPU optimization and keeps
-unity builds enabled. Set `DUCKDB_BUILD_JOBS` to change the default of two
-workers, or `DUCKDB_DISABLE_UNITY=ON` for limited memory. GCC builds use
+unity builds enabled. Workers are selected from
+[available CPU and memory](../resources/README.md). Set `DUCKDB_BUILD_JOBS`
+for an explicit engine worker count, `DUCKDB_JOBS` for extension/tests, or
+`DUCKDB_DISABLE_UNITY=ON` for limited memory. GCC builds use
 `-m64`; override `CC`, `CXX`, `CFLAGS`, `CXXFLAGS` and `LDFLAGS` only with
 settings suitable for the target PHP and Solaris ABI. The Solaris adapter
 links the engine with `libsocket` and `libnsl`.

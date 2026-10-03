@@ -6,7 +6,7 @@ the layout consumed by phpize, CMake and the test harness:
 
 ```sh
 sh packaging/duckdb/build-sdk.sh \
-    --prefix /opt/duckdb --work-dir /tmp/duckdb-build --jobs 2
+    --prefix /opt/duckdb --work-dir /tmp/duckdb-build
 php tests/harness.php --duckdb-dir=/opt/duckdb
 ```
 
@@ -14,7 +14,8 @@ The builder needs Python 3, curl, tar, patch, CMake, make and C/C++ compilers.
 The source archive is pinned by SHA-256, and the patch applies without fuzz.
 Set `DUCKDB_SOURCE_ARCHIVE` to use an already downloaded archive; the same hash
 check applies. `DUCKDB_SDK_PREFIX`, `DUCKDB_BUILD_DIR` and `DUCKDB_BUILD_JOBS`
-provide defaults for the command-line options.
+provide defaults for the command-line options. Without a worker override,
+[CPU and memory availability](../resources/README.md) determine parallelism.
 
 The Release build includes core functions, Parquet, JSON, ICU and autocomplete,
 enables extension autoloading and automatic installation, and disables native CPU

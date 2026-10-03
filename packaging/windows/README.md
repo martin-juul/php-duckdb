@@ -66,3 +66,8 @@ packages the DLLs, licenses and build provenance, extracts the ZIP into a fresh
 PHP installation, and checks loading and a query with SDK/dependency
 directories removed from `PATH`. PHPT failures and build logs are uploaded
 separately and excluded from release assets.
+
+SDK and PHPT worker counts use the shared
+[CPU/memory calculation](../resources/README.md), which requires Python 3.
+`DUCKDB_BUILD_JOBS` overrides SDK workers and `DUCKDB_JOBS` overrides test
+workers. The pinned PHP extension builder controls its own compilation.

@@ -6,7 +6,7 @@ set -eu
 script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 prefix=${DUCKDB_SDK_PREFIX:-/opt/duckdb}
 work_dir=${DUCKDB_BUILD_DIR:-/tmp/php-duckdb-sdk-build}
-jobs=${DUCKDB_BUILD_JOBS:-2}
+jobs=${DUCKDB_BUILD_JOBS:-}
 disable_unity=${DUCKDB_DISABLE_UNITY:-OFF}
 
 case "$disable_unity" in
@@ -51,8 +51,12 @@ while [ "$#" -gt 0 ]; do
     esac
 done
 
+if [ -z "$jobs" ]; then
+    jobs=$(python3 "$script_dir/../resources/jobs.py" --profile sdk)
+fi
+
 case "$jobs" in
-    ''|*[!0-9]*|0)
+    ''|0*|*[!0-9]*)
         echo "Jobs must be a positive integer" >&2
         exit 2
         ;;
@@ -228,6 +232,7 @@ if [ "$platform" = Darwin ]; then
 fi
 
 cmake "$@"
+echo "Building DuckDB SDK with $jobs worker(s)"
 cmake --build "$build_dir" --target duckdb --parallel "$jobs"
 
 mkdir -p "$prefix/include" "$prefix/lib" "$sdk_metadata"

@@ -8,6 +8,25 @@ param(
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
+function Get-DuckDBPython3 {
+    foreach ($name in 'python3', 'python') {
+        $candidate = Get-Command $name -ErrorAction SilentlyContinue
+        if (!$candidate) {
+            continue
+        }
+        try {
+            $major = & $candidate -c 'import sys; print(sys.version_info.major)' 2>$null
+            if ($LASTEXITCODE -eq 0 -and "$major".Trim() -eq '3') {
+                return $candidate
+            }
+        } catch {
+            # Try the other command, including when a Windows app alias fails.
+        }
+    }
+    throw 'Python 3 is required; install python3 or python on PATH'
+}
+
+$python = Get-DuckDBPython3
 $source = (Get-Location).Path
 $build = Join-Path $BuildRoot 'extension'
 $deps = Join-Path $BuildRoot 'deps'
@@ -48,7 +67,7 @@ try {
     # Engine VS2022 selection is independent of PHP's vs16/vs17 selection.
     $duck = Join-Path $BuildRoot 'duckdb-sdk'
     & "$source/packaging/duckdb/build-sdk.ps1" -Prefix $duck `
-        -WorkDirectory (Join-Path $BuildRoot 'duckdb-sdk-build') -Jobs 2
+        -WorkDirectory (Join-Path $BuildRoot 'duckdb-sdk-build')
     $duckPins = Get-Content "$duck/share/duckdb-sdk/source.json" -Raw | ConvertFrom-Json
     $duckVersion = $duckPins.version
     foreach ($file in 'include/duckdb.h', 'lib/duckdb.lib', 'bin/duckdb.dll') {
@@ -81,7 +100,21 @@ try {
     $env:REPORT_EXIT_STATUS = '1'
     # Child processes launched by PHPT helpers inherit dependency search paths.
     $env:PATH = "$php;$env:PATH"
-    & "$php/php.exe" -n $runner -q --offline --show-diff --set-timeout 120 tests
+    $testJobs = 0
+    if (![string]::IsNullOrEmpty($env:DUCKDB_JOBS)) {
+        if ($env:DUCKDB_JOBS -notmatch '^[1-9][0-9]*$' -or
+            ![int]::TryParse($env:DUCKDB_JOBS, [ref]$testJobs) -or $testJobs -lt 1) {
+            throw 'DUCKDB_JOBS must be a positive integer'
+        }
+    } else {
+        $selectedJobs = & $python (Join-Path $source 'packaging/resources/jobs.py') --profile test
+        if ($LASTEXITCODE -ne 0 -or "$selectedJobs" -notmatch '^[1-9][0-9]*$' -or
+            ![int]::TryParse("$selectedJobs", [ref]$testJobs) -or $testJobs -lt 1) {
+            throw 'Cannot select PHPT workers from packaging/resources/jobs.py'
+        }
+    }
+    Write-Host "PHPT workers: $testJobs"
+    & "$php/php.exe" -n $runner -q "-j$testJobs" --offline --show-diff --set-timeout 120 tests
     if ($LASTEXITCODE -ne 0) {
         throw "PHPT suite failed: $LASTEXITCODE"
     }

@@ -48,8 +48,9 @@ The ebuild builds the pinned DuckDB source with the shared nullable bitpacking
 patch. Portage fetches the engine archive and verifies its Manifest; the SDK
 builder additionally verifies [the shared source checksum](../duckdb/source.json).
 Compilation does not download another SDK. The source build requires about
-20 GB of free build space; engine compilation uses two jobs. PHP extension
-compilation follows `MAKEOPTS`.
+20 GB of free build space. Engine compilation selects workers from
+[available CPU and memory](../resources/README.md); `DUCKDB_BUILD_JOBS` overrides
+that count. PHP extension compilation follows `MAKEOPTS`.
 
 The patched engine is installed privately as
 `/usr/<libdir>/php-duckdb/libphp-duckdb-engine.so`. Each PHP module records that

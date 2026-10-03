@@ -76,7 +76,7 @@ src_configure() {
 	CC="$(tc-getCC)" CXX="$(tc-getCXX)" \
 		DUCKDB_SOURCE_ARCHIVE="${DISTDIR}/${DUCKDB_DISTFILE}" \
 		sh "${S}/packaging/duckdb/build-sdk.sh" \
-		--prefix "${sdk}" --work-dir "${WORKDIR}/duckdb-engine" --jobs 2 \
+		--prefix "${sdk}" --work-dir "${WORKDIR}/duckdb-engine" \
 		|| die "Patched DuckDB SDK build failed"
 	local PHP_EXT_ECONF_ARGS=( --with-duckdb="${sdk}" )
 	php-ext-source-r3_src_configure

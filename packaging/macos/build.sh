@@ -31,13 +31,19 @@ esac
 
 echo "==> Building patched DuckDB SDK"
 sh packaging/duckdb/build-sdk.sh --prefix "$PWD/duckdb-sdk" \
-  --work-dir "${DUCKDB_BUILD_DIR:-/tmp/php-duckdb-macos-engine}" \
-  --jobs "${DUCKDB_BUILD_JOBS:-2}"
+  --work-dir "${DUCKDB_BUILD_DIR:-/tmp/php-duckdb-macos-engine}"
 
 echo "==> Building duckdb.so (MACOSX_DEPLOYMENT_TARGET=$MACOSX_DEPLOYMENT_TARGET)"
 phpize
 ./configure --with-duckdb="$PWD/duckdb-sdk"
-make -j"$(sysctl -n hw.ncpu)"
+build_jobs=${DUCKDB_JOBS:-$(python3 packaging/resources/jobs.py --profile extension)}
+case "$build_jobs" in
+  ''|0*|*[!0-9]*)
+    echo "DUCKDB_JOBS must be a positive integer" >&2
+    exit 2
+    ;;
+esac
+make -j"$build_jobs"
 
 old=$(otool -L modules/duckdb.so | awk '/libduckdb/ {print $1; exit}')
 [ -n "$old" ] || {
@@ -50,9 +56,10 @@ codesign --force --sign - modules/duckdb.so
 vtool -show-build modules/duckdb.so
 
 echo "==> Running test suite"
+test_jobs=${DUCKDB_JOBS:-$(python3 packaging/resources/jobs.py --profile test)}
 DUCKDB_EXTENSION_PATH="$PWD/modules/duckdb.so" \
 DYLD_LIBRARY_PATH="$PWD/duckdb-sdk/lib${DYLD_LIBRARY_PATH:+:$DYLD_LIBRARY_PATH}" \
-  make test NO_INTERACTION=1 REPORT_EXIT_STATUS=1 TESTS="--show-diff"
+  make test NO_INTERACTION=1 REPORT_EXIT_STATUS=1 TESTS="--show-diff -j$test_jobs"
 
 echo "==> Packaging tarball"
 extver=$(sed -n 's/.*PHP_DUCKDB_VERSION "\([^"]*\)".*/\1/p' php_duckdb.h)
