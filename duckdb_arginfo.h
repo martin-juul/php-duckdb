@@ -1,5 +1,5 @@
 /* This is a generated file, edit the .stub.php file instead.
- * Stub hash: a9efac77719eb3431912748147a60e3e86b4b61b */
+ * Stub hash: 74a5526fbeeb656a14b7adb137e37c987e5d654f */
 
 ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_DuckDB_version, 0, 0, IS_STRING, 0)
 ZEND_END_ARG_INFO()
@@ -328,6 +328,8 @@ ZEND_END_ARG_INFO()
 
 #define arginfo_class_DuckDB_Appender_flush arginfo_class_DuckDB_Connection_interrupt
 
+#define arginfo_class_DuckDB_Appender_clear arginfo_class_DuckDB_Connection_interrupt
+
 #define arginfo_class_DuckDB_Appender_close arginfo_class_DuckDB_Connection_interrupt
 
 
@@ -445,6 +447,7 @@ ZEND_METHOD(DuckDB_Appender, append);
 ZEND_METHOD(DuckDB_Appender, appendDefault);
 ZEND_METHOD(DuckDB_Appender, endRow);
 ZEND_METHOD(DuckDB_Appender, flush);
+ZEND_METHOD(DuckDB_Appender, clear);
 ZEND_METHOD(DuckDB_Appender, close);
 
 
@@ -868,6 +871,7 @@ static const zend_function_entry class_DuckDB_Appender_methods[] = {
 	ZEND_ME(DuckDB_Appender, appendDefault, arginfo_class_DuckDB_Appender_appendDefault, ZEND_ACC_PUBLIC)
 	ZEND_ME(DuckDB_Appender, endRow, arginfo_class_DuckDB_Appender_endRow, ZEND_ACC_PUBLIC)
 	ZEND_ME(DuckDB_Appender, flush, arginfo_class_DuckDB_Appender_flush, ZEND_ACC_PUBLIC)
+	ZEND_ME(DuckDB_Appender, clear, arginfo_class_DuckDB_Appender_clear, ZEND_ACC_PUBLIC)
 	ZEND_ME(DuckDB_Appender, close, arginfo_class_DuckDB_Appender_close, ZEND_ACC_PUBLIC)
 	ZEND_FE_END
 };

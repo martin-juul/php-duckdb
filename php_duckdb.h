@@ -202,6 +202,7 @@ struct appender_inner {
     std::shared_ptr<conn_inner> conn;
     duckdb_appender appender = nullptr;
     bool closed = false;
+    bool failed = false;
     bool row_open = false;
     ~appender_inner();
 };

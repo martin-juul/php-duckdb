@@ -211,6 +211,7 @@ const char *duckdb_type_name(duckdb_type type) {
         case DUCKDB_TYPE_TIME_NS: return "TIME_NS";
         case DUCKDB_TYPE_GEOMETRY: return "GEOMETRY";
         case DUCKDB_TYPE_VARIANT: return "VARIANT";
+        case DUCKDB_TYPE_BIGNUM: return "BIGNUM";
         case DUCKDB_TYPE_SQLNULL: return "SQLNULL";
         default: return "UNKNOWN";
     }

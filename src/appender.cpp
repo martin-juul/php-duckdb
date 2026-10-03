@@ -26,9 +26,17 @@
 
 appender_inner::~appender_inner() {
     if (appender) {
-        if (!closed) {
+        std::lock_guard<std::mutex> lk(conn->mutex);
+        /* Native destroy itself closes the handle. Clear failed buffers first
+         * so destruction cannot retry an earlier partially submitted batch. */
+        if (failed) {
+            duckdb_appender_clear(appender);
+        }
+        if (!closed && !failed) {
             /* Best-effort flush; there is no one left to report errors to. */
-            duckdb_appender_close(appender);
+            if (duckdb_appender_close(appender) == DuckDBError) {
+                duckdb_appender_clear(appender);
+            }
         }
         duckdb_appender_destroy(&appender);
     }
@@ -52,11 +60,10 @@ static void duckdb_appender_throw(duckdb_appender appender, const char *fallback
     duckdb_throw_error(type, msg.c_str());
 }
 
-/* DuckDB cannot recover a partially written row: once an append operation
- * fails at the DuckDB level, the appender is invalid. Mark it closed (the
- * destructor will destroy it without flushing) and throw. */
+/* Preserve the failed handle for explicit clear(), but never flush or resume
+ * it implicitly: some earlier rows may already have reached the table. */
 static void duckdb_appender_fail(php_duckdb_appender_object *intern, const char *fallback) {
-    intern->inner->closed = true;
+    intern->inner->failed = true;
     duckdb_appender_throw(intern->inner->appender, fallback);
 }
 
@@ -68,6 +75,10 @@ static duckdb_appender duckdb_appender_get(INTERNAL_FUNCTION_PARAMETERS, php_duc
     }
     if (intern->inner->closed || intern->inner->appender == nullptr) {
         duckdb_throw_msg("Appender is closed");
+        return nullptr;
+    }
+    if (intern->inner->failed) {
+        duckdb_throw_msg("Appender has failed; call clear() before reusing it");
         return nullptr;
     }
     if (!duckdb_connection_guard(intern->inner->conn)) {
@@ -248,6 +259,30 @@ PHP_METHOD(DuckDB_Appender, flush) {
     }
 }
 
+PHP_METHOD(DuckDB_Appender, clear) {
+    DUCKDB_TSRMLS_CACHE_UPDATE();
+    ZEND_PARSE_PARAMETERS_NONE();
+    auto *intern = Z_DUCKDB_APPENDER_P(ZEND_THIS);
+    if (!duckdb_initialized_guard(static_cast<bool>(intern->inner), "DuckDB\\Appender")) {
+        RETURN_THROWS();
+    }
+    auto &inner = *intern->inner;
+    if (inner.closed || !inner.appender) {
+        duckdb_throw_msg("Appender is closed");
+        RETURN_THROWS();
+    }
+    if (!duckdb_connection_guard(inner.conn)) {
+        RETURN_THROWS();
+    }
+    std::lock_guard<std::mutex> lk(inner.conn->mutex);
+    if (duckdb_appender_clear(inner.appender) == DuckDBError) {
+        duckdb_appender_fail(intern, "Failed to clear appender");
+        RETURN_THROWS();
+    }
+    inner.row_open = false;
+    inner.failed = false;
+}
+
 PHP_METHOD(DuckDB_Appender, close) {
     DUCKDB_TSRMLS_CACHE_UPDATE();
     ZEND_PARSE_PARAMETERS_START(0, 0)
@@ -263,9 +298,19 @@ PHP_METHOD(DuckDB_Appender, close) {
     intern->inner->closed = true;
     intern->inner->row_open = false;
 
+    if (intern->inner->failed) {
+        std::lock_guard<std::mutex> lk(intern->inner->conn->mutex);
+        if (duckdb_appender_clear(intern->inner->appender) == DuckDBError) {
+            duckdb_appender_throw(intern->inner->appender, "Failed to discard appender buffers");
+            RETURN_THROWS();
+        }
+        return; /* clear buffers before native destroy can implicitly close */
+    }
+
     if (intern->inner->appender) {
         std::lock_guard<std::mutex> lk(intern->inner->conn->mutex);
         if (duckdb_appender_close(intern->inner->appender) == DuckDBError) {
+            intern->inner->failed = true;
             duckdb_appender_throw(intern->inner->appender, "Failed to close appender");
             RETURN_THROWS();
         }

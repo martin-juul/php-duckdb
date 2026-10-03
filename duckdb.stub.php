@@ -630,12 +630,13 @@ final class Statement
  * Type mapping (DuckDB -> PHP):
  *  - BOOLEAN                          -> bool
  *  - (U)TINYINT/(U)SMALLINT/(U)INTEGER -> int
- *  - BIGINT/UBIGINT (and huge values that fit) -> int
- *  - HUGEINT/UHUGEINT (overflowing)   -> string (exact decimal)
+ *  - BIGINT/UBIGINT/HUGEINT/UHUGEINT   -> int when it fits, else exact decimal string
+ *  - BIGNUM                           -> string (exact decimal)
  *  - FLOAT/DOUBLE                     -> float
  *  - DECIMAL                          -> string (exact decimal, no precision loss)
  *  - VARCHAR/ENUM                     -> string
- *  - BLOB/BIT/GEOMETRY                -> string (binary)
+ *  - BLOB/GEOMETRY                    -> string (binary)
+ *  - BIT                              -> string (text of 0 and 1 digits)
  *  - UUID                             -> string (canonical form)
  *  - DATE                             -> \DateTimeImmutable (midnight UTC)
  *  - TIMESTAMP[_S/_MS/_NS/_TZ]        -> \DateTimeImmutable (UTC)
@@ -833,8 +834,9 @@ final class PendingQuery
  * {@see beginRow()}, then one {@see append()}/{@see appendDefault()} per
  * column, then {@see endRow()}. Values are flushed to storage in batches;
  * call {@see flush()} to force a flush, or {@see close()} (also run on
- * destruction) to flush and finish. An appender that fails against DuckDB
- * is invalidated and must be discarded.
+ * destruction) to flush and finish. After native submission or flush fails,
+ * call clear() to discard pending data before reuse. Closing or destroying a
+ * failed appender discards pending data without flushing it.
  */
 final class Appender
 {
@@ -849,7 +851,8 @@ final class Appender
      *
      * @param array $values `list<mixed>`, in column order.
      * @throws \ValueError When the value count does not match the table.
-     * @throws Exception On a DuckDB conversion error; the appender is left invalid.
+     * @throws Exception On a conversion or native submission error. Native
+     * submission failures require clear() before reuse.
      */
     public function appendRow(array $values): void {}
 
@@ -866,7 +869,8 @@ final class Appender
      * {@see Statement::bindValue()}.
      *
      * @throws \Error When no row is open.
-     * @throws Exception On a DuckDB conversion error; the appender is left invalid.
+     * @throws Exception On a conversion or native submission error. Native
+     * submission failures require clear() before reuse.
      */
     public function append(mixed $value): void {}
 
@@ -888,7 +892,13 @@ final class Appender
     /** Flush pending rows to the table. */
     public function flush(): void {}
 
-    /** Flush pending rows and invalidate the appender (idempotent). */
+    /**
+     * Discard all buffered rows and any partial row, clearing a failed state.
+     * Already-flushed data is unchanged. Closed appenders cannot be cleared.
+     */
+    public function clear(): void {}
+
+    /** Close permanently (idempotent), flushing pending rows or discarding them if failed. */
     public function close(): void {}
 }
 

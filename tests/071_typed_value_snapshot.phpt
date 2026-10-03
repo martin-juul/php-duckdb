@@ -38,7 +38,8 @@ $cycle = [];
 $cycle[] = &$cycle;
 try { new Value('INTEGER[]', $cycle); echo "cycle accepted\n"; }
 catch (ValueError $e) { echo "cycle rejected\n"; }
-unset($cycle);
+// Release the exception trace's argument reference before collecting the cycle.
+unset($e, $cycle);
 gc_collect_cycles();
 try { new Value('INTEGER', new stdClass()); echo "object accepted\n"; }
 catch (TypeError $e) { echo "object rejected\n"; }

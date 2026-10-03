@@ -60,7 +60,9 @@ fclose($pipes[0]);
 stream_set_blocking($pipes[1], false);
 stream_set_blocking($pipes[2], false);
 $output = $error = '';
-$deadline = hrtime(true) + 15_000_000_000;
+// Memcheck also instruments the child, so allow for its slower startup and queries.
+$timeout = getenv('VALGRIND_OPTS') ? 240 : 15;
+$deadline = hrtime(true) + $timeout * 1_000_000_000;
 $exit = -1;
 while (true) {
     $output .= stream_get_contents($pipes[1]);

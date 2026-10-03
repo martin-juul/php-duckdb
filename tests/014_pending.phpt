@@ -8,17 +8,14 @@ use DuckDB\InterruptedException;
 
 $conn = (new DuckDB\Database())->connect();
 
-// Polling drives the query forward on this thread. Use a scan large enough
-// (50M morsel-driven tasks) that it can never collapse into a single slice,
-// even on a fast machine — a smaller query can finish in one task and make
-// the first isReady() call return true, which is a timing flake, not a bug.
+// Polling drives the query forward. DuckDB workers may finish before the
+// first readiness check, so the number of incomplete polls is not a contract.
 $pending = $conn->queryPending('SELECT count(*)::BIGINT AS c FROM range(50000000)');
 var_dump($pending->getFd()); // no fd in polling mode
-$ticks = 0;
 while (!$pending->isReady()) {
-    $ticks++;
 }
-var_dump($ticks > 0);
+// Readiness remains true once completed, including immediate completion.
+var_dump($pending->isReady());
 var_dump($pending->await()->fetchRow());
 
 // Prepare errors surface eagerly (the statement cannot be created)

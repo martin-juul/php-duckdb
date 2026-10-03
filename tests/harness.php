@@ -391,6 +391,9 @@ final class Harness
             '-q',
             "-j{$this->config->jobs}",
             '-P',
+            // Keep the first attempt's output when PHP retries a flaky test.
+            // Unsuccessful stages preserve this runner output for diagnosis.
+            '--show-out',
             '-d', "extension={$module}",
         ];
         if ($valgrind) {
@@ -414,28 +417,40 @@ final class Harness
 
         if ($summary === null) {
             $this->term->line($proc->output);
+            $this->preserveRunTestsOutput($name, $proc->output);
             throw new HarnessException('run-tests.php produced no summary', Config::EXIT_ENV);
         }
 
-        [$passed, $failed, $leaked, $warned, $skipped] = $summary;
+        [$passed, $failed, $leaked, $warned, $skipped, $borked, $total] = $summary;
         $cases = $this->collectCases("{$root}/tests", $tests, $proc->output, $name);
 
-        $bad = $failed + $leaked;
+        $bad = $failed + $leaked + $warned + $borked;
         $detail = sprintf(
-            '%d passed, %d failed%s%s, %d skipped (%d tests)',
+            '%d passed, %d failed%s%s%s, %d skipped (%d tests)',
             $passed,
             $failed,
             $leaked > 0 ? ", {$leaked} leaked" : '',
             $warned > 0 ? ", {$warned} warned" : '',
+            $borked > 0 ? ", {$borked} borked" : '',
             $skipped,
-            $passed + $failed + $leaked + $warned + $skipped,
+            $total,
         );
 
-        if ($bad > 0) {
+        $ok = $bad === 0 && $proc->exitCode === 0;
+        if (!$ok) {
+            if ($bad === 0) {
+                $detail .= "; run-tests.php exited {$proc->exitCode}";
+            }
             $this->printFailedTestDetails("{$root}/tests", $proc->output);
+            $this->preserveRunTestsOutput($name, $proc->output);
+            // Preserve a runner/summary error in JUnit even if no PHPT path
+            // could be identified (for example an extension-level leak).
+            if (!array_filter($cases, static fn (array $case): bool => !$case['ok'])) {
+                $cases[] = ['name' => "{$name}/run-tests.php", 'ok' => false, 'detail' => $detail];
+            }
         }
 
-        $result = new StageResult($name, $bad === 0, $detail, microtime(true) - $start);
+        $result = new StageResult($name, $ok, $detail, microtime(true) - $start);
         $result->cases = $cases;
         return $result;
     }
@@ -550,14 +565,15 @@ final class Harness
     /**
      * Parse run-tests.php's closing summary.
      *
-     * @return ?array{0:int,1:int,2:int,3:int,4:int} [passed, failed, leaked, warned, skipped]
+     * @return ?array{0:int,1:int,2:int,3:int,4:int,5:int,6:int}
+     *         [passed, failed, leaked, warned, skipped, borked, total]
      */
     private function parseRunTestsSummary(string $output): ?array
     {
         $grab = static function (string $label) use ($output): int {
             return preg_match("/^{$label}\\s*:\\s*(\\d+)/m", $output, $m) === 1 ? (int) $m[1] : 0;
         };
-        if (preg_match('/^Number of tests\s*:\s*(\d+)/m', $output) !== 1) {
+        if (preg_match('/^Number of tests\s*:\s*(\d+)/m', $output, $total) !== 1) {
             return null;
         }
         return [
@@ -566,13 +582,15 @@ final class Harness
             $grab('Tests leaked') + $grab('Exts leaked'),
             $grab('Tests warned'),
             $grab('Tests skipped'),
+            $grab('Tests borked'),
+            (int) $total[1],
         ];
     }
 
     /**
      * Derive per-test JUnit cases. run-tests.php's parallel progress output is
      * carriage-return based and fragile to parse, so we derive case results
-     * from the summary plus the FAILED/LEAKED test lists printed at the end.
+     * from the FAILED/LEAKED/WARNED/BORKED test lists printed at the end.
      *
      * @param list<string> $tests
      * @return list<array{name:string, ok:bool, detail:string}>
@@ -580,17 +598,17 @@ final class Harness
     private function collectCases(string $testsDir, array $tests, string $output, string $prefix): array
     {
         $bad = [];
-        foreach (explode(PHP_EOL, $output) as $line) {
-            if (preg_match('/\[(tests\/[^\]]+\.phpt)\]/', $line, $m) === 1
-                && preg_match('/(?:^|\s)(?:FAIL|LEAK(?:&FAIL)?)\s/', trim($line)) === 1) {
+        foreach (preg_split('/[\r\n]+/', $output) as $line) {
+            if (preg_match('/\[([^\]\r\n]+\.phpt)\]/', $line, $m) === 1
+                && preg_match('/(?:^|\s)(?:FAIL|LEAK|WARN|BORK)(?:&(?:FAIL|LEAK|WARN|BORK))*\s/', trim($line)) === 1) {
                 $bad[basename($m[1])] = trim($line);
             }
         }
         // The summary is reliable even when parallel progress lines overlap.
-        preg_match_all('/^=+\R((?:FAILED|LEAKED) TEST SUMMARY\R-+\R.*?)\R=+/ms', $output, $summaries);
+        preg_match_all('/^=+\R((?:FAILED|LEAKED|WARNED|BORKED) TEST SUMMARY\R-+\R.*?)\R=+/ms', $output, $summaries);
         foreach ($summaries[1] as $summary) {
             foreach (preg_split('/\R/', $summary) as $line) {
-                if (preg_match('/\[(tests\/[^\]]+\.phpt)\]/', $line, $tm) === 1) {
+                if (preg_match('/\[([^\]\r\n]+\.phpt)\]/', $line, $tm) === 1) {
                     $bad[basename($tm[1])] = trim($line);
                 }
             }
@@ -604,16 +622,25 @@ final class Harness
         return $cases;
     }
 
-    /** Print failure and leak summaries (and artifact pointers) for humans. */
+    /** Print unsuccessful test summaries (and artifact pointers) for humans. */
     private function printFailedTestDetails(string $testsDir, string $output): void
     {
-        preg_match_all('/^=+\R((?:FAILED|LEAKED) TEST SUMMARY\R-+\R.*?)\R=+/ms', $output, $summaries);
+        preg_match_all('/^=+\R((?:FAILED|LEAKED|WARNED|BORKED) TEST SUMMARY\R-+\R.*?)\R=+/ms', $output, $summaries);
         foreach ($summaries[1] as $summary) {
             $this->term->line('');
             $this->term->line($summary);
             $this->term->line('');
         }
         $this->term->info('see *.diff / *.out / *.mem next to the failing tests for details');
+    }
+
+    private function preserveRunTestsOutput(string $stage, string $output): void
+    {
+        $path = tempnam(sys_get_temp_dir(), "duckdb-{$stage}-run-tests-");
+        if ($path === false || file_put_contents($path, $output) === false) {
+            throw new HarnessException('cannot save raw run-tests.php output', Config::EXIT_ENV);
+        }
+        $this->term->info("run-tests output saved to {$path}");
     }
 
     /** @return array<string,string> environment for child PHP processes */
