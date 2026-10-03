@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE pkgmetadata SYSTEM "https://www.gentoo.org/dtd/metadata.dtd">
+<pkgmetadata>
+	<maintainer type="person">
+		<email>code@juul.xyz</email>
+		<name>Martin Juul Christiansen</name>
+	</maintainer>
+	<upstream>
+		<remote-id type="github">martin-juul/php-duckdb</remote-id>
+	</upstream>
+</pkgmetadata>
