@@ -114,7 +114,8 @@ jobs:
           mkdir -p /root/rpmbuild/SOURCES /root/rpmbuild/SPECS /root/rpmbuild/BUILD /root/rpmbuild/RPMS /root/rpmbuild/SRPMS
           tar --exclude='./.git' --transform "s,^\.,php-duckdb-${ver}," \
             -czf "/root/rpmbuild/SOURCES/php-duckdb-${ver}.tar.gz" .
-          curl -fsSL -o "/root/rpmbuild/SOURCES/libduckdb-linux-${duck_arch}.zip" \
+          curl -fsSL --retry 4 --retry-all-errors --retry-max-time 300 \
+            --connect-timeout 20 --max-time 180 -o "/root/rpmbuild/SOURCES/libduckdb-linux-${duck_arch}.zip" \
             "https://github.com/duckdb/duckdb/releases/download/v${dver}/libduckdb-linux-${duck_arch}.zip"
           cp packaging/opensuse/php-duckdb.spec /root/rpmbuild/SPECS/
 
@@ -175,7 +176,8 @@ jobs:
           mkdir -p /root/rpmbuild/SOURCES /root/rpmbuild/SPECS /root/rpmbuild/BUILD /root/rpmbuild/RPMS /root/rpmbuild/SRPMS
           tar --exclude='./.git' --transform "s,^\.,php-duckdb-${ver}," \
             -czf "/root/rpmbuild/SOURCES/php-duckdb-${ver}.tar.gz" .
-          curl -fsSL -o "/root/rpmbuild/SOURCES/libduckdb-linux-${duck_arch}.zip" \
+          curl -fsSL --retry 4 --retry-all-errors --retry-max-time 300 \
+            --connect-timeout 20 --max-time 180 -o "/root/rpmbuild/SOURCES/libduckdb-linux-${duck_arch}.zip" \
             "https://github.com/duckdb/duckdb/releases/download/v${dver}/libduckdb-linux-${duck_arch}.zip"
           cp packaging/fedora/php-pecl-duckdb.spec /root/rpmbuild/SPECS/
 
@@ -255,7 +257,8 @@ jobs:
           mkdir -p /root/rpmbuild/SOURCES /root/rpmbuild/SPECS /root/rpmbuild/BUILD /root/rpmbuild/RPMS /root/rpmbuild/SRPMS
           tar --exclude='./.git' --transform "s,^\.,php-duckdb-${ver}," \
             -czf "/root/rpmbuild/SOURCES/php-duckdb-${ver}.tar.gz" .
-          curl -fsSL -o "/root/rpmbuild/SOURCES/libduckdb-linux-${duck_arch}.zip" \
+          curl -fsSL --retry 4 --retry-all-errors --retry-max-time 300 \
+            --connect-timeout 20 --max-time 180 -o "/root/rpmbuild/SOURCES/libduckdb-linux-${duck_arch}.zip" \
             "https://github.com/duckdb/duckdb/releases/download/v${dver}/libduckdb-linux-${duck_arch}.zip"
           cp packaging/almalinux/php-pecl-duckdb.spec /root/rpmbuild/SPECS/
 
@@ -395,7 +398,8 @@ jobs:
             arm64) duck_arch=arm64 ;;
             *) echo "no prebuilt libduckdb archive for $arch"; exit 1 ;;
           esac
-          curl -fsSL -o /tmp/libduckdb.zip \
+          curl -fsSL --retry 4 --retry-all-errors --retry-max-time 300 \
+            --connect-timeout 20 --max-time 180 -o /tmp/libduckdb.zip \
             "https://github.com/duckdb/duckdb/releases/download/v${dver}/libduckdb-linux-${duck_arch}.zip"
           unzip -o /tmp/libduckdb.zip -d /tmp/libduckdb
           mkdir -p /root/src/duckdb-sdk/include /root/src/duckdb-sdk/lib
@@ -475,7 +479,8 @@ jobs:
             arm64) duck_arch=arm64 ;;
             *) echo "no prebuilt libduckdb archive for $arch"; exit 1 ;;
           esac
-          curl -fsSL -o /tmp/libduckdb.zip \
+          curl -fsSL --retry 4 --retry-all-errors --retry-max-time 300 \
+            --connect-timeout 20 --max-time 180 -o /tmp/libduckdb.zip \
             "https://github.com/duckdb/duckdb/releases/download/v${dver}/libduckdb-linux-${duck_arch}.zip"
           unzip -o /tmp/libduckdb.zip -d /tmp/libduckdb
           mkdir -p /root/src/duckdb-sdk/include /root/src/duckdb-sdk/lib

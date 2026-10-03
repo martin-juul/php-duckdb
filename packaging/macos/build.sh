@@ -31,7 +31,8 @@ case "$arch" in
 esac
 
 echo "==> Staging DuckDB SDK v${DUCKDB_VERSION} (osx-universal)"
-curl -fsSL -o /tmp/libduckdb-osx.zip \
+curl -fsSL --retry 4 --retry-all-errors --retry-max-time 300 \
+  --connect-timeout 20 --max-time 180 -o /tmp/libduckdb-osx.zip \
   "https://github.com/duckdb/duckdb/releases/download/v${DUCKDB_VERSION}/libduckdb-osx-universal.zip"
 rm -rf /tmp/libduckdb-osx duckdb-sdk
 unzip -q /tmp/libduckdb-osx.zip -d /tmp/libduckdb-osx
