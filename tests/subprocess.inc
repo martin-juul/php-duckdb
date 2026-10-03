@@ -13,7 +13,7 @@ function duckdb_subprocess_args(): ?array
 {
     $extPath = getenv('DUCKDB_EXTENSION_PATH') ?: null;
     if ($extPath === null || !is_file($extPath)) {
-        $candidate = PHP_EXTENSION_DIR . '/duckdb.so';
+        $candidate = PHP_EXTENSION_DIR . '/' . (PHP_OS_FAMILY === 'Windows' ? 'php_duckdb.dll' : 'duckdb.so');
         $extPath = is_file($candidate) ? $candidate : null;
     }
     return $extPath === null ? null : ['-d', 'extension=' . $extPath];

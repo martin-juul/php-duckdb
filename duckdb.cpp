@@ -106,7 +106,7 @@ static inline void duckdb_result_iterator_object_init(php_duckdb_result_iterator
 }
 static inline void duckdb_pending_object_init(php_duckdb_pending_object *o) {
     new (&o->task) std::shared_ptr<async_task>();
-    o->read_fd = -1;
+    o->read_fd = DUCKDB_INVALID_NOTIFY_FD;
 }
 static inline void duckdb_appender_object_init(php_duckdb_appender_object *o) {
     new (&o->inner) std::shared_ptr<appender_inner>();
@@ -158,9 +158,9 @@ static void duckdb_result_iterator_free_object(zend_object *object) {
 static void duckdb_pending_free_object(zend_object *object) {
     php_duckdb_pending_object *intern = duckdb_pending_from_obj(object);
     intern->task.~shared_ptr(); /* the worker keeps its own ref until completion */
-    if (intern->read_fd >= 0) {
-        close(intern->read_fd);
-        intern->read_fd = -1;
+    if (duckdb_notify_fd_valid(intern->read_fd)) {
+        duckdb_notify_fd_close(intern->read_fd);
+        intern->read_fd = DUCKDB_INVALID_NOTIFY_FD;
     }
     /* the write end is closed by the worker after notification */
     zend_object_std_dtor(&intern->std);
@@ -479,7 +479,7 @@ PHP_METHOD(DuckDB_Connection, queryAsync) {
         RETURN_THROWS();
     }
 
-    int fds[2] = {-1, -1};
+    duckdb_notify_fd fds[2] = {DUCKDB_INVALID_NOTIFY_FD, DUCKDB_INVALID_NOTIFY_FD};
     if (!duckdb_create_notify_pipe(fds)) {
         RETURN_THROWS();
     }
@@ -505,9 +505,9 @@ PHP_METHOD(DuckDB_Connection, queryAsync) {
         duckdb_async_worker_finish();
         /* Thread creation failed (resource exhaustion): no worker owns the
          * write end, so close both fds ourselves. */
-        close(fds[0]);
-        close(fds[1]);
-        task->notify_write_fd = -1;
+        duckdb_notify_fd_close(fds[0]);
+        duckdb_notify_fd_close(fds[1]);
+        task->notify_write_fd = DUCKDB_INVALID_NOTIFY_FD;
         zend_throw_exception_ex(duckdb_internal_exception_ce, DUCKDB_ERROR_INTERNAL,
                                 "Failed to start async worker thread: %s", e.what());
         RETURN_THROWS();
@@ -576,7 +576,7 @@ PHP_METHOD(DuckDB_Connection, queryPending) {
     object_init_ex(return_value, duckdb_pending_ce);
     php_duckdb_pending_object *p = Z_DUCKDB_PENDING_P(return_value);
     p->task = task;
-    p->read_fd = -1; /* polling mode: no worker thread, no notify channel */
+    p->read_fd = DUCKDB_INVALID_NOTIFY_FD; /* polling mode: no worker thread, no notify channel */
 }
 
 PHP_METHOD(DuckDB_Connection, execute) {

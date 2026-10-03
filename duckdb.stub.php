@@ -596,7 +596,11 @@ final class PendingQuery
      */
     public function cancel(): void {}
 
-    /** Raw completion fd for event loops (`uv_poll`, ...); -1 in polling mode. */
+    /**
+     * Duplicate completion handle owned by the caller; -1 if unavailable.
+     * Unix: file descriptor, close with close(). Windows: Winsock SOCKET,
+     * close with closesocket(), not _close(). Prefer getStream() in PHP.
+     */
     public function getFd(): int {}
 
     /**

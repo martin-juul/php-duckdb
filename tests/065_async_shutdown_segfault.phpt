@@ -5,7 +5,7 @@ Async: an abandoned queryAsync() worker cannot crash process shutdown
 require_once __DIR__ . '/skipif.inc';
 require_once __DIR__ . '/subprocess.inc';
 if (duckdb_subprocess_args() === null) {
-    die('skip cannot locate duckdb.so for the subprocess');
+    die('skip cannot locate the duckdb extension for the subprocess');
 }
 ?>
 --FILE--
@@ -25,10 +25,11 @@ $childCode =
     . '/* abandoned: never awaited, script ends immediately */';
 
 $crashed = 0;
+$nullDevice = PHP_OS_FAMILY === 'Windows' ? 'NUL' : '/dev/null';
 for ($i = 0; $i < 5; $i++) {
     $proc = proc_open(
         array_merge([PHP_BINARY], duckdb_subprocess_args(), ['-r', $childCode]),
-        [0 => ['pipe', 'r'], 1 => ['file', '/dev/null', 'w'], 2 => ['file', '/dev/null', 'w']],
+        [0 => ['pipe', 'r'], 1 => ['file', $nullDevice, 'w'], 2 => ['file', $nullDevice, 'w']],
         $pipes,
     );
     fclose($pipes[0]);

@@ -31,6 +31,10 @@ linked DuckDB library version.
 Use the [loaded-version check](compatibility.md) to verify the extension and
 engine separately during application bootstrap or deployment.
 
+For Windows, use the [ZIP installation guide](../packaging/windows/README.md)
+and select the TS/NTS and compiler variant matching the actual deployment
+runtime. Do not copy a Unix `.so` or a DLL built for a different PHP minor.
+
 ## Verify the PHP runtime that serves the application
 
 CLI, PHP-FPM, and embedded PHP can use different executables and configuration

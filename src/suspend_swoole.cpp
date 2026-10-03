@@ -79,13 +79,13 @@ static bool duckdb_swoole_in_coroutine(void) {
 /* Wait for task completion by yielding the Swoole coroutine, keeping the
  * event loop alive for other coroutines while the query runs. */
 static void duckdb_pending_suspend_swoole(php_duckdb_pending_object *intern, std::shared_ptr<async_task> &task) {
-    int fd = -1;
+    duckdb_notify_fd fd = DUCKDB_INVALID_NOTIFY_FD;
 #ifdef PHP_WIN32
     /* Swoole does not support Windows; unreachable, but stay explicit. */
 #else
-    if (intern->read_fd >= 0) {
-        fd = dup(intern->read_fd);
-        if (fd < 0) {
+    if (duckdb_notify_fd_valid(intern->read_fd)) {
+        fd = duckdb_notify_fd_duplicate(intern->read_fd);
+        if (!duckdb_notify_fd_valid(fd)) {
             duckdb_throw_msg("dup() failed for the query completion descriptor");
             return;
         }
@@ -96,13 +96,13 @@ static void duckdb_pending_suspend_swoole(php_duckdb_pending_object *intern, std
     while (!duckdb_task_step(task)) {
         zval args[3], rv;
         bool ok;
-        if (fd >= 0) {
+        if (duckdb_notify_fd_valid(fd)) {
             /* The completion descriptor becomes readable exactly once,
              * when the worker finishes. The 0.5s timeout is only a
              * watchdog that re-checks the done flag, covering any
              * notification edge; waitEvent returning false on timeout is
              * expected and not an error. */
-            ZVAL_LONG(&args[0], fd);
+            ZVAL_LONG(&args[0], static_cast<zend_long>(fd));
             ZVAL_LONG(&args[1], event_read);
             ZVAL_DOUBLE(&args[2], 0.5);
             ok = duckdb_call_php("Swoole\\Coroutine::waitEvent", 3, args, &rv);
@@ -120,8 +120,8 @@ static void duckdb_pending_suspend_swoole(php_duckdb_pending_object *intern, std
         }
     }
 
-    if (fd >= 0) {
-        close(fd);
+    if (duckdb_notify_fd_valid(fd)) {
+        duckdb_notify_fd_close(fd);
     }
 }
 

@@ -38,13 +38,21 @@ $result = $pending->await();
 
 ### Event loops: completion descriptor
 
-Every handle carries a completion notification: a byte is written when the
-query finishes.
+Background queries carry a completion notification: a byte is written when the
+query finishes. Polling queries have no completion descriptor.
 
 ```php
 $fd = $pending->getFd();          // int, for uv_poll() etc.; -1 in polling mode
 $stream = $pending->getStream();  // PHP stream resource for stream_select(); once only
 ```
+
+`getFd()` duplicates the endpoint: the caller owns and must close the returned
+handle. On Unix it is a file descriptor; on Windows it is a Winsock `SOCKET`
+and must be closed with `closesocket()` by native code, not `_close()`. Prefer
+`getStream()` in PHP: it transfers ownership to a stream, works with
+`stream_select()` on both platforms, and is released with `fclose()` or normal
+resource destruction. Closing either a duplicate or the stream does not
+cancel query execution. Windows uses a loopback TCP connection for notification.
 
 ### Fibers: `suspend()`
 

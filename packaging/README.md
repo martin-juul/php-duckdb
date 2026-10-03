@@ -13,6 +13,8 @@ packaging/
     php-pecl-duckdb.spec   # RPM spec — AlmaLinux 9/10, Remi PHP 8.2–8.5
   macos/
     build.sh, install.sh   # tarball — macOS 12+, Intel (incl. pre-AVX2) and Apple Silicon
+  windows/
+    build.ps1, README.md   # ZIP — x64, PHP 8.2–8.5, TS and NTS
   debian/
     control, rules, ...    # debhelper — Debian sid/forky, Ubuntu (system libduckdb)
   debian-trixie/
@@ -380,11 +382,23 @@ See the [PIE maintainer guide](https://php.github.io/pie/#docs/extension-maintai
 for extension metadata requirements. Publishing a GitHub Release from the
 same tag additionally builds the distribution assets described below.
 
+## Windows (ZIP)
+
+Eight Windows ZIP variants cover PHP 8.2–8.5, each in TS and NTS mode, on x64.
+The workflow uses the official PHP Windows SDK/toolchains and vendors DuckDB
+1.5.6. Each ZIP contains `php_duckdb.dll`, `duckdb.dll`, both licenses,
+installation instructions, and build metadata. The PHPT suite and a fresh
+installation smoke test run before artifact upload.
+
+See [Windows installation and maintainer instructions](windows/README.md).
+Windows x86/ARM64 and MSI installers are not included. Existing published
+tags are not modified or backfilled with these packages.
+
 ## Release assets
 
 Publishing a GitHub Release (from a version tag) triggers the packaging
-workflow on the release commit: every target rebuilds from that tag on
-**both amd64 and arm64** (native ARM64 runners) — full test suite
+workflow on the release commit: Linux and macOS targets rebuild from that tag on
+**both amd64 and arm64**, and Windows builds run on **x64** — full applicable test suite
 included — and the `release-assets` job attaches all packages to the
 release. Asset names carry a distro suffix because the deb filename is
 identical across distros; the architecture is encoded in the package
@@ -403,6 +417,8 @@ php-pecl-duckdb-1.3.0-1.el9.x86_64.almalinux-9-php8.4.rpm
   (AlmaLinux: os 9/10 × php 8.2/8.3/8.4/8.5 × x86_64/aarch64 — 16 RPMs)
 php-duckdb-1.3.0-php8.4-macos12-x86_64.tar.gz
   (macOS: php 8.2/8.3/8.4/8.5 × x86_64/arm64 — 8 tarballs)
+php-duckdb-<version>-php8.4-nts-vs17-windows-x64.zip
+  (Windows: php 8.2/8.3/8.4/8.5 × ts/nts — 8 ZIPs)
 ```
 
 dpkg/rpm don't care about the file name, so the suffixed assets install

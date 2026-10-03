@@ -1,5 +1,21 @@
 # Migrations
 
+## Moving to a Windows package
+
+Use the [Windows installation guide](../packaging/windows/README.md) to match
+PHP minor version, TS/NTS, x64 architecture, and compiler/runtime. Replace the
+PHP extension and bundled DuckDB DLL together, retaining the previous pair
+for rollback, and restart every persistent PHP worker after installation.
+Existing releases are immutable: Windows builds are available only for
+releases whose assets include them.
+
+No PHP method signatures change. `PendingQuery::getStream()` now wraps a
+Windows socket that works with `stream_select()`. Raw handles returned by
+`getFd()` are independently owned Winsock sockets on Windows, not CRT file
+descriptors: native callers must use `closesocket()`, not `_close()`. Prefer
+the PHP stream interface unless the event loop explicitly accepts Winsock
+handles. See [async ownership](async.md#event-loops-completion-descriptor).
+
 ## Upgrade 1.2.2 → 1.3.0
 
 DuckDB remains pinned to **1.5.6**. No PHP signatures or return types change,

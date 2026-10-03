@@ -109,7 +109,9 @@ On macOS, use `--with-duckdb=$(brew --prefix duckdb)`. PIE installs into
 the PHP installation used to run it and attempts to enable the extension
 automatically. If enabling fails, follow its instructions to add
 `extension=duckdb.so` to that PHP installation's configuration. Windows
-PIE binary distribution is not provided yet; use the source build below.
+PIE binary distribution is not provided yet. For Windows, use the matching
+x64 PHP 8.2–8.5 TS/NTS ZIP from a release that includes Windows assets; see
+the [Windows installation guide](packaging/windows/README.md).
 
 ## Building from source
 
@@ -351,9 +353,10 @@ $pending->cancel();      // interrupt the query (-> InterruptedException)
 
 - **`queryAsync()` / `Statement::executeAsync()`** run the query on a
   detached worker thread. Worker threads never touch PHP state; completion
-  is signalled through a pipe: `PendingQuery::getStream()` returns a PHP
+  is signalled through a socket pair (loopback TCP on Windows): `PendingQuery::getStream()` returns a PHP
   stream usable with `stream_select()`, `getFd()` the raw descriptor (a
-  duplicate — closing it is safe) for `ext-uv`/`uv_poll` style loops.
+  duplicate — closing it is safe) for compatible event loops. On Windows,
+  raw handles are Winsock sockets requiring `closesocket()`; prefer PHP streams.
 - **`PendingQuery::suspend()`** waits for completion without blocking the
   scheduler: natively integrated with Swoole 6+, True Async, AMPHP v3 and
   ReactPHP (below), with a plain *Fiber* protocol as the fallback for
