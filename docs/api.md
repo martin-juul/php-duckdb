@@ -79,6 +79,36 @@ A DuckDB `INTERVAL` value: months, days and microseconds. Returned for
 | `jsonSerialize(): array` | `array{months: int, days: int, micros: int}` |
 | `static fromSeconds(float $seconds): Interval` | Create from (fractional) seconds |
 
+## `class Value`
+
+| Method | Behavior |
+|---|---|
+| `__construct(string $type, mixed $value)` | Validate a SQL type declaration and snapshot input without a connection. |
+| `getType(): string` | Canonical declared type. |
+
+See [typed value input and conversion](value.md). Serialization is denied.
+
+### Native typed subclasses
+
+The extension registers final subclasses directly under `DuckDB`. Each inherits
+final `getType(): string` and accepts a typed NULL. No autoloader is required.
+
+| Class | Constructor |
+|---|---|
+| `Boolean`, `TinyInt`, `SmallInt`, `Integer`, `BigInt`, `UTinyInt`, `USmallInt`, `UInteger`, `UBigInt`, `HugeInt`, `UHugeInt`, `BigNum`, `Float32`, `Double`, `Varchar`, `Blob`, `Bit`, `Uuid`, `Json`, `Date`, `Time`, `TimeNs`, `TimeTz`, `TimestampS`, `TimestampMs`, `Timestamp`, `TimestampNs`, `TimestampTz`, `IntervalValue`, `Variant` | `__construct(mixed $value)` |
+| `Decimal` | `__construct(mixed $value, int $precision = 18, int $scale = 3)` |
+| `Enum` | `__construct(mixed $value, array $labels)` |
+| `ListValue` | `__construct(mixed $value, string\|Value $elementType)` |
+| `ArrayValue` | `__construct(mixed $value, string\|Value $elementType, int $length)` |
+| `Struct` | `__construct(mixed $value, array $fields)` |
+| `Map` | `__construct(mixed $value, string\|Value $keyType, string\|Value $valueType)` |
+| `Union` | `__construct(mixed $value, ?string $tag, array $members)` |
+| `Geometry` | `__construct(mixed $value, ?string $crs = null)` |
+| `CatalogValue` | `__construct(mixed $value, string $name, ?string $schema = null, ?string $catalog = null)` |
+
+Type specifications are SQL strings, scalar class names or typed `Value`
+instances. See [constructor examples and input shapes](value.md).
+
 ## `final class Database`
 
 A DuckDB database instance.

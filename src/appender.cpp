@@ -124,15 +124,15 @@ PHP_METHOD(DuckDB_Appender, append) {
         RETURN_THROWS();
     }
 
-    /* PHP-side conversion happens before DuckDB is touched, so a
-     * conversion error leaves the open row intact. */
-    scoped_duckdb_value duck_val(duckdb_php_to_duckdb_value(value));
-    if (!duck_val) {
+    /* Convert before submitting this column, preserving an open row on failure. */
+    std::lock_guard<std::mutex> lk(intern->inner->conn->mutex);
+    std::vector<zval *> inputs{value};
+    std::vector<scoped_duckdb_value> converted;
+    if (!duckdb_convert_values(intern->inner->conn.get(), inputs, converted)) {
         RETURN_THROWS();
     }
 
-    std::lock_guard<std::mutex> lk(intern->inner->conn->mutex);
-    if (duckdb_append_value(appender, duck_val.get()) == DuckDBError) {
+    if (duckdb_append_value(appender, converted[0].get()) == DuckDBError) {
         duckdb_appender_fail(intern, "Failed to append value");
         RETURN_THROWS();
     }
@@ -209,42 +209,25 @@ PHP_METHOD(DuckDB_Appender, appendRow) {
         RETURN_THROWS();
     }
 
-    /* Convert all values before starting the row: a PHP-side conversion
-     * error leaves the appender untouched. */
-    uint32_t count = zend_hash_num_elements(values);
-    duckdb_value *converted = (duckdb_value *)safe_emalloc(count, sizeof(duckdb_value), 0);
-    uint32_t done = 0;
-    zval *val;
-    ZEND_HASH_FOREACH_VAL(values, val) {
-        converted[done] = duckdb_php_to_duckdb_value(val);
-        if (converted[done] == nullptr) {
-            for (uint32_t j = 0; j < done; j++) {
-                duckdb_destroy_value(&converted[j]);
-            }
-            efree(converted);
-            RETURN_THROWS();
-        }
-        done++;
-    } ZEND_HASH_FOREACH_END();
-
-    {
-        std::lock_guard<std::mutex> lk(intern->inner->conn->mutex);
-        duckdb_state st = duckdb_appender_begin_row(appender);
-        for (uint32_t i = 0; st == DuckDBSuccess && i < count; i++) {
-            st = duckdb_append_value(appender, converted[i]);
-        }
-        if (st == DuckDBSuccess) {
-            st = duckdb_appender_end_row(appender);
-        }
-        for (uint32_t i = 0; i < count; i++) {
-            duckdb_destroy_value(&converted[i]);
-        }
-        efree(converted);
-        if (st == DuckDBError) {
-            duckdb_appender_fail(intern, "Failed to append row");
-            RETURN_THROWS();
-        }
+    /* One batch conversion finishes before the native row is opened. */
+    std::vector<zval *> inputs;
+    zval *value;
+    ZEND_HASH_FOREACH_VAL(values, value) { inputs.push_back(value); } ZEND_HASH_FOREACH_END();
+    std::vector<scoped_duckdb_value> converted;
+    std::lock_guard<std::mutex> lk(intern->inner->conn->mutex);
+    if (!duckdb_convert_values(intern->inner->conn.get(), inputs, converted)) {
+        RETURN_THROWS();
     }
+    duckdb_state st = duckdb_appender_begin_row(appender);
+    for (size_t i = 0; st == DuckDBSuccess && i < converted.size(); i++) {
+        st = duckdb_append_value(appender, converted[i].get());
+    }
+    if (st == DuckDBSuccess) { st = duckdb_appender_end_row(appender); }
+    if (st == DuckDBError) {
+        duckdb_appender_fail(intern, "Failed to append row");
+        RETURN_THROWS();
+    }
+
 }
 
 PHP_METHOD(DuckDB_Appender, flush) {

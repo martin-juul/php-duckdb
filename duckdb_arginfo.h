@@ -1,5 +1,5 @@
 /* This is a generated file, edit the .stub.php file instead.
- * Stub hash: cedb370f2b0ff1c18b678efd26ab22de8cebbd1c */
+ * Stub hash: a9efac77719eb3431912748147a60e3e86b4b61b */
 
 ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_DuckDB_version, 0, 0, IS_STRING, 0)
 ZEND_END_ARG_INFO()
@@ -27,6 +27,126 @@ ZEND_END_ARG_INFO()
 
 ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_class_DuckDB_Interval_fromSeconds, 0, 1, DuckDB\\Interval, 0)
 	ZEND_ARG_TYPE_INFO(0, seconds, IS_DOUBLE, 0)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(arginfo_class_DuckDB_Value___construct, 0, 0, 2)
+	ZEND_ARG_TYPE_INFO(0, type, IS_STRING, 0)
+	ZEND_ARG_TYPE_INFO(0, value, IS_MIXED, 0)
+ZEND_END_ARG_INFO()
+
+#define arginfo_class_DuckDB_Value_getType arginfo_DuckDB_version
+
+ZEND_BEGIN_ARG_INFO_EX(arginfo_class_DuckDB_Boolean___construct, 0, 0, 1)
+	ZEND_ARG_TYPE_INFO(0, value, IS_MIXED, 0)
+ZEND_END_ARG_INFO()
+
+#define arginfo_class_DuckDB_TinyInt___construct arginfo_class_DuckDB_Boolean___construct
+
+#define arginfo_class_DuckDB_SmallInt___construct arginfo_class_DuckDB_Boolean___construct
+
+#define arginfo_class_DuckDB_Integer___construct arginfo_class_DuckDB_Boolean___construct
+
+#define arginfo_class_DuckDB_BigInt___construct arginfo_class_DuckDB_Boolean___construct
+
+#define arginfo_class_DuckDB_UTinyInt___construct arginfo_class_DuckDB_Boolean___construct
+
+#define arginfo_class_DuckDB_USmallInt___construct arginfo_class_DuckDB_Boolean___construct
+
+#define arginfo_class_DuckDB_UInteger___construct arginfo_class_DuckDB_Boolean___construct
+
+#define arginfo_class_DuckDB_UBigInt___construct arginfo_class_DuckDB_Boolean___construct
+
+#define arginfo_class_DuckDB_HugeInt___construct arginfo_class_DuckDB_Boolean___construct
+
+#define arginfo_class_DuckDB_UHugeInt___construct arginfo_class_DuckDB_Boolean___construct
+
+#define arginfo_class_DuckDB_BigNum___construct arginfo_class_DuckDB_Boolean___construct
+
+#define arginfo_class_DuckDB_Float32___construct arginfo_class_DuckDB_Boolean___construct
+
+#define arginfo_class_DuckDB_Double___construct arginfo_class_DuckDB_Boolean___construct
+
+#define arginfo_class_DuckDB_Varchar___construct arginfo_class_DuckDB_Boolean___construct
+
+#define arginfo_class_DuckDB_Blob___construct arginfo_class_DuckDB_Boolean___construct
+
+#define arginfo_class_DuckDB_Bit___construct arginfo_class_DuckDB_Boolean___construct
+
+#define arginfo_class_DuckDB_Uuid___construct arginfo_class_DuckDB_Boolean___construct
+
+#define arginfo_class_DuckDB_Json___construct arginfo_class_DuckDB_Boolean___construct
+
+#define arginfo_class_DuckDB_Date___construct arginfo_class_DuckDB_Boolean___construct
+
+#define arginfo_class_DuckDB_Time___construct arginfo_class_DuckDB_Boolean___construct
+
+#define arginfo_class_DuckDB_TimeNs___construct arginfo_class_DuckDB_Boolean___construct
+
+#define arginfo_class_DuckDB_TimeTz___construct arginfo_class_DuckDB_Boolean___construct
+
+#define arginfo_class_DuckDB_TimestampS___construct arginfo_class_DuckDB_Boolean___construct
+
+#define arginfo_class_DuckDB_TimestampMs___construct arginfo_class_DuckDB_Boolean___construct
+
+#define arginfo_class_DuckDB_Timestamp___construct arginfo_class_DuckDB_Boolean___construct
+
+#define arginfo_class_DuckDB_TimestampNs___construct arginfo_class_DuckDB_Boolean___construct
+
+#define arginfo_class_DuckDB_TimestampTz___construct arginfo_class_DuckDB_Boolean___construct
+
+#define arginfo_class_DuckDB_IntervalValue___construct arginfo_class_DuckDB_Boolean___construct
+
+#define arginfo_class_DuckDB_Variant___construct arginfo_class_DuckDB_Boolean___construct
+
+ZEND_BEGIN_ARG_INFO_EX(arginfo_class_DuckDB_Decimal___construct, 0, 0, 1)
+	ZEND_ARG_TYPE_INFO(0, value, IS_MIXED, 0)
+	ZEND_ARG_TYPE_INFO_WITH_DEFAULT_VALUE(0, precision, IS_LONG, 0, "18")
+	ZEND_ARG_TYPE_INFO_WITH_DEFAULT_VALUE(0, scale, IS_LONG, 0, "3")
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(arginfo_class_DuckDB_Enum___construct, 0, 0, 2)
+	ZEND_ARG_TYPE_INFO(0, value, IS_MIXED, 0)
+	ZEND_ARG_TYPE_INFO(0, labels, IS_ARRAY, 0)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(arginfo_class_DuckDB_ListValue___construct, 0, 0, 2)
+	ZEND_ARG_TYPE_INFO(0, value, IS_MIXED, 0)
+	ZEND_ARG_OBJ_TYPE_MASK(0, elementType, DuckDB\\Value, MAY_BE_STRING, NULL)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(arginfo_class_DuckDB_ArrayValue___construct, 0, 0, 3)
+	ZEND_ARG_TYPE_INFO(0, value, IS_MIXED, 0)
+	ZEND_ARG_OBJ_TYPE_MASK(0, elementType, DuckDB\\Value, MAY_BE_STRING, NULL)
+	ZEND_ARG_TYPE_INFO(0, length, IS_LONG, 0)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(arginfo_class_DuckDB_Struct___construct, 0, 0, 2)
+	ZEND_ARG_TYPE_INFO(0, value, IS_MIXED, 0)
+	ZEND_ARG_TYPE_INFO(0, fields, IS_ARRAY, 0)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(arginfo_class_DuckDB_Map___construct, 0, 0, 3)
+	ZEND_ARG_TYPE_INFO(0, value, IS_MIXED, 0)
+	ZEND_ARG_OBJ_TYPE_MASK(0, keyType, DuckDB\\Value, MAY_BE_STRING, NULL)
+	ZEND_ARG_OBJ_TYPE_MASK(0, valueType, DuckDB\\Value, MAY_BE_STRING, NULL)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(arginfo_class_DuckDB_Union___construct, 0, 0, 3)
+	ZEND_ARG_TYPE_INFO(0, value, IS_MIXED, 0)
+	ZEND_ARG_TYPE_INFO(0, tag, IS_STRING, 1)
+	ZEND_ARG_TYPE_INFO(0, members, IS_ARRAY, 0)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(arginfo_class_DuckDB_Geometry___construct, 0, 0, 1)
+	ZEND_ARG_TYPE_INFO(0, value, IS_MIXED, 0)
+	ZEND_ARG_TYPE_INFO_WITH_DEFAULT_VALUE(0, crs, IS_STRING, 1, "null")
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(arginfo_class_DuckDB_CatalogValue___construct, 0, 0, 2)
+	ZEND_ARG_TYPE_INFO(0, value, IS_MIXED, 0)
+	ZEND_ARG_TYPE_INFO(0, name, IS_STRING, 0)
+	ZEND_ARG_TYPE_INFO_WITH_DEFAULT_VALUE(0, schema, IS_STRING, 1, "null")
+	ZEND_ARG_TYPE_INFO_WITH_DEFAULT_VALUE(0, catalog, IS_STRING, 1, "null")
 ZEND_END_ARG_INFO()
 
 ZEND_BEGIN_ARG_INFO_EX(arginfo_class_DuckDB_Database___construct, 0, 0, 0)
@@ -220,6 +340,47 @@ ZEND_METHOD(DuckDB_Interval, getMicros);
 ZEND_METHOD(DuckDB_Interval, __toString);
 ZEND_METHOD(DuckDB_Interval, jsonSerialize);
 ZEND_METHOD(DuckDB_Interval, fromSeconds);
+ZEND_METHOD(DuckDB_Value, __construct);
+ZEND_METHOD(DuckDB_Value, getType);
+ZEND_METHOD(DuckDB_Boolean, __construct);
+ZEND_METHOD(DuckDB_TinyInt, __construct);
+ZEND_METHOD(DuckDB_SmallInt, __construct);
+ZEND_METHOD(DuckDB_Integer, __construct);
+ZEND_METHOD(DuckDB_BigInt, __construct);
+ZEND_METHOD(DuckDB_UTinyInt, __construct);
+ZEND_METHOD(DuckDB_USmallInt, __construct);
+ZEND_METHOD(DuckDB_UInteger, __construct);
+ZEND_METHOD(DuckDB_UBigInt, __construct);
+ZEND_METHOD(DuckDB_HugeInt, __construct);
+ZEND_METHOD(DuckDB_UHugeInt, __construct);
+ZEND_METHOD(DuckDB_BigNum, __construct);
+ZEND_METHOD(DuckDB_Float32, __construct);
+ZEND_METHOD(DuckDB_Double, __construct);
+ZEND_METHOD(DuckDB_Varchar, __construct);
+ZEND_METHOD(DuckDB_Blob, __construct);
+ZEND_METHOD(DuckDB_Bit, __construct);
+ZEND_METHOD(DuckDB_Uuid, __construct);
+ZEND_METHOD(DuckDB_Json, __construct);
+ZEND_METHOD(DuckDB_Date, __construct);
+ZEND_METHOD(DuckDB_Time, __construct);
+ZEND_METHOD(DuckDB_TimeNs, __construct);
+ZEND_METHOD(DuckDB_TimeTz, __construct);
+ZEND_METHOD(DuckDB_TimestampS, __construct);
+ZEND_METHOD(DuckDB_TimestampMs, __construct);
+ZEND_METHOD(DuckDB_Timestamp, __construct);
+ZEND_METHOD(DuckDB_TimestampNs, __construct);
+ZEND_METHOD(DuckDB_TimestampTz, __construct);
+ZEND_METHOD(DuckDB_IntervalValue, __construct);
+ZEND_METHOD(DuckDB_Variant, __construct);
+ZEND_METHOD(DuckDB_Decimal, __construct);
+ZEND_METHOD(DuckDB_Enum, __construct);
+ZEND_METHOD(DuckDB_ListValue, __construct);
+ZEND_METHOD(DuckDB_ArrayValue, __construct);
+ZEND_METHOD(DuckDB_Struct, __construct);
+ZEND_METHOD(DuckDB_Map, __construct);
+ZEND_METHOD(DuckDB_Union, __construct);
+ZEND_METHOD(DuckDB_Geometry, __construct);
+ZEND_METHOD(DuckDB_CatalogValue, __construct);
 ZEND_METHOD(DuckDB_Database, __construct);
 ZEND_METHOD(DuckDB_Database, connect);
 ZEND_METHOD(DuckDB_Connection, __construct);
@@ -367,6 +528,247 @@ static const zend_function_entry class_DuckDB_Interval_methods[] = {
 	ZEND_ME(DuckDB_Interval, __toString, arginfo_class_DuckDB_Interval___toString, ZEND_ACC_PUBLIC)
 	ZEND_ME(DuckDB_Interval, jsonSerialize, arginfo_class_DuckDB_Interval_jsonSerialize, ZEND_ACC_PUBLIC)
 	ZEND_ME(DuckDB_Interval, fromSeconds, arginfo_class_DuckDB_Interval_fromSeconds, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+	ZEND_FE_END
+};
+
+
+static const zend_function_entry class_DuckDB_Value_methods[] = {
+	ZEND_ME(DuckDB_Value, __construct, arginfo_class_DuckDB_Value___construct, ZEND_ACC_PUBLIC)
+	ZEND_ME(DuckDB_Value, getType, arginfo_class_DuckDB_Value_getType, ZEND_ACC_PUBLIC|ZEND_ACC_FINAL)
+	ZEND_FE_END
+};
+
+
+static const zend_function_entry class_DuckDB_Boolean_methods[] = {
+	ZEND_ME(DuckDB_Boolean, __construct, arginfo_class_DuckDB_Boolean___construct, ZEND_ACC_PUBLIC)
+	ZEND_FE_END
+};
+
+
+static const zend_function_entry class_DuckDB_TinyInt_methods[] = {
+	ZEND_ME(DuckDB_TinyInt, __construct, arginfo_class_DuckDB_TinyInt___construct, ZEND_ACC_PUBLIC)
+	ZEND_FE_END
+};
+
+
+static const zend_function_entry class_DuckDB_SmallInt_methods[] = {
+	ZEND_ME(DuckDB_SmallInt, __construct, arginfo_class_DuckDB_SmallInt___construct, ZEND_ACC_PUBLIC)
+	ZEND_FE_END
+};
+
+
+static const zend_function_entry class_DuckDB_Integer_methods[] = {
+	ZEND_ME(DuckDB_Integer, __construct, arginfo_class_DuckDB_Integer___construct, ZEND_ACC_PUBLIC)
+	ZEND_FE_END
+};
+
+
+static const zend_function_entry class_DuckDB_BigInt_methods[] = {
+	ZEND_ME(DuckDB_BigInt, __construct, arginfo_class_DuckDB_BigInt___construct, ZEND_ACC_PUBLIC)
+	ZEND_FE_END
+};
+
+
+static const zend_function_entry class_DuckDB_UTinyInt_methods[] = {
+	ZEND_ME(DuckDB_UTinyInt, __construct, arginfo_class_DuckDB_UTinyInt___construct, ZEND_ACC_PUBLIC)
+	ZEND_FE_END
+};
+
+
+static const zend_function_entry class_DuckDB_USmallInt_methods[] = {
+	ZEND_ME(DuckDB_USmallInt, __construct, arginfo_class_DuckDB_USmallInt___construct, ZEND_ACC_PUBLIC)
+	ZEND_FE_END
+};
+
+
+static const zend_function_entry class_DuckDB_UInteger_methods[] = {
+	ZEND_ME(DuckDB_UInteger, __construct, arginfo_class_DuckDB_UInteger___construct, ZEND_ACC_PUBLIC)
+	ZEND_FE_END
+};
+
+
+static const zend_function_entry class_DuckDB_UBigInt_methods[] = {
+	ZEND_ME(DuckDB_UBigInt, __construct, arginfo_class_DuckDB_UBigInt___construct, ZEND_ACC_PUBLIC)
+	ZEND_FE_END
+};
+
+
+static const zend_function_entry class_DuckDB_HugeInt_methods[] = {
+	ZEND_ME(DuckDB_HugeInt, __construct, arginfo_class_DuckDB_HugeInt___construct, ZEND_ACC_PUBLIC)
+	ZEND_FE_END
+};
+
+
+static const zend_function_entry class_DuckDB_UHugeInt_methods[] = {
+	ZEND_ME(DuckDB_UHugeInt, __construct, arginfo_class_DuckDB_UHugeInt___construct, ZEND_ACC_PUBLIC)
+	ZEND_FE_END
+};
+
+
+static const zend_function_entry class_DuckDB_BigNum_methods[] = {
+	ZEND_ME(DuckDB_BigNum, __construct, arginfo_class_DuckDB_BigNum___construct, ZEND_ACC_PUBLIC)
+	ZEND_FE_END
+};
+
+
+static const zend_function_entry class_DuckDB_Float32_methods[] = {
+	ZEND_ME(DuckDB_Float32, __construct, arginfo_class_DuckDB_Float32___construct, ZEND_ACC_PUBLIC)
+	ZEND_FE_END
+};
+
+
+static const zend_function_entry class_DuckDB_Double_methods[] = {
+	ZEND_ME(DuckDB_Double, __construct, arginfo_class_DuckDB_Double___construct, ZEND_ACC_PUBLIC)
+	ZEND_FE_END
+};
+
+
+static const zend_function_entry class_DuckDB_Varchar_methods[] = {
+	ZEND_ME(DuckDB_Varchar, __construct, arginfo_class_DuckDB_Varchar___construct, ZEND_ACC_PUBLIC)
+	ZEND_FE_END
+};
+
+
+static const zend_function_entry class_DuckDB_Blob_methods[] = {
+	ZEND_ME(DuckDB_Blob, __construct, arginfo_class_DuckDB_Blob___construct, ZEND_ACC_PUBLIC)
+	ZEND_FE_END
+};
+
+
+static const zend_function_entry class_DuckDB_Bit_methods[] = {
+	ZEND_ME(DuckDB_Bit, __construct, arginfo_class_DuckDB_Bit___construct, ZEND_ACC_PUBLIC)
+	ZEND_FE_END
+};
+
+
+static const zend_function_entry class_DuckDB_Uuid_methods[] = {
+	ZEND_ME(DuckDB_Uuid, __construct, arginfo_class_DuckDB_Uuid___construct, ZEND_ACC_PUBLIC)
+	ZEND_FE_END
+};
+
+
+static const zend_function_entry class_DuckDB_Json_methods[] = {
+	ZEND_ME(DuckDB_Json, __construct, arginfo_class_DuckDB_Json___construct, ZEND_ACC_PUBLIC)
+	ZEND_FE_END
+};
+
+
+static const zend_function_entry class_DuckDB_Date_methods[] = {
+	ZEND_ME(DuckDB_Date, __construct, arginfo_class_DuckDB_Date___construct, ZEND_ACC_PUBLIC)
+	ZEND_FE_END
+};
+
+
+static const zend_function_entry class_DuckDB_Time_methods[] = {
+	ZEND_ME(DuckDB_Time, __construct, arginfo_class_DuckDB_Time___construct, ZEND_ACC_PUBLIC)
+	ZEND_FE_END
+};
+
+
+static const zend_function_entry class_DuckDB_TimeNs_methods[] = {
+	ZEND_ME(DuckDB_TimeNs, __construct, arginfo_class_DuckDB_TimeNs___construct, ZEND_ACC_PUBLIC)
+	ZEND_FE_END
+};
+
+
+static const zend_function_entry class_DuckDB_TimeTz_methods[] = {
+	ZEND_ME(DuckDB_TimeTz, __construct, arginfo_class_DuckDB_TimeTz___construct, ZEND_ACC_PUBLIC)
+	ZEND_FE_END
+};
+
+
+static const zend_function_entry class_DuckDB_TimestampS_methods[] = {
+	ZEND_ME(DuckDB_TimestampS, __construct, arginfo_class_DuckDB_TimestampS___construct, ZEND_ACC_PUBLIC)
+	ZEND_FE_END
+};
+
+
+static const zend_function_entry class_DuckDB_TimestampMs_methods[] = {
+	ZEND_ME(DuckDB_TimestampMs, __construct, arginfo_class_DuckDB_TimestampMs___construct, ZEND_ACC_PUBLIC)
+	ZEND_FE_END
+};
+
+
+static const zend_function_entry class_DuckDB_Timestamp_methods[] = {
+	ZEND_ME(DuckDB_Timestamp, __construct, arginfo_class_DuckDB_Timestamp___construct, ZEND_ACC_PUBLIC)
+	ZEND_FE_END
+};
+
+
+static const zend_function_entry class_DuckDB_TimestampNs_methods[] = {
+	ZEND_ME(DuckDB_TimestampNs, __construct, arginfo_class_DuckDB_TimestampNs___construct, ZEND_ACC_PUBLIC)
+	ZEND_FE_END
+};
+
+
+static const zend_function_entry class_DuckDB_TimestampTz_methods[] = {
+	ZEND_ME(DuckDB_TimestampTz, __construct, arginfo_class_DuckDB_TimestampTz___construct, ZEND_ACC_PUBLIC)
+	ZEND_FE_END
+};
+
+
+static const zend_function_entry class_DuckDB_IntervalValue_methods[] = {
+	ZEND_ME(DuckDB_IntervalValue, __construct, arginfo_class_DuckDB_IntervalValue___construct, ZEND_ACC_PUBLIC)
+	ZEND_FE_END
+};
+
+
+static const zend_function_entry class_DuckDB_Variant_methods[] = {
+	ZEND_ME(DuckDB_Variant, __construct, arginfo_class_DuckDB_Variant___construct, ZEND_ACC_PUBLIC)
+	ZEND_FE_END
+};
+
+
+static const zend_function_entry class_DuckDB_Decimal_methods[] = {
+	ZEND_ME(DuckDB_Decimal, __construct, arginfo_class_DuckDB_Decimal___construct, ZEND_ACC_PUBLIC)
+	ZEND_FE_END
+};
+
+
+static const zend_function_entry class_DuckDB_Enum_methods[] = {
+	ZEND_ME(DuckDB_Enum, __construct, arginfo_class_DuckDB_Enum___construct, ZEND_ACC_PUBLIC)
+	ZEND_FE_END
+};
+
+
+static const zend_function_entry class_DuckDB_ListValue_methods[] = {
+	ZEND_ME(DuckDB_ListValue, __construct, arginfo_class_DuckDB_ListValue___construct, ZEND_ACC_PUBLIC)
+	ZEND_FE_END
+};
+
+
+static const zend_function_entry class_DuckDB_ArrayValue_methods[] = {
+	ZEND_ME(DuckDB_ArrayValue, __construct, arginfo_class_DuckDB_ArrayValue___construct, ZEND_ACC_PUBLIC)
+	ZEND_FE_END
+};
+
+
+static const zend_function_entry class_DuckDB_Struct_methods[] = {
+	ZEND_ME(DuckDB_Struct, __construct, arginfo_class_DuckDB_Struct___construct, ZEND_ACC_PUBLIC)
+	ZEND_FE_END
+};
+
+
+static const zend_function_entry class_DuckDB_Map_methods[] = {
+	ZEND_ME(DuckDB_Map, __construct, arginfo_class_DuckDB_Map___construct, ZEND_ACC_PUBLIC)
+	ZEND_FE_END
+};
+
+
+static const zend_function_entry class_DuckDB_Union_methods[] = {
+	ZEND_ME(DuckDB_Union, __construct, arginfo_class_DuckDB_Union___construct, ZEND_ACC_PUBLIC)
+	ZEND_FE_END
+};
+
+
+static const zend_function_entry class_DuckDB_Geometry_methods[] = {
+	ZEND_ME(DuckDB_Geometry, __construct, arginfo_class_DuckDB_Geometry___construct, ZEND_ACC_PUBLIC)
+	ZEND_FE_END
+};
+
+
+static const zend_function_entry class_DuckDB_CatalogValue_methods[] = {
+	ZEND_ME(DuckDB_CatalogValue, __construct, arginfo_class_DuckDB_CatalogValue___construct, ZEND_ACC_PUBLIC)
 	ZEND_FE_END
 };
 
@@ -780,6 +1182,445 @@ static zend_class_entry *register_class_DuckDB_Interval(zend_class_entry *class_
 	class_entry = zend_register_internal_class_ex(&ce, NULL);
 	class_entry->ce_flags |= ZEND_ACC_FINAL;
 	zend_class_implements(class_entry, 1, class_entry_JsonSerializable);
+
+	return class_entry;
+}
+
+static zend_class_entry *register_class_DuckDB_Value(void)
+{
+	zend_class_entry ce, *class_entry;
+
+	INIT_NS_CLASS_ENTRY(ce, "DuckDB", "Value", class_DuckDB_Value_methods);
+	class_entry = zend_register_internal_class_ex(&ce, NULL);
+
+	return class_entry;
+}
+
+static zend_class_entry *register_class_DuckDB_Boolean(zend_class_entry *class_entry_DuckDB_Value)
+{
+	zend_class_entry ce, *class_entry;
+
+	INIT_NS_CLASS_ENTRY(ce, "DuckDB", "Boolean", class_DuckDB_Boolean_methods);
+	class_entry = zend_register_internal_class_ex(&ce, class_entry_DuckDB_Value);
+	class_entry->ce_flags |= ZEND_ACC_FINAL;
+
+	return class_entry;
+}
+
+static zend_class_entry *register_class_DuckDB_TinyInt(zend_class_entry *class_entry_DuckDB_Value)
+{
+	zend_class_entry ce, *class_entry;
+
+	INIT_NS_CLASS_ENTRY(ce, "DuckDB", "TinyInt", class_DuckDB_TinyInt_methods);
+	class_entry = zend_register_internal_class_ex(&ce, class_entry_DuckDB_Value);
+	class_entry->ce_flags |= ZEND_ACC_FINAL;
+
+	return class_entry;
+}
+
+static zend_class_entry *register_class_DuckDB_SmallInt(zend_class_entry *class_entry_DuckDB_Value)
+{
+	zend_class_entry ce, *class_entry;
+
+	INIT_NS_CLASS_ENTRY(ce, "DuckDB", "SmallInt", class_DuckDB_SmallInt_methods);
+	class_entry = zend_register_internal_class_ex(&ce, class_entry_DuckDB_Value);
+	class_entry->ce_flags |= ZEND_ACC_FINAL;
+
+	return class_entry;
+}
+
+static zend_class_entry *register_class_DuckDB_Integer(zend_class_entry *class_entry_DuckDB_Value)
+{
+	zend_class_entry ce, *class_entry;
+
+	INIT_NS_CLASS_ENTRY(ce, "DuckDB", "Integer", class_DuckDB_Integer_methods);
+	class_entry = zend_register_internal_class_ex(&ce, class_entry_DuckDB_Value);
+	class_entry->ce_flags |= ZEND_ACC_FINAL;
+
+	return class_entry;
+}
+
+static zend_class_entry *register_class_DuckDB_BigInt(zend_class_entry *class_entry_DuckDB_Value)
+{
+	zend_class_entry ce, *class_entry;
+
+	INIT_NS_CLASS_ENTRY(ce, "DuckDB", "BigInt", class_DuckDB_BigInt_methods);
+	class_entry = zend_register_internal_class_ex(&ce, class_entry_DuckDB_Value);
+	class_entry->ce_flags |= ZEND_ACC_FINAL;
+
+	return class_entry;
+}
+
+static zend_class_entry *register_class_DuckDB_UTinyInt(zend_class_entry *class_entry_DuckDB_Value)
+{
+	zend_class_entry ce, *class_entry;
+
+	INIT_NS_CLASS_ENTRY(ce, "DuckDB", "UTinyInt", class_DuckDB_UTinyInt_methods);
+	class_entry = zend_register_internal_class_ex(&ce, class_entry_DuckDB_Value);
+	class_entry->ce_flags |= ZEND_ACC_FINAL;
+
+	return class_entry;
+}
+
+static zend_class_entry *register_class_DuckDB_USmallInt(zend_class_entry *class_entry_DuckDB_Value)
+{
+	zend_class_entry ce, *class_entry;
+
+	INIT_NS_CLASS_ENTRY(ce, "DuckDB", "USmallInt", class_DuckDB_USmallInt_methods);
+	class_entry = zend_register_internal_class_ex(&ce, class_entry_DuckDB_Value);
+	class_entry->ce_flags |= ZEND_ACC_FINAL;
+
+	return class_entry;
+}
+
+static zend_class_entry *register_class_DuckDB_UInteger(zend_class_entry *class_entry_DuckDB_Value)
+{
+	zend_class_entry ce, *class_entry;
+
+	INIT_NS_CLASS_ENTRY(ce, "DuckDB", "UInteger", class_DuckDB_UInteger_methods);
+	class_entry = zend_register_internal_class_ex(&ce, class_entry_DuckDB_Value);
+	class_entry->ce_flags |= ZEND_ACC_FINAL;
+
+	return class_entry;
+}
+
+static zend_class_entry *register_class_DuckDB_UBigInt(zend_class_entry *class_entry_DuckDB_Value)
+{
+	zend_class_entry ce, *class_entry;
+
+	INIT_NS_CLASS_ENTRY(ce, "DuckDB", "UBigInt", class_DuckDB_UBigInt_methods);
+	class_entry = zend_register_internal_class_ex(&ce, class_entry_DuckDB_Value);
+	class_entry->ce_flags |= ZEND_ACC_FINAL;
+
+	return class_entry;
+}
+
+static zend_class_entry *register_class_DuckDB_HugeInt(zend_class_entry *class_entry_DuckDB_Value)
+{
+	zend_class_entry ce, *class_entry;
+
+	INIT_NS_CLASS_ENTRY(ce, "DuckDB", "HugeInt", class_DuckDB_HugeInt_methods);
+	class_entry = zend_register_internal_class_ex(&ce, class_entry_DuckDB_Value);
+	class_entry->ce_flags |= ZEND_ACC_FINAL;
+
+	return class_entry;
+}
+
+static zend_class_entry *register_class_DuckDB_UHugeInt(zend_class_entry *class_entry_DuckDB_Value)
+{
+	zend_class_entry ce, *class_entry;
+
+	INIT_NS_CLASS_ENTRY(ce, "DuckDB", "UHugeInt", class_DuckDB_UHugeInt_methods);
+	class_entry = zend_register_internal_class_ex(&ce, class_entry_DuckDB_Value);
+	class_entry->ce_flags |= ZEND_ACC_FINAL;
+
+	return class_entry;
+}
+
+static zend_class_entry *register_class_DuckDB_BigNum(zend_class_entry *class_entry_DuckDB_Value)
+{
+	zend_class_entry ce, *class_entry;
+
+	INIT_NS_CLASS_ENTRY(ce, "DuckDB", "BigNum", class_DuckDB_BigNum_methods);
+	class_entry = zend_register_internal_class_ex(&ce, class_entry_DuckDB_Value);
+	class_entry->ce_flags |= ZEND_ACC_FINAL;
+
+	return class_entry;
+}
+
+static zend_class_entry *register_class_DuckDB_Float32(zend_class_entry *class_entry_DuckDB_Value)
+{
+	zend_class_entry ce, *class_entry;
+
+	INIT_NS_CLASS_ENTRY(ce, "DuckDB", "Float32", class_DuckDB_Float32_methods);
+	class_entry = zend_register_internal_class_ex(&ce, class_entry_DuckDB_Value);
+	class_entry->ce_flags |= ZEND_ACC_FINAL;
+
+	return class_entry;
+}
+
+static zend_class_entry *register_class_DuckDB_Double(zend_class_entry *class_entry_DuckDB_Value)
+{
+	zend_class_entry ce, *class_entry;
+
+	INIT_NS_CLASS_ENTRY(ce, "DuckDB", "Double", class_DuckDB_Double_methods);
+	class_entry = zend_register_internal_class_ex(&ce, class_entry_DuckDB_Value);
+	class_entry->ce_flags |= ZEND_ACC_FINAL;
+
+	return class_entry;
+}
+
+static zend_class_entry *register_class_DuckDB_Varchar(zend_class_entry *class_entry_DuckDB_Value)
+{
+	zend_class_entry ce, *class_entry;
+
+	INIT_NS_CLASS_ENTRY(ce, "DuckDB", "Varchar", class_DuckDB_Varchar_methods);
+	class_entry = zend_register_internal_class_ex(&ce, class_entry_DuckDB_Value);
+	class_entry->ce_flags |= ZEND_ACC_FINAL;
+
+	return class_entry;
+}
+
+static zend_class_entry *register_class_DuckDB_Blob(zend_class_entry *class_entry_DuckDB_Value)
+{
+	zend_class_entry ce, *class_entry;
+
+	INIT_NS_CLASS_ENTRY(ce, "DuckDB", "Blob", class_DuckDB_Blob_methods);
+	class_entry = zend_register_internal_class_ex(&ce, class_entry_DuckDB_Value);
+	class_entry->ce_flags |= ZEND_ACC_FINAL;
+
+	return class_entry;
+}
+
+static zend_class_entry *register_class_DuckDB_Bit(zend_class_entry *class_entry_DuckDB_Value)
+{
+	zend_class_entry ce, *class_entry;
+
+	INIT_NS_CLASS_ENTRY(ce, "DuckDB", "Bit", class_DuckDB_Bit_methods);
+	class_entry = zend_register_internal_class_ex(&ce, class_entry_DuckDB_Value);
+	class_entry->ce_flags |= ZEND_ACC_FINAL;
+
+	return class_entry;
+}
+
+static zend_class_entry *register_class_DuckDB_Uuid(zend_class_entry *class_entry_DuckDB_Value)
+{
+	zend_class_entry ce, *class_entry;
+
+	INIT_NS_CLASS_ENTRY(ce, "DuckDB", "Uuid", class_DuckDB_Uuid_methods);
+	class_entry = zend_register_internal_class_ex(&ce, class_entry_DuckDB_Value);
+	class_entry->ce_flags |= ZEND_ACC_FINAL;
+
+	return class_entry;
+}
+
+static zend_class_entry *register_class_DuckDB_Json(zend_class_entry *class_entry_DuckDB_Value)
+{
+	zend_class_entry ce, *class_entry;
+
+	INIT_NS_CLASS_ENTRY(ce, "DuckDB", "Json", class_DuckDB_Json_methods);
+	class_entry = zend_register_internal_class_ex(&ce, class_entry_DuckDB_Value);
+	class_entry->ce_flags |= ZEND_ACC_FINAL;
+
+	return class_entry;
+}
+
+static zend_class_entry *register_class_DuckDB_Date(zend_class_entry *class_entry_DuckDB_Value)
+{
+	zend_class_entry ce, *class_entry;
+
+	INIT_NS_CLASS_ENTRY(ce, "DuckDB", "Date", class_DuckDB_Date_methods);
+	class_entry = zend_register_internal_class_ex(&ce, class_entry_DuckDB_Value);
+	class_entry->ce_flags |= ZEND_ACC_FINAL;
+
+	return class_entry;
+}
+
+static zend_class_entry *register_class_DuckDB_Time(zend_class_entry *class_entry_DuckDB_Value)
+{
+	zend_class_entry ce, *class_entry;
+
+	INIT_NS_CLASS_ENTRY(ce, "DuckDB", "Time", class_DuckDB_Time_methods);
+	class_entry = zend_register_internal_class_ex(&ce, class_entry_DuckDB_Value);
+	class_entry->ce_flags |= ZEND_ACC_FINAL;
+
+	return class_entry;
+}
+
+static zend_class_entry *register_class_DuckDB_TimeNs(zend_class_entry *class_entry_DuckDB_Value)
+{
+	zend_class_entry ce, *class_entry;
+
+	INIT_NS_CLASS_ENTRY(ce, "DuckDB", "TimeNs", class_DuckDB_TimeNs_methods);
+	class_entry = zend_register_internal_class_ex(&ce, class_entry_DuckDB_Value);
+	class_entry->ce_flags |= ZEND_ACC_FINAL;
+
+	return class_entry;
+}
+
+static zend_class_entry *register_class_DuckDB_TimeTz(zend_class_entry *class_entry_DuckDB_Value)
+{
+	zend_class_entry ce, *class_entry;
+
+	INIT_NS_CLASS_ENTRY(ce, "DuckDB", "TimeTz", class_DuckDB_TimeTz_methods);
+	class_entry = zend_register_internal_class_ex(&ce, class_entry_DuckDB_Value);
+	class_entry->ce_flags |= ZEND_ACC_FINAL;
+
+	return class_entry;
+}
+
+static zend_class_entry *register_class_DuckDB_TimestampS(zend_class_entry *class_entry_DuckDB_Value)
+{
+	zend_class_entry ce, *class_entry;
+
+	INIT_NS_CLASS_ENTRY(ce, "DuckDB", "TimestampS", class_DuckDB_TimestampS_methods);
+	class_entry = zend_register_internal_class_ex(&ce, class_entry_DuckDB_Value);
+	class_entry->ce_flags |= ZEND_ACC_FINAL;
+
+	return class_entry;
+}
+
+static zend_class_entry *register_class_DuckDB_TimestampMs(zend_class_entry *class_entry_DuckDB_Value)
+{
+	zend_class_entry ce, *class_entry;
+
+	INIT_NS_CLASS_ENTRY(ce, "DuckDB", "TimestampMs", class_DuckDB_TimestampMs_methods);
+	class_entry = zend_register_internal_class_ex(&ce, class_entry_DuckDB_Value);
+	class_entry->ce_flags |= ZEND_ACC_FINAL;
+
+	return class_entry;
+}
+
+static zend_class_entry *register_class_DuckDB_Timestamp(zend_class_entry *class_entry_DuckDB_Value)
+{
+	zend_class_entry ce, *class_entry;
+
+	INIT_NS_CLASS_ENTRY(ce, "DuckDB", "Timestamp", class_DuckDB_Timestamp_methods);
+	class_entry = zend_register_internal_class_ex(&ce, class_entry_DuckDB_Value);
+	class_entry->ce_flags |= ZEND_ACC_FINAL;
+
+	return class_entry;
+}
+
+static zend_class_entry *register_class_DuckDB_TimestampNs(zend_class_entry *class_entry_DuckDB_Value)
+{
+	zend_class_entry ce, *class_entry;
+
+	INIT_NS_CLASS_ENTRY(ce, "DuckDB", "TimestampNs", class_DuckDB_TimestampNs_methods);
+	class_entry = zend_register_internal_class_ex(&ce, class_entry_DuckDB_Value);
+	class_entry->ce_flags |= ZEND_ACC_FINAL;
+
+	return class_entry;
+}
+
+static zend_class_entry *register_class_DuckDB_TimestampTz(zend_class_entry *class_entry_DuckDB_Value)
+{
+	zend_class_entry ce, *class_entry;
+
+	INIT_NS_CLASS_ENTRY(ce, "DuckDB", "TimestampTz", class_DuckDB_TimestampTz_methods);
+	class_entry = zend_register_internal_class_ex(&ce, class_entry_DuckDB_Value);
+	class_entry->ce_flags |= ZEND_ACC_FINAL;
+
+	return class_entry;
+}
+
+static zend_class_entry *register_class_DuckDB_IntervalValue(zend_class_entry *class_entry_DuckDB_Value)
+{
+	zend_class_entry ce, *class_entry;
+
+	INIT_NS_CLASS_ENTRY(ce, "DuckDB", "IntervalValue", class_DuckDB_IntervalValue_methods);
+	class_entry = zend_register_internal_class_ex(&ce, class_entry_DuckDB_Value);
+	class_entry->ce_flags |= ZEND_ACC_FINAL;
+
+	return class_entry;
+}
+
+static zend_class_entry *register_class_DuckDB_Variant(zend_class_entry *class_entry_DuckDB_Value)
+{
+	zend_class_entry ce, *class_entry;
+
+	INIT_NS_CLASS_ENTRY(ce, "DuckDB", "Variant", class_DuckDB_Variant_methods);
+	class_entry = zend_register_internal_class_ex(&ce, class_entry_DuckDB_Value);
+	class_entry->ce_flags |= ZEND_ACC_FINAL;
+
+	return class_entry;
+}
+
+static zend_class_entry *register_class_DuckDB_Decimal(zend_class_entry *class_entry_DuckDB_Value)
+{
+	zend_class_entry ce, *class_entry;
+
+	INIT_NS_CLASS_ENTRY(ce, "DuckDB", "Decimal", class_DuckDB_Decimal_methods);
+	class_entry = zend_register_internal_class_ex(&ce, class_entry_DuckDB_Value);
+	class_entry->ce_flags |= ZEND_ACC_FINAL;
+
+	return class_entry;
+}
+
+static zend_class_entry *register_class_DuckDB_Enum(zend_class_entry *class_entry_DuckDB_Value)
+{
+	zend_class_entry ce, *class_entry;
+
+	INIT_NS_CLASS_ENTRY(ce, "DuckDB", "Enum", class_DuckDB_Enum_methods);
+	class_entry = zend_register_internal_class_ex(&ce, class_entry_DuckDB_Value);
+	class_entry->ce_flags |= ZEND_ACC_FINAL;
+
+	return class_entry;
+}
+
+static zend_class_entry *register_class_DuckDB_ListValue(zend_class_entry *class_entry_DuckDB_Value)
+{
+	zend_class_entry ce, *class_entry;
+
+	INIT_NS_CLASS_ENTRY(ce, "DuckDB", "ListValue", class_DuckDB_ListValue_methods);
+	class_entry = zend_register_internal_class_ex(&ce, class_entry_DuckDB_Value);
+	class_entry->ce_flags |= ZEND_ACC_FINAL;
+
+	return class_entry;
+}
+
+static zend_class_entry *register_class_DuckDB_ArrayValue(zend_class_entry *class_entry_DuckDB_Value)
+{
+	zend_class_entry ce, *class_entry;
+
+	INIT_NS_CLASS_ENTRY(ce, "DuckDB", "ArrayValue", class_DuckDB_ArrayValue_methods);
+	class_entry = zend_register_internal_class_ex(&ce, class_entry_DuckDB_Value);
+	class_entry->ce_flags |= ZEND_ACC_FINAL;
+
+	return class_entry;
+}
+
+static zend_class_entry *register_class_DuckDB_Struct(zend_class_entry *class_entry_DuckDB_Value)
+{
+	zend_class_entry ce, *class_entry;
+
+	INIT_NS_CLASS_ENTRY(ce, "DuckDB", "Struct", class_DuckDB_Struct_methods);
+	class_entry = zend_register_internal_class_ex(&ce, class_entry_DuckDB_Value);
+	class_entry->ce_flags |= ZEND_ACC_FINAL;
+
+	return class_entry;
+}
+
+static zend_class_entry *register_class_DuckDB_Map(zend_class_entry *class_entry_DuckDB_Value)
+{
+	zend_class_entry ce, *class_entry;
+
+	INIT_NS_CLASS_ENTRY(ce, "DuckDB", "Map", class_DuckDB_Map_methods);
+	class_entry = zend_register_internal_class_ex(&ce, class_entry_DuckDB_Value);
+	class_entry->ce_flags |= ZEND_ACC_FINAL;
+
+	return class_entry;
+}
+
+static zend_class_entry *register_class_DuckDB_Union(zend_class_entry *class_entry_DuckDB_Value)
+{
+	zend_class_entry ce, *class_entry;
+
+	INIT_NS_CLASS_ENTRY(ce, "DuckDB", "Union", class_DuckDB_Union_methods);
+	class_entry = zend_register_internal_class_ex(&ce, class_entry_DuckDB_Value);
+	class_entry->ce_flags |= ZEND_ACC_FINAL;
+
+	return class_entry;
+}
+
+static zend_class_entry *register_class_DuckDB_Geometry(zend_class_entry *class_entry_DuckDB_Value)
+{
+	zend_class_entry ce, *class_entry;
+
+	INIT_NS_CLASS_ENTRY(ce, "DuckDB", "Geometry", class_DuckDB_Geometry_methods);
+	class_entry = zend_register_internal_class_ex(&ce, class_entry_DuckDB_Value);
+	class_entry->ce_flags |= ZEND_ACC_FINAL;
+
+	return class_entry;
+}
+
+static zend_class_entry *register_class_DuckDB_CatalogValue(zend_class_entry *class_entry_DuckDB_Value)
+{
+	zend_class_entry ce, *class_entry;
+
+	INIT_NS_CLASS_ENTRY(ce, "DuckDB", "CatalogValue", class_DuckDB_CatalogValue_methods);
+	class_entry = zend_register_internal_class_ex(&ce, class_entry_DuckDB_Value);
+	class_entry->ce_flags |= ZEND_ACC_FINAL;
 
 	return class_entry;
 }

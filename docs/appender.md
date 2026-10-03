@@ -40,7 +40,10 @@ throws `\Error` — that is a programming error, not a database error.
 Appender values follow exactly the same PHP→DuckDB mapping as
 [`Statement::bindValue()`](prepared.md#binding-types): `null`, `bool`, `int`,
 `float`, `string`, `Interval`, `DateTimeInterface`, lists → LIST, associative
-arrays → STRUCT.
+arrays → STRUCT. [Native typed classes](value.md), such as `DuckDB\Decimal` and
+`DuckDB\ListValue`, supply explicit SQL types.
+Typed conversion uses the same connection and can invalidate an open stream.
+A conversion helper failure before submission leaves the appender usable.
 
 ## Flushing and failure semantics
 

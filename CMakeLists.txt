@@ -104,11 +104,29 @@ if (NOT DUCKDB_LIBRARY)
         "Pass -DDUCKDB_DIR=DIR or set the DUCKDB_DIR environment variable.")
 endif()
 
+include(CheckCXXSourceCompiles)
+set(CMAKE_REQUIRED_INCLUDES "${DUCKDB_INCLUDE_DIR}")
+set(CMAKE_REQUIRED_LIBRARIES "${DUCKDB_LIBRARY}")
+check_cxx_source_compiles("#include <duckdb.h>
+int main() {
+    duckdb_value value = nullptr;
+    duckdb_expression_fold(nullptr, nullptr, &value);
+    duckdb_scalar_function_set_bind(nullptr, nullptr);
+    return 0;
+}" DUCKDB_HAS_TYPED_VALUE_APIS)
+if (NOT DUCKDB_HAS_TYPED_VALUE_APIS)
+    message(FATAL_ERROR "DuckDB 1.5.6 expression folding and scalar bind APIs are required")
+endif()
+unset(CMAKE_REQUIRED_INCLUDES)
+unset(CMAKE_REQUIRED_LIBRARIES)
+
 # ------------------------------------------------------------------ extension
 
 # Source list mirrors PHP_NEW_EXTENSION() in config.m4.
 set(DUCKDB_SOURCES
     duckdb.cpp
+    src/typed_value.cpp
+    src/type_classes.cpp
     src/values.cpp
     src/result.cpp
     src/statement.cpp

@@ -41,6 +41,7 @@ Rules for `execute($params)` / `executeStreaming($params)` / `executeAsync($para
 
 | PHP value | DuckDB type |
 |---|---|
+| `DuckDB\Value` and its native typed subclasses | Explicit SQL type; conversion at execution ([classes and contract](value.md)) |
 | `null` | NULL |
 | `bool` | BOOLEAN |
 | `int` | BIGINT |
@@ -57,6 +58,13 @@ $stmt->bindValue(1, new DateTimeImmutable('2026-01-01 12:00:00 UTC'));
 $stmt->bindValue(2, Interval::fromSeconds(90.5));
 $stmt->bindValue(3, ['a' => 1, 'b' => 'x']);   // STRUCT(a BIGINT, b VARCHAR)
 $stmt->bindBlob(4, $binaryPayload);
+```
+
+Native typed inputs make schemas explicit without writing SQL type grammar:
+
+```php
+$stmt->bindValue('amount', new DuckDB\Decimal('12.345', precision: 18, scale: 2));
+$stmt->bindValue('ids', new DuckDB\ListValue([], DuckDB\Integer::class));
 ```
 
 Invalid parameter indexes or unsupported values throw `\ValueError`;
@@ -89,5 +97,4 @@ $pending = $stmt->executeAsync([$id]);      // background thread, see async.md
   individual prepared statements) has no PHP wrapper. Issue statements one at
   a time, or send the whole script to `Connection::query()`, which executes
   multiple statements.
-- `duckdb_bind_value()` with a manually constructed `duckdb_value` is
-  unnecessary — see [value.md](value.md).
+Typed native value binding is exposed through [`DuckDB\Value`](value.md).

@@ -158,6 +158,219 @@ final class Interval implements \JsonSerializable
 }
 
 /**
+ * An immutable, connection-independent input with an explicit SQL type.
+ *
+ * Syntax and PHP input are validated and snapshotted at construction.
+ * Catalog resolution and DuckDB casts happen on the consuming connection.
+ * Serialization is not supported.
+ */
+class Value
+{
+    public function __construct(string $type, mixed $value) {}
+
+    /** Return the canonical declared SQL type. */
+    final public function getType(): string {}
+}
+
+/** Native typed input classes; every class accepts a typed NULL. */
+final class Boolean extends Value
+{
+    public function __construct(mixed $value) {}
+}
+
+final class TinyInt extends Value
+{
+    public function __construct(mixed $value) {}
+}
+
+final class SmallInt extends Value
+{
+    public function __construct(mixed $value) {}
+}
+
+final class Integer extends Value
+{
+    public function __construct(mixed $value) {}
+}
+
+final class BigInt extends Value
+{
+    public function __construct(mixed $value) {}
+}
+
+final class UTinyInt extends Value
+{
+    public function __construct(mixed $value) {}
+}
+
+final class USmallInt extends Value
+{
+    public function __construct(mixed $value) {}
+}
+
+final class UInteger extends Value
+{
+    public function __construct(mixed $value) {}
+}
+
+final class UBigInt extends Value
+{
+    public function __construct(mixed $value) {}
+}
+
+final class HugeInt extends Value
+{
+    public function __construct(mixed $value) {}
+}
+
+final class UHugeInt extends Value
+{
+    public function __construct(mixed $value) {}
+}
+
+final class BigNum extends Value
+{
+    public function __construct(mixed $value) {}
+}
+
+final class Float32 extends Value
+{
+    public function __construct(mixed $value) {}
+}
+
+final class Double extends Value
+{
+    public function __construct(mixed $value) {}
+}
+
+final class Varchar extends Value
+{
+    public function __construct(mixed $value) {}
+}
+
+final class Blob extends Value
+{
+    public function __construct(mixed $value) {}
+}
+
+final class Bit extends Value
+{
+    public function __construct(mixed $value) {}
+}
+
+final class Uuid extends Value
+{
+    public function __construct(mixed $value) {}
+}
+
+final class Json extends Value
+{
+    public function __construct(mixed $value) {}
+}
+
+final class Date extends Value
+{
+    public function __construct(mixed $value) {}
+}
+
+final class Time extends Value
+{
+    public function __construct(mixed $value) {}
+}
+
+final class TimeNs extends Value
+{
+    public function __construct(mixed $value) {}
+}
+
+final class TimeTz extends Value
+{
+    public function __construct(mixed $value) {}
+}
+
+final class TimestampS extends Value
+{
+    public function __construct(mixed $value) {}
+}
+
+final class TimestampMs extends Value
+{
+    public function __construct(mixed $value) {}
+}
+
+final class Timestamp extends Value
+{
+    public function __construct(mixed $value) {}
+}
+
+final class TimestampNs extends Value
+{
+    public function __construct(mixed $value) {}
+}
+
+final class TimestampTz extends Value
+{
+    public function __construct(mixed $value) {}
+}
+
+final class IntervalValue extends Value
+{
+    public function __construct(mixed $value) {}
+}
+
+final class Variant extends Value
+{
+    public function __construct(mixed $value) {}
+}
+
+final class Decimal extends Value
+{
+    public function __construct(mixed $value, int $precision = 18, int $scale = 3) {}
+}
+
+final class Enum extends Value
+{
+    public function __construct(mixed $value, array $labels) {}
+}
+
+final class ListValue extends Value
+{
+    public function __construct(mixed $value, string|Value $elementType) {}
+}
+
+final class ArrayValue extends Value
+{
+    public function __construct(mixed $value, string|Value $elementType, int $length) {}
+}
+
+final class Struct extends Value
+{
+    /** @param array $fields Field name => SQL string, scalar class name or Value. */
+    public function __construct(mixed $value, array $fields) {}
+}
+
+final class Map extends Value
+{
+    public function __construct(mixed $value, string|Value $keyType, string|Value $valueType) {}
+}
+
+final class Union extends Value
+{
+    /** @param array $members Member name => SQL string, scalar class name or Value. */
+    public function __construct(mixed $value, ?string $tag, array $members) {}
+}
+
+final class Geometry extends Value
+{
+    public function __construct(mixed $value, ?string $crs = null) {}
+}
+
+final class CatalogValue extends Value
+{
+    public function __construct(mixed $value, string $name, ?string $schema = null, ?string $catalog = null) {}
+}
+
+/**
  * A DuckDB database instance. Open with a file path or `:memory:`.
  *
  * The second constructor argument accepts any DuckDB configuration option,

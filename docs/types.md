@@ -57,6 +57,12 @@ Precision and edge notes:
 | `list<mixed>` | LIST |
 | `array<string, mixed>` | STRUCT |
 
+For complete explicit input typing, including MAP, tagged UNION, VARIANT and
+geometry, use the [native typed classes](value.md), such as `DuckDB\Decimal`,
+`DuckDB\ListValue`, `DuckDB\Map` and `DuckDB\Geometry`.
+The generic `DuckDB\Value` constructor remains available for advanced SQL
+declarations. Plain inputs retain this mapping.
+
 ## `DuckDB\Interval`
 
 `INTERVAL` has no sane native PHP equivalent (`DateInterval` cannot represent

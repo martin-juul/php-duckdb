@@ -36,6 +36,14 @@ if test "$PHP_DUCKDB" != "no"; then
     [AC_MSG_ERROR([not found. Try --with-duckdb=DIR or check that libduckdb is in $DUCKDB_DIR/lib])],
     [-L$DUCKDB_DIR/lib])
 
+  dnl Typed values require the stable 1.5.6 expression/bind APIs.
+  PHP_CHECK_LIBRARY([duckdb], [duckdb_expression_fold], [],
+    [AC_MSG_ERROR([DuckDB 1.5.6 or newer is required (duckdb_expression_fold missing)])],
+    [-L$DUCKDB_DIR/lib])
+  PHP_CHECK_LIBRARY([duckdb], [duckdb_scalar_function_set_bind], [],
+    [AC_MSG_ERROR([DuckDB scalar bind callbacks are required])],
+    [-L$DUCKDB_DIR/lib])
+
   PHP_REQUIRE_CXX()
   dnl macOS no longer ships libstdc++; the C++ runtime there is libc++.
   case $host_os in
@@ -47,6 +55,6 @@ if test "$PHP_DUCKDB" != "no"; then
   PHP_SUBST([DUCKDB_SHARED_LIBADD])
   PHP_ADD_BUILD_DIR([$ext_builddir/src])
   PHP_NEW_EXTENSION([duckdb],
-    [duckdb.cpp src/values.cpp src/result.cpp src/statement.cpp src/pending.cpp src/suspend_swoole.cpp src/suspend_true_async.cpp src/suspend_amphp.cpp src/suspend_reactphp.cpp src/appender.cpp],
+    [duckdb.cpp src/typed_value.cpp src/type_classes.cpp src/values.cpp src/result.cpp src/statement.cpp src/pending.cpp src/suspend_swoole.cpp src/suspend_true_async.cpp src/suspend_amphp.cpp src/suspend_reactphp.cpp src/appender.cpp],
     [$ext_shared],, [-DZEND_ENABLE_STATIC_TSRMLS_CACHE=1], [cxx])
 fi

@@ -85,7 +85,7 @@ Check the [compatibility matrix](docs/compatibility.md) and
 - A C++17 compiler
 - The DuckDB C library (`libduckdb` + `duckdb.h`), e.g. from
   <https://duckdb.org/docs/installation/> — this driver is developed and
-  tested against **DuckDB v1.5.6**
+  tested against **DuckDB v1.5.6**, the minimum required C API version
 
 ```
 /opt/duckdb
@@ -287,6 +287,17 @@ until a value is bound — this mirrors the DuckDB C API.
 | `DuckDB\Interval` | `INTERVAL` |
 | `list<mixed>` | `LIST` (element types must be uniform; `null` elements adapt) |
 | `array<string, mixed>` | `STRUCT` |
+
+For an explicit type, use the native typed input classes:
+
+```php
+$stmt->bindValue('amount', new DuckDB\Decimal('12.345', precision: 18, scale: 2));
+$conn->execute('SELECT ?', [new DuckDB\ListValue([], DuckDB\Integer::class)]);
+```
+
+Wrappers also work in Appender and nested inputs. DuckDB resolves and casts
+them on the consuming connection at execution time. See the
+[complete typed input contract](docs/value.md) and [roadmap](docs/roadmap.md).
 
 Binding is always safe against SQL injection — values never touch the SQL
 text. Always prefer parameters over string interpolation.

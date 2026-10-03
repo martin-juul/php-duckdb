@@ -36,3 +36,6 @@ These have no C API counterpart page because they are idioms of this driver:
 - [FrankenPHP (classic & worker mode)](frankenphp.md)
 - [PHP, DuckDB, and platform compatibility](compatibility.md)
 - [Upgrade, rollback, and future migration policy](migrations.md)
+
+- [Roadmap and Doctrine driver compatibility](roadmap.md)
+- [Typed input coverage matrix](typed-coverage.md)
