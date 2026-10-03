@@ -10,6 +10,7 @@ export PHP_RPATH = no
 
 # run-tests.php must not prompt, and must fail the build on test failures.
 export NO_INTERACTION = 1
+export DUCKDB_EXTENSION_PATH = $(CURDIR)/modules/duckdb.so
 
 %:
 	dh $@ --with php

@@ -37,6 +37,9 @@ ZEND_TSRMLS_CACHE_EXTERN()
 #include "zend_interfaces.h"
 #include "duckdb.h"
 
+/* Check required APIs in the build scripts and their call sites. DuckDB 1.5.5
+ * provides these APIs but predates the DUCKDB_API_VERSION_* header macros. */
+
 #include <atomic>
 #include <condition_variable>
 #include <cstdint>
@@ -144,6 +147,9 @@ duckdb_notify_fd duckdb_notify_fd_duplicate(duckdb_notify_fd fd);
  * so the database outlives its connections. */
 struct db_inner {
     duckdb_database db = nullptr;
+    /* One private callback per database; capture values remain operation-scoped. */
+    std::mutex typed_capture_mutex;
+    std::shared_ptr<void> typed_capture_state;
     ~db_inner() {
         if (db) {
             duckdb_close(&db);
@@ -196,6 +202,7 @@ struct appender_inner {
     std::shared_ptr<conn_inner> conn;
     duckdb_appender appender = nullptr;
     bool closed = false;
+    bool failed = false;
     bool row_open = false;
     ~appender_inner();
 };
@@ -331,6 +338,7 @@ typedef struct _php_duckdb_connection_object {
 
 typedef struct _php_duckdb_statement_object {
     std::shared_ptr<stmt_inner> inner;
+    HashTable *deferred_bindings;
     zend_object std;
 } php_duckdb_statement_object;
 
@@ -499,7 +507,16 @@ void duckdb_interval_instantiate(zval *return_value, duckdb_interval interval);
 bool duckdb_resolve_param_index(duckdb_prepared_statement stmt, zval *param, idx_t *index);
 /* Bind an array of parameters (list = positional, assoc = named).
  * Returns false and throws on failure. */
-bool duckdb_bind_params_array(duckdb_prepared_statement stmt, HashTable *params);
+bool duckdb_bind_params_array(duckdb_prepared_statement stmt, HashTable *params, conn_inner *conn);
+/* Conversion runs on the PHP thread with conn->mutex held. */
+bool duckdb_convert_values(conn_inner *conn, const std::vector<zval *> &inputs,
+                          std::vector<scoped_duckdb_value> &outputs);
+bool duckdb_value_contains_typed(zval *value);
+void duckdb_register_value_class();
+zend_class_entry *duckdb_value_class_entry();
+bool duckdb_value_initialize(zval *object, const std::string &type, zval *input);
+bool duckdb_canonicalize_type(const std::string &declaration, std::string &canonical);
+bool duckdb_initialize_typed_registry(db_inner *database);
 
 /* result.cpp */
 /* Instantiate a DuckDB\Result object wrapping `res`. Takes ownership of

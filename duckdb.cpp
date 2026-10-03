@@ -21,11 +21,14 @@
 // php_json.h lacks C++ linkage guards for its exported class entry.
 extern "C" {
 #include "ext/json/php_json.h"
+#include "main/fopen_wrappers.h"
 }
 #include "zend_interfaces.h"
 #include "php_streams.h"
 #include "php_duckdb.h"
+#include "src/type_classes.h"
 #include "duckdb_arginfo.h"
+#include <unordered_map>
 
 #if defined(ZTS) && defined(COMPILE_DL_DUCKDB)
 #define DUCKDB_TSRMLS_CACHE_UPDATE() ZEND_TSRMLS_CACHE_UPDATE()
@@ -97,6 +100,7 @@ static inline void duckdb_connection_object_init(php_duckdb_connection_object *o
 }
 static inline void duckdb_statement_object_init(php_duckdb_statement_object *o) {
     new (&o->inner) std::shared_ptr<stmt_inner>();
+    o->deferred_bindings = zend_new_array(0);
 }
 static inline void duckdb_result_object_init(php_duckdb_result_object *o) {
     new (&o->data) std::shared_ptr<result_data>();
@@ -141,8 +145,20 @@ static void duckdb_connection_free_object(zend_object *object) {
 
 static void duckdb_statement_free_object(zend_object *object) {
     php_duckdb_statement_object *intern = duckdb_statement_from_obj(object);
+    zend_array_destroy(intern->deferred_bindings);
     intern->inner.~shared_ptr();
     zend_object_std_dtor(&intern->std);
+}
+
+static HashTable *duckdb_statement_get_gc(zend_object *object, zval **table, int *n) {
+    php_duckdb_statement_object *intern = duckdb_statement_from_obj(object);
+    zend_get_gc_buffer *buffer = zend_get_gc_buffer_create();
+    zval *value;
+    ZEND_HASH_FOREACH_VAL(intern->deferred_bindings, value) {
+        zend_get_gc_buffer_add_zval(buffer, value);
+    } ZEND_HASH_FOREACH_END();
+    zend_get_gc_buffer_use(buffer, table, n);
+    return zend_std_get_properties(object);
 }
 
 static void duckdb_result_free_object(zend_object *object) {
@@ -220,6 +236,9 @@ std::mutex duckdb_instance_cache_mu;
  * threads (task scheduler, WAL writer) while libduckdb is still mapped,
  * instead of leaving them parked in code that dlclose() would unmap. */
 duckdb_instance_cache duckdb_instance_cache_ptr = nullptr;
+/* Share extension-owned database infrastructure with the native instance.
+ * Weak references preserve normal database/file-lock lifetimes. */
+std::unordered_map<std::string, std::weak_ptr<db_inner>> duckdb_shared_handles;
 }
 
 static duckdb_instance_cache duckdb_instance_cache_global() {
@@ -333,6 +352,21 @@ PHP_METHOD(DuckDB_Database, __construct) {
         }
         RETURN_THROWS();
     }
+    if (cache && path_len > 0) {
+        char *expanded = expand_filepath(path, nullptr);
+        if (expanded) {
+            std::string identity(expanded);
+            efree(expanded);
+            std::lock_guard<std::mutex> lock(duckdb_instance_cache_mu);
+            for (auto it = duckdb_shared_handles.begin(); it != duckdb_shared_handles.end();) {
+                if (it->second.expired()) { it = duckdb_shared_handles.erase(it); }
+                else { ++it; }
+            }
+            auto &entry = duckdb_shared_handles[identity];
+            if (auto existing = entry.lock()) { inner = std::move(existing); }
+            else { entry = inner; }
+        }
+    }
     intern->inner = inner;
 }
 
@@ -346,6 +380,11 @@ PHP_METHOD(DuckDB_Database, connect) {
         RETURN_THROWS();
     }
 
+    /* System-catalog functions must exist before a user transaction takes its
+     * catalog snapshot. Resolution and conversion still use the user connection. */
+    if (!duckdb_initialize_typed_registry(intern->inner.get())) {
+        RETURN_THROWS();
+    }
     auto inner = std::make_shared<conn_inner>();
     inner->db = intern->inner;
     if (duckdb_connect(intern->inner->db, &inner->conn) == DuckDBError) {
@@ -616,7 +655,7 @@ PHP_METHOD(DuckDB_Connection, execute) {
             duckdb_throw_prepare_error(msg.c_str());
             RETURN_THROWS();
         }
-        if (params && !duckdb_bind_params_array(ps, params)) {
+        if (params && !duckdb_bind_params_array(ps, params, intern->inner.get())) {
             duckdb_destroy_prepare(&ps);
             RETURN_THROWS();
         }
@@ -931,6 +970,18 @@ static int duckdb_unserialize_deny(zval *object, zend_class_entry *ce, const uns
     } while (0)
 
 PHP_MINIT_FUNCTION(duckdb) {
+    duckdb_register_value_class();
+#define REGISTER_TYPED_CLASS(Class) \
+    do { \
+        zend_class_entry *ce = register_class_DuckDB_##Class(duckdb_value_class_entry()); \
+        ce->create_object = duckdb_value_class_entry()->create_object; \
+        ce->ce_flags |= ZEND_ACC_NO_DYNAMIC_PROPERTIES | ZEND_ACC_NOT_SERIALIZABLE; \
+    } while (0);
+#define REGISTER_SCALAR_CLASS(Class, Sql) REGISTER_TYPED_CLASS(Class)
+    DUCKDB_SCALAR_VALUE_CLASSES(REGISTER_SCALAR_CLASS)
+    DUCKDB_PARAMETERIZED_VALUE_CLASSES(REGISTER_TYPED_CLASS)
+#undef REGISTER_SCALAR_CLASS
+#undef REGISTER_TYPED_CLASS
     duckdb_fetch_mode_ce = register_class_DuckDB_FetchMode();
     duckdb_error_type_ce = register_class_DuckDB_ErrorType();
 
@@ -950,6 +1001,7 @@ PHP_MINIT_FUNCTION(duckdb) {
     DUCKDB_REGISTER_CLASS(database, register_class_DuckDB_Database);
     DUCKDB_REGISTER_CLASS(connection, register_class_DuckDB_Connection);
     DUCKDB_REGISTER_CLASS(statement, register_class_DuckDB_Statement);
+    duckdb_statement_handlers.get_gc = duckdb_statement_get_gc;
     DUCKDB_REGISTER_CLASS(result, register_class_DuckDB_Result, zend_ce_aggregate);
     DUCKDB_REGISTER_CLASS(result_iterator, register_class_DuckDB_ResultIterator, zend_ce_iterator);
     DUCKDB_REGISTER_CLASS(pending, register_class_DuckDB_PendingQuery);
@@ -977,6 +1029,7 @@ PHP_MSHUTDOWN_FUNCTION(duckdb) {
      * libduckdb is still mapped (see duckdb_instance_cache_ptr). */
     {
         std::lock_guard<std::mutex> lk(duckdb_instance_cache_mu);
+        duckdb_shared_handles.clear();
         if (duckdb_instance_cache_ptr != nullptr) {
             duckdb_destroy_instance_cache(&duckdb_instance_cache_ptr);
         }

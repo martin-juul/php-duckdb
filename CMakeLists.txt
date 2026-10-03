@@ -27,6 +27,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)   # compile_commands.json for clang-tidy /
 
 set(PHP_CONFIG "" CACHE FILEPATH "Path to php-config (default: search PATH)")
 if (PHP_CONFIG STREQUAL "")
+    unset(PHP_CONFIG CACHE)
     find_program(PHP_CONFIG NAMES php-config)
 endif()
 if (NOT PHP_CONFIG)
@@ -104,12 +105,33 @@ if (NOT DUCKDB_LIBRARY)
         "Pass -DDUCKDB_DIR=DIR or set the DUCKDB_DIR environment variable.")
 endif()
 
+include(CheckCXXSourceCompiles)
+set(CMAKE_REQUIRED_INCLUDES "${DUCKDB_INCLUDE_DIR}")
+set(CMAKE_REQUIRED_LIBRARIES "${DUCKDB_LIBRARY}")
+check_cxx_source_compiles("#include <duckdb.h>
+int main() {
+    duckdb_value value = nullptr;
+    duckdb_expression_fold(nullptr, nullptr, &value);
+    duckdb_scalar_function_set_bind(nullptr, nullptr);
+    duckdb_appender_clear(nullptr);
+    return 0;
+}" DUCKDB_HAS_TYPED_VALUE_APIS)
+if (NOT DUCKDB_HAS_TYPED_VALUE_APIS)
+    message(FATAL_ERROR "DuckDB expression folding, scalar bind and appender clear APIs are required")
+endif()
+unset(CMAKE_REQUIRED_INCLUDES)
+unset(CMAKE_REQUIRED_LIBRARIES)
+
 # ------------------------------------------------------------------ extension
 
 # Source list mirrors PHP_NEW_EXTENSION() in config.m4.
 set(DUCKDB_SOURCES
     duckdb.cpp
+    src/typed_value.cpp
+    src/type_classes.cpp
     src/values.cpp
+    src/bignum_decode.cpp
+    src/variant_decode.cpp
     src/result.cpp
     src/statement.cpp
     src/pending.cpp
@@ -130,7 +152,7 @@ target_include_directories(duckdb PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR})
 
 # ZEND_ENABLE_STATIC_TSRMLS_CACHE matches the phpize build (config.m4).
-target_compile_definitions(duckdb PRIVATE ZEND_ENABLE_STATIC_TSRMLS_CACHE=1)
+target_compile_definitions(duckdb PRIVATE ZEND_ENABLE_STATIC_TSRMLS_CACHE=1 COMPILE_DL_DUCKDB=1)
 if (PHP_ZTS)
     target_compile_definitions(duckdb PRIVATE ZTS)
 endif()

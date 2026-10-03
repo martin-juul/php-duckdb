@@ -1,0 +1,50 @@
+name: Patched DuckDB SDK
+description: Build and cache the pinned DuckDB engine with repository patches
+runs:
+  using: composite
+  steps:
+    - name: Install SDK build tools
+      shell: bash
+      run: |
+        set -euo pipefail
+        if [[ "$RUNNER_OS" == Linux ]]; then
+          if [[ "$(id -u)" == 0 ]]; then privilege=(); else privilege=(sudo); fi
+          "${privilege[@]}" apt-get update
+          "${privilege[@]}" apt-get install -y build-essential cmake python3 curl patch ca-certificates
+        else
+          command -v cmake
+          command -v python3
+        fi
+        if [[ ! -w /opt ]]; then
+          sudo mkdir -p /opt/duckdb
+          sudo chown "$(id -u):$(id -g)" /opt/duckdb
+        else
+          mkdir -p /opt/duckdb
+        fi
+
+    - name: Identify build environment
+      id: abi
+      shell: bash
+      run: |
+        python3 - <<'PY'
+        import hashlib, os, pathlib, platform, subprocess
+        compiler = subprocess.check_output(['c++', '--version'])
+        release = pathlib.Path('/etc/os-release')
+        identity = compiler + platform.platform().encode()
+        if release.exists():
+            identity += release.read_bytes()
+        with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+            output.write('key=' + hashlib.sha256(identity).hexdigest() + '\n')
+        PY
+
+    - name: Restore SDK cache
+      uses: actions/cache@v4
+      with:
+        path: /opt/duckdb
+        key: duckdb-patched-${{ runner.os }}-${{ runner.arch }}-${{ steps.abi.outputs.key }}-${{ hashFiles('packaging/duckdb/source.json', 'packaging/duckdb/build-sdk.sh', 'packaging/duckdb/patches/**', 'packaging/resources/jobs.py') }}
+
+    - name: Build or verify SDK
+      shell: bash
+      run: |
+        bash packaging/duckdb/build-sdk.sh \
+          --prefix /opt/duckdb --work-dir "${RUNNER_TEMP}/duckdb-sdk-build"

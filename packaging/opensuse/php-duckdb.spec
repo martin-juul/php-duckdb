@@ -9,8 +9,8 @@
 # file, is the same license as for the pristine package itself (MIT).
 #
 
-# libduckdb is not packaged for openSUSE yet, so the prebuilt upstream
-# archive is used (same provenance as the project's Docker images).
+# libduckdb is not packaged for openSUSE yet; build the pinned, patched
+# source SDK used by the project's Docker images.
 # Switch to a system duckdb-devel package once the distribution ships one.
 %define duckdb_version 1.5.6
 
@@ -34,19 +34,20 @@ License:        MIT
 Group:          Productivity/Databases/Tools
 URL:            https://github.com/martin-juul/php-duckdb
 Source0:        https://github.com/martin-juul/php-duckdb/archive/refs/tags/%{version}.tar.gz#/php-duckdb-%{version}.tar.gz
-%ifarch x86_64
-Source1:        https://github.com/duckdb/duckdb/releases/download/v%{duckdb_version}/libduckdb-linux-amd64.zip
-%endif
-%ifarch aarch64
-Source1:        https://github.com/duckdb/duckdb/releases/download/v%{duckdb_version}/libduckdb-linux-arm64.zip
-%endif
-# DuckDB ships prebuilt libduckdb archives for linux amd64/arm64 only.
+Source1:        https://codeload.github.com/duckdb/duckdb/tar.gz/refs/tags/v%{duckdb_version}#/duckdb-%{duckdb_version}.tar.gz
+
+# Native source builds are validated for these architectures.
 ExclusiveArch:  x86_64 aarch64
 BuildRequires:  autoconf
 BuildRequires:  chrpath
 BuildRequires:  gcc-c++
 BuildRequires:  make
-BuildRequires:  unzip
+BuildRequires:  cmake
+BuildRequires:  python3
+BuildRequires:  patch
+BuildRequires:  curl
+BuildRequires:  tar
+BuildRequires:  gzip
 BuildRequires:  php8-devel >= 8.2
 Requires:       php(api) = %{php_core_api}
 Requires:       php(zend-abi) = %{php_zend_api}
@@ -64,14 +65,17 @@ because openSUSE does not package DuckDB yet.
 
 %prep
 %autosetup -p1 -n php-duckdb-%{version}
-# Stage the DuckDB C API library in the layout --with-duckdb=DIR expects
-# (include/duckdb.h + lib/libduckdb.so), same as the Dockerfile.
-mkdir -p duckdb-sdk/include duckdb-sdk/lib
-unzip -o %{SOURCE1} -d duckdb-sdk
-mv duckdb-sdk/duckdb.h duckdb-sdk/include/
-mv duckdb-sdk/libduckdb.so duckdb-sdk/lib/
+# Source1 must match the shared source pin. The SDK builder verifies its hash.
+dver=$(python3 -c 'import json; print(json.load(open("packaging/duckdb/source.json"))["version"])')
+if test "$dver" != "%{duckdb_version}"; then
+    echo "DuckDB spec/source pin mismatch" >&2
+    exit 1
+fi
 
 %build
+%{?set_build_flags}
+DUCKDB_SOURCE_ARCHIVE="%{SOURCE1}" sh packaging/duckdb/build-sdk.sh \
+    --prefix "$PWD/duckdb-sdk" --work-dir "$PWD/duckdb-engine-build"
 export CXXFLAGS="%{optflags}"
 %{__phpize}
 %configure --with-duckdb="$PWD/duckdb-sdk"
@@ -95,11 +99,14 @@ EOF
 # not installed system-wide at this point).
 export LD_LIBRARY_PATH="$PWD/duckdb-sdk/lib"
 export NO_INTERACTION=1 REPORT_EXIT_STATUS=1
+export DUCKDB_EXTENSION_PATH="$PWD/modules/duckdb.so"
 %make_build test PHP_EXECUTABLE=%{__php} TEST_PHP_EXECUTABLE=%{__php}
 %endif
 
 %files
-%license LICENSE
+%license LICENSE duckdb-sdk/share/duckdb-sdk/LICENSE.duckdb
+%doc duckdb-sdk/share/duckdb-sdk/build.txt duckdb-sdk/share/duckdb-sdk/source.json
+%doc duckdb-sdk/share/duckdb-sdk/nullable-bitpacking.patch duckdb-sdk/share/duckdb-sdk/artifacts.json
 %doc README.md
 %config(noreplace) %{php_cfgdir}/duckdb.ini
 %{php_extdir}/duckdb.so

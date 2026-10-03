@@ -1,8 +1,9 @@
 # Asynchronous Queries
 
-DuckDB has no async wire protocol — it is in-process — so "async" here means:
-run the query **off the calling fiber/thread** and get notified on completion.
-This driver offers two execution modes plus deep event-loop integration.
+DuckDB runs in-process and has no async wire protocol. Background queries
+execute off the calling fiber/thread and notify it on completion. Polling
+queries instead execute in small slices on the calling thread. The driver
+also integrates with event loops.
 
 ## The two modes
 
@@ -11,7 +12,7 @@ This driver offers two execution modes plus deep event-loop integration.
 $pending = $conn->queryAsync('SELECT * FROM big_table');
 $pending = $conn->prepare('SELECT * FROM t WHERE id = ?')->executeAsync([$id]);
 
-// 2. Polling mode: no threads at all; isReady()/await() execute the query
+// 2. Polling mode: no extension worker thread; isReady()/await() execute the query
 //    in small slices on the calling thread (good for dl()-restricted or
 //    single-threaded event-loop environments)
 $pending = $conn->queryPending('SELECT * FROM big_table');
@@ -38,21 +39,24 @@ $result = $pending->await();
 
 ### Event loops: completion descriptor
 
-Background queries carry a completion notification: a byte is written when the
-query finishes. Polling queries have no completion descriptor.
+When a background query finishes, it writes a byte to its completion channel.
+An event loop can watch that channel for readability. Polling queries have no
+completion descriptor.
 
 ```php
 $fd = $pending->getFd();          // int, for uv_poll() etc.; -1 in polling mode
 $stream = $pending->getStream();  // PHP stream resource for stream_select(); once only
 ```
 
-`getFd()` duplicates the endpoint: the caller owns and must close the returned
-handle. On Unix it is a file descriptor; on Windows it is a Winsock `SOCKET`
-and must be closed with `closesocket()` by native code, not `_close()`. Prefer
-`getStream()` in PHP: it transfers ownership to a stream, works with
-`stream_select()` on both platforms, and is released with `fclose()` or normal
-resource destruction. Closing either a duplicate or the stream does not
-cancel query execution. Windows uses a loopback TCP connection for notification.
+`getFd()` duplicates the endpoint, so the caller owns and must close the
+returned handle. On Unix, that handle is a file descriptor. On Windows, it is
+a Winsock `SOCKET` and must be closed by native code with `closesocket()`, not
+`_close()`. Windows uses a loopback TCP connection for notification.
+
+Prefer `getStream()` in PHP. It transfers ownership to a stream that works
+with `stream_select()` on both platforms; `fclose()` or normal resource
+destruction releases it. Closing the stream or a duplicate does not cancel
+the query.
 
 ### Fibers: `suspend()`
 
@@ -67,15 +71,15 @@ $fiber->start();
 `suspend()` auto-detects the scheduler it runs under, in this order:
 
 | Environment | Behavior |
-|---|---|
+| --- | --- |
 | **Swoole 6+** (inside a coroutine) | Yields the coroutine on the completion fd via Swoole's scheduler |
 | **True Async** php-src fork | Parks in the libuv reactor; coroutine cancellation interrupts the query and `\Cancellation` escapes |
 | **AMPHP v3** (Revolt loop) | Suspends the fiber on the loop; works even at script top level |
 | **ReactPHP** (`react/async` v4+) | Awaits a promise on the React loop; cancelling the surrounding `async()` interrupts the query (`\RuntimeException` escapes). v3 is deliberately not engaged |
 | **Generic fibers** | `Fiber::suspend()` loop; resume from your own scheduler via `getStream()` readability |
 
-No configuration is needed: detection is purely by which classes/extensions
-are loaded at runtime.
+The loaded classes/extensions determine scheduler detection at runtime; no
+configuration is needed.
 
 ## Cancelling
 
@@ -90,25 +94,30 @@ $conn->queryProgress();   // ['percentage' => 42.0, 'rowsProcessed' => …, 'tot
 $conn->interrupt();       // kill everything running on this connection
 ```
 
-Both are safe to call from another thread/fiber — e.g. a watchdog fiber that
-shows a progress bar or enforces a timeout.
+A watchdog fiber can use these methods to display progress or enforce a
+timeout. Both are safe to call from another thread/fiber.
 
 ## Fan-out example
 
+Use separate connections to the same database so the queries can run in
+parallel:
+
 ```php
+$userConnection = $db->connect();
+$orderConnection = $db->connect();
 $pendings = [
-    'users'  => $conn->queryAsync('SELECT * FROM users'),
-    'orders' => $conn->queryAsync('SELECT * FROM orders'),
+    'users'  => $userConnection->queryAsync('SELECT * FROM users'),
+    'orders' => $orderConnection->queryAsync('SELECT * FROM orders'),
 ];
 
 $results = [];
 foreach ($pendings as $name => $p) {
-    $results[$name] = $p->await()->fetchAll();   // both queries ran concurrently
+    $results[$name] = $p->await()->fetchAll();   // both queries were started before waiting
 }
 ```
 
-For maximum parallelism give each async query its **own connection**
-(`$db->connect()` is cheap) — statements on one connection serialize.
+Statements on one connection serialize. For maximum parallelism, give each
+async query its **own connection** (`$db->connect()` is cheap).
 
 Runnable end-to-end scripts live in [`examples/`](../examples):
 `async_concurrent.php`, `swoole.php`, `amphp.php`, `reactphp.php`,

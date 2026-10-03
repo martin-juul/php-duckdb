@@ -6,25 +6,50 @@ on:
     tags: ['v*', '[0-9]*']
   pull_request:
 
+env:
+  DEFAULT_PHP: '8.5'
+
 jobs:
+  docker-tags:
+    name: Docker tag and manifest tests
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 .github/tests/test_docker_tags.py
+      - run: python3 .github/tests/test_docker_manifest.py
+
   docker:
-    name: Docker php${{ matrix.php }} (amd64 + arm64)
-    runs-on: ubuntu-latest
+    name: Docker php${{ matrix.php }}${{ matrix.variant && '-frankenphp' || '' }} (${{ matrix.arch }})
+    runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
+    needs: docker-tags
     strategy:
       fail-fast: false
       matrix:
         php: ['8.2', '8.3', '8.4', '8.5']
+        variant: ['', 'frankenphp']
+        arch: ['amd64', 'arm64']
+        exclude:
+          - php: '8.2'
+            variant: frankenphp
+          - php: '8.3'
+            variant: frankenphp
     permissions:
       contents: read
       packages: write
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up QEMU (arm64 emulation)
-        uses: docker/setup-qemu-action@v3
-
       - name: Set up Buildx
         uses: docker/setup-buildx-action@v3
+
+      - name: Compute image name
+        id: image
+        shell: bash
+        env:
+          IMAGE: ghcr.io/${{ github.repository }}
+        run: |
+          set -euo pipefail
+          echo "name=${IMAGE,,}" >> "$GITHUB_OUTPUT"
 
       - name: Login to ghcr.io
         if: github.event_name != 'pull_request'
@@ -34,95 +59,104 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Compute image tags
-        id: tags
-        shell: bash
-        run: |
-          set -euo pipefail
-          TAGS="ghcr.io/${{ github.repository }}:${{ matrix.php }}"
-          # latest tracks the newest supported PHP version
-          if [ "${{ matrix.php }}" = "8.5" ]; then
-            TAGS="${TAGS},ghcr.io/${{ github.repository }}:latest"
-          fi
-          # Release tags (v1.2.3 or 1.2.3) additionally publish 1.2.3-php8.4 style tags
-          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
-            TAGS="${TAGS},ghcr.io/${{ github.repository }}:${GITHUB_REF_NAME#v}-php${{ matrix.php }}"
-          fi
-          echo "tags=${TAGS}" >> "$GITHUB_OUTPUT"
-
-      # The Dockerfile runs its smoke test inside the build for BOTH
-      # platforms, so a failing arm64 build fails here. On pull requests
-      # nothing is pushed; the build + in-build smoke test still runs.
-      - name: Build multi-arch image (publish on master/tags)
+      # Both Dockerfiles run build-stage and final-image smoke tests. Each
+      # architecture runs natively, including on pull requests without pushing.
+      - name: Build and smoke-test pull request image
+        if: github.event_name == 'pull_request'
         uses: docker/build-push-action@v6
         with:
           context: .
-          platforms: linux/amd64,linux/arm64
-          push: ${{ github.event_name != 'pull_request' }}
-          tags: ${{ steps.tags.outputs.tags }}
+          file: ${{ matrix.variant == 'frankenphp' && 'Dockerfile.frankenphp' || 'Dockerfile' }}
+          platforms: linux/${{ matrix.arch }}
+          push: false
           build-args: |
             PHP_VERSION=${{ matrix.php }}
-          cache-from: type=gha,scope=php-duckdb-${{ matrix.php }}
-          cache-to: type=gha,mode=max,scope=php-duckdb-${{ matrix.php }}
+          cache-from: type=gha,scope=php-duckdb-${{ matrix.php }}-${{ matrix.variant || 'cli' }}-${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=php-duckdb-${{ matrix.php }}-${{ matrix.variant || 'cli' }}-${{ matrix.arch }}
 
-  docker-zts:
-    name: Docker php${{ matrix.php }}-frankenphp ZTS (amd64 + arm64)
-    runs-on: ubuntu-latest
+      # Publish only immutable digests here. Tags are assigned after every
+      # image and architecture has built successfully.
+      - name: Build and push image digest
+        if: github.event_name != 'pull_request'
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ${{ matrix.variant == 'frankenphp' && 'Dockerfile.frankenphp' || 'Dockerfile' }}
+          platforms: linux/${{ matrix.arch }}
+          outputs: type=image,name=${{ steps.image.outputs.name }},push-by-digest=true,name-canonical=true,push=true
+          build-args: |
+            PHP_VERSION=${{ matrix.php }}
+          cache-from: type=gha,scope=php-duckdb-${{ matrix.php }}-${{ matrix.variant || 'cli' }}-${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=php-duckdb-${{ matrix.php }}-${{ matrix.variant || 'cli' }}-${{ matrix.arch }}
+
+      - name: Export image digest
+        if: github.event_name != 'pull_request'
+        shell: bash
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+          ARCH: ${{ matrix.arch }}
+        run: |
+          set -euo pipefail
+          if [[ ! "$DIGEST" =~ ^sha256:[a-f0-9]{64}$ ]]; then
+            echo "Invalid image digest: $DIGEST" >&2
+            exit 1
+          fi
+
+          mkdir -p "$RUNNER_TEMP/digests"
+          printf '%s\n' "$DIGEST" > "$RUNNER_TEMP/digests/$ARCH.digest"
+
+      - name: Upload image digest
+        if: github.event_name != 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: digests-php${{ matrix.php }}-${{ matrix.variant || 'cli' }}-${{ matrix.arch }}
+          path: ${{ runner.temp }}/digests/${{ matrix.arch }}.digest
+          if-no-files-found: error
+          retention-days: 1
+
+  docker-manifest:
+    name: Publish php${{ matrix.php }}${{ matrix.variant && '-frankenphp' || '' }} manifests
+    if: github.event_name != 'pull_request'
+    needs: docker
+    runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
-        # ZTS builds matter for FrankenPHP; the frankenphp CI job covers
-        # 8.4 + 8.5, so the published ZTS images track the same set.
-        php: ['8.4', '8.5']
+        php: ['8.2', '8.3', '8.4', '8.5']
+        variant: ['', 'frankenphp']
+        exclude:
+          - php: '8.2'
+            variant: frankenphp
+          - php: '8.3'
+            variant: frankenphp
     permissions:
       contents: read
       packages: write
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up QEMU (arm64 emulation)
-        uses: docker/setup-qemu-action@v3
+      - name: Download architecture digests
+        uses: actions/download-artifact@v4
+        with:
+          pattern: digests-php${{ matrix.php }}-${{ matrix.variant || 'cli' }}-*
+          path: ${{ runner.temp }}/digests
+          merge-multiple: true
 
       - name: Set up Buildx
         uses: docker/setup-buildx-action@v3
 
       - name: Login to ghcr.io
-        if: github.event_name != 'pull_request'
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Compute image tags
-        id: tags
+      - name: Publish multi-platform tags
         shell: bash
-        run: |
-          set -euo pipefail
-          TAGS="ghcr.io/${{ github.repository }}:${{ matrix.php }}-frankenphp"
-          # latest-frankenphp tracks the newest supported PHP version
-          if [ "${{ matrix.php }}" = "8.5" ]; then
-            TAGS="${TAGS},ghcr.io/${{ github.repository }}:latest-frankenphp"
-          fi
-          # Release tags (v1.2.3 or 1.2.3) additionally publish 1.2.3-php8.4-frankenphp style tags
-          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
-            TAGS="${TAGS},ghcr.io/${{ github.repository }}:${GITHUB_REF_NAME#v}-php${{ matrix.php }}-frankenphp"
-          fi
-          echo "tags=${TAGS}" >> "$GITHUB_OUTPUT"
-
-      # Dockerfile.frankenphp compiles against the builder image's
-      # embedded ZTS PHP and runs its smoke test inside the build for
-      # BOTH platforms. On pull requests nothing is pushed; the build +
-      # in-build smoke test still runs.
-      - name: Build multi-arch ZTS image (publish on master/tags)
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: Dockerfile.frankenphp
-          platforms: linux/amd64,linux/arm64
-          push: ${{ github.event_name != 'pull_request' }}
-          tags: ${{ steps.tags.outputs.tags }}
-          build-args: |
-            PHP_VERSION=${{ matrix.php }}
-          cache-from: type=gha,scope=php-duckdb-frankenphp-${{ matrix.php }}
-          cache-to: type=gha,mode=max,scope=php-duckdb-frankenphp-${{ matrix.php }}
+        env:
+          IMAGE: ghcr.io/${{ github.repository }}
+          PHP_VERSION: ${{ matrix.php }}
+          VARIANT: ${{ matrix.variant }}
+        run: bash .github/scripts/docker-manifest.sh "$RUNNER_TEMP/digests"

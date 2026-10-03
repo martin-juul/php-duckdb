@@ -211,6 +211,7 @@ const char *duckdb_type_name(duckdb_type type) {
         case DUCKDB_TYPE_TIME_NS: return "TIME_NS";
         case DUCKDB_TYPE_GEOMETRY: return "GEOMETRY";
         case DUCKDB_TYPE_VARIANT: return "VARIANT";
+        case DUCKDB_TYPE_BIGNUM: return "BIGNUM";
         case DUCKDB_TYPE_SQLNULL: return "SQLNULL";
         default: return "UNKNOWN";
     }
@@ -557,6 +558,10 @@ static bool duckdb_php_zval_is_datetime(zval *value) {
 
 static duckdb_value duckdb_php_datetime_to_value(zval *value) {
     timelib_time *time = Z_PHPDATE_P(value)->time;
+    if (!time) {
+        zend_type_error("Cannot bind an uninitialized DateTimeInterface object");
+        return nullptr;
+    }
     duckdb_timestamp ts;
     ts.micros = time->sse * 1000000 + time->us;
     return duckdb_create_timestamp(ts);

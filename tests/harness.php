@@ -26,7 +26,8 @@
  * Options:
  *   --quick              doctor + unit only
  *   --full               all six stages
- *   --jobs=N             parallel test workers (default: CPU count)
+ *   --jobs=N             build/test workers (default: resource budget per stage)
+ *   DUCKDB_JOBS          worker override when --jobs is absent
  *   --filter=PATTERN     only .phpt files matching PATTERN (fnmatch)
  *   --duckdb-dir=DIR     DuckDB install prefix (default: /opt/duckdb,
  *                        or $DUCKDB_DIR)
@@ -56,7 +57,7 @@ final class Config
     public ?string $junit = null;
     public string $duckdbDir;
     public ?string $extension = null;
-    public int $jobs;
+    public ?int $jobs = null;
     public string $rootDir;
 
     public const ALL_STAGES = ['doctor', 'build', 'unit', 'examples', 'valgrind', 'stress'];
@@ -337,7 +338,7 @@ final class Harness
             throw new HarnessException('configure failed', Config::EXIT_BUILD);
         }
 
-        $jobs = $this->config->jobs;
+        $jobs = $this->workers('extension');
         $make = (new Process(['make', "-j{$jobs}"], $root, $env))->run();
         if ($make->exitCode !== 0 || $this->modulePath() === null) {
             $this->term->line($make->output);
@@ -372,8 +373,8 @@ final class Harness
         if ($valgrind) {
             // Tests containing a --VALGRIND-SKIP-- line are excluded here:
             // they are slow-path stress tests whose runtime under Memcheck
-            // exceeds any sane per-test timeout, and whose memory behavior
-            // is already covered by the stress stage under Valgrind.
+            // exceeds the per-test timeout. The stress stage runs separately
+            // without Memcheck; these exclusions are reported below.
             $before = count($tests);
             $tests = array_values(array_filter($tests, static function (string $t): bool {
                 $contents = file_get_contents($t);
@@ -385,12 +386,16 @@ final class Harness
             }
         }
 
+        $jobs = $this->workers($valgrind ? 'valgrind' : 'test');
         $args = [
             PHP_BINARY,
             $runTests,
             '-q',
-            "-j{$this->config->jobs}",
+            "-j{$jobs}",
             '-P',
+            // Keep the first attempt's output when PHP retries a flaky test.
+            // Unsuccessful stages preserve this runner output for diagnosis.
+            '--show-out',
             '-d', "extension={$module}",
         ];
         if ($valgrind) {
@@ -405,7 +410,10 @@ final class Harness
             // Zend's allocator hides leaks from Valgrind; disable it.
             $env['USE_ZEND_ALLOC'] = '0';
             $supp = "{$root}/tests/duckdb.supp";
+            // Let DuckDB workers progress while another thread polls for tasks.
+            // Unsupported platforms retain Valgrind's default scheduler.
             $env['VALGRIND_OPTS'] = '--error-exitcode=99 --errors-for-leak-kinds=definite --leak-check=full --num-callers=30'
+                . ' --fair-sched=try'
                 . (is_file($supp) ? " --suppressions={$supp}" : '');
         }
 
@@ -414,28 +422,40 @@ final class Harness
 
         if ($summary === null) {
             $this->term->line($proc->output);
+            $this->preserveRunTestsOutput($name, $proc->output);
             throw new HarnessException('run-tests.php produced no summary', Config::EXIT_ENV);
         }
 
-        [$passed, $failed, $leaked, $warned, $skipped] = $summary;
+        [$passed, $failed, $leaked, $warned, $skipped, $borked, $total] = $summary;
         $cases = $this->collectCases("{$root}/tests", $tests, $proc->output, $name);
 
-        $bad = $failed + $leaked;
+        $bad = $failed + $leaked + $warned + $borked;
         $detail = sprintf(
-            '%d passed, %d failed%s%s, %d skipped (%d tests)',
+            '%d passed, %d failed%s%s%s, %d skipped (%d tests)',
             $passed,
             $failed,
             $leaked > 0 ? ", {$leaked} leaked" : '',
             $warned > 0 ? ", {$warned} warned" : '',
+            $borked > 0 ? ", {$borked} borked" : '',
             $skipped,
-            $passed + $failed + $leaked + $warned + $skipped,
+            $total,
         );
 
-        if ($bad > 0) {
+        $ok = $bad === 0 && $proc->exitCode === 0;
+        if (!$ok) {
+            if ($bad === 0) {
+                $detail .= "; run-tests.php exited {$proc->exitCode}";
+            }
             $this->printFailedTestDetails("{$root}/tests", $proc->output);
+            $this->preserveRunTestsOutput($name, $proc->output);
+            // Preserve a runner/summary error in JUnit even if no PHPT path
+            // could be identified (for example an extension-level leak).
+            if (!array_filter($cases, static fn (array $case): bool => !$case['ok'])) {
+                $cases[] = ['name' => "{$name}/run-tests.php", 'ok' => false, 'detail' => $detail];
+            }
         }
 
-        $result = new StageResult($name, $bad === 0, $detail, microtime(true) - $start);
+        $result = new StageResult($name, $ok, $detail, microtime(true) - $start);
         $result->cases = $cases;
         return $result;
     }
@@ -550,14 +570,15 @@ final class Harness
     /**
      * Parse run-tests.php's closing summary.
      *
-     * @return ?array{0:int,1:int,2:int,3:int,4:int} [passed, failed, leaked, warned, skipped]
+     * @return ?array{0:int,1:int,2:int,3:int,4:int,5:int,6:int}
+     *         [passed, failed, leaked, warned, skipped, borked, total]
      */
     private function parseRunTestsSummary(string $output): ?array
     {
         $grab = static function (string $label) use ($output): int {
             return preg_match("/^{$label}\\s*:\\s*(\\d+)/m", $output, $m) === 1 ? (int) $m[1] : 0;
         };
-        if (preg_match('/^Number of tests\s*:\s*(\d+)/m', $output) !== 1) {
+        if (preg_match('/^Number of tests\s*:\s*(\d+)/m', $output, $total) !== 1) {
             return null;
         }
         return [
@@ -566,13 +587,15 @@ final class Harness
             $grab('Tests leaked') + $grab('Exts leaked'),
             $grab('Tests warned'),
             $grab('Tests skipped'),
+            $grab('Tests borked'),
+            (int) $total[1],
         ];
     }
 
     /**
      * Derive per-test JUnit cases. run-tests.php's parallel progress output is
      * carriage-return based and fragile to parse, so we derive case results
-     * from the summary plus the FAILED/LEAKED test lists printed at the end.
+     * from the FAILED/LEAKED/WARNED/BORKED test lists printed at the end.
      *
      * @param list<string> $tests
      * @return list<array{name:string, ok:bool, detail:string}>
@@ -580,17 +603,17 @@ final class Harness
     private function collectCases(string $testsDir, array $tests, string $output, string $prefix): array
     {
         $bad = [];
-        foreach (explode(PHP_EOL, $output) as $line) {
-            if (preg_match('/\[(tests\/[^\]]+\.phpt)\]/', $line, $m) === 1
-                && preg_match('/(?:^|\s)(?:FAIL|LEAK(?:&FAIL)?)\s/', trim($line)) === 1) {
+        foreach (preg_split('/[\r\n]+/', $output) as $line) {
+            if (preg_match('/\[([^\]\r\n]+\.phpt)\]/', $line, $m) === 1
+                && preg_match('/(?:^|\s)(?:FAIL|LEAK|WARN|BORK)(?:&(?:FAIL|LEAK|WARN|BORK))*\s/', trim($line)) === 1) {
                 $bad[basename($m[1])] = trim($line);
             }
         }
         // The summary is reliable even when parallel progress lines overlap.
-        preg_match_all('/^=+\R((?:FAILED|LEAKED) TEST SUMMARY\R-+\R.*?)\R=+/ms', $output, $summaries);
+        preg_match_all('/^=+\R((?:FAILED|LEAKED|WARNED|BORKED) TEST SUMMARY\R-+\R.*?)\R=+/ms', $output, $summaries);
         foreach ($summaries[1] as $summary) {
             foreach (preg_split('/\R/', $summary) as $line) {
-                if (preg_match('/\[(tests\/[^\]]+\.phpt)\]/', $line, $tm) === 1) {
+                if (preg_match('/\[([^\]\r\n]+\.phpt)\]/', $line, $tm) === 1) {
                     $bad[basename($tm[1])] = trim($line);
                 }
             }
@@ -604,16 +627,25 @@ final class Harness
         return $cases;
     }
 
-    /** Print failure and leak summaries (and artifact pointers) for humans. */
+    /** Print unsuccessful test summaries (and artifact pointers) for humans. */
     private function printFailedTestDetails(string $testsDir, string $output): void
     {
-        preg_match_all('/^=+\R((?:FAILED|LEAKED) TEST SUMMARY\R-+\R.*?)\R=+/ms', $output, $summaries);
+        preg_match_all('/^=+\R((?:FAILED|LEAKED|WARNED|BORKED) TEST SUMMARY\R-+\R.*?)\R=+/ms', $output, $summaries);
         foreach ($summaries[1] as $summary) {
             $this->term->line('');
             $this->term->line($summary);
             $this->term->line('');
         }
         $this->term->info('see *.diff / *.out / *.mem next to the failing tests for details');
+    }
+
+    private function preserveRunTestsOutput(string $stage, string $output): void
+    {
+        $path = tempnam(sys_get_temp_dir(), "duckdb-{$stage}-run-tests-");
+        if ($path === false || file_put_contents($path, $output) === false) {
+            throw new HarnessException('cannot save raw run-tests.php output', Config::EXIT_ENV);
+        }
+        $this->term->info("run-tests output saved to {$path}");
     }
 
     /** @return array<string,string> environment for child PHP processes */
@@ -722,6 +754,39 @@ final class Harness
         return $copy;
     }
 
+    private function workers(string $profile): int
+    {
+        if ($this->config->jobs !== null) {
+            $this->term->info("Workers: {$this->config->jobs} ({$profile}; explicit override)");
+            return $this->config->jobs;
+        }
+
+        $helper = "{$this->config->rootDir}/packaging/resources/jobs.py";
+        $python = $this->which('python3') ?? $this->which('python');
+        $reason = null;
+        if (!is_file($helper)) {
+            $reason = 'resource helper unavailable';
+        } elseif ($python === null) {
+            $reason = 'Python unavailable';
+        } else {
+            try {
+                $probe = (new Process([$python, $helper, '--profile', $profile], $this->config->rootDir))->run();
+                $value = trim($probe->output);
+                if ($probe->exitCode === 0 && validJobs($value)) {
+                    $jobs = (int) $value;
+                    $this->term->info("Workers: {$jobs} ({$profile}; CPU/memory budget)");
+                    return $jobs;
+                }
+                $reason = 'resource probe failed';
+            } catch (HarnessException) {
+                $reason = 'resource probe could not start';
+            }
+        }
+
+        $this->term->info("Workers: 1 ({$profile}; {$reason})");
+        return 1;
+    }
+
     private function which(string $binary): ?string
     {
         foreach (explode(PATH_SEPARATOR, getenv('PATH') ?: '') as $dir) {
@@ -794,7 +859,8 @@ Stages (default: doctor build unit examples):
 Options:
   --quick              doctor + unit only
   --full               all six stages
-  --jobs=N             parallel test workers (default: CPU count)
+  --jobs=N             build/test workers (default: resource budget per stage)
+  DUCKDB_JOBS          worker override when --jobs is absent
   --filter=PATTERN     only .phpt files matching PATTERN (fnmatch, case-insensitive)
   --duckdb-dir=DIR     DuckDB install prefix (default: $DUCKDB_DIR or /opt/duckdb)
   --extension=PATH     test this .so instead of modules/duckdb.so
@@ -807,14 +873,19 @@ Exit codes: 0 ok, 1 stage failed, 2 environment problem, 3 build failure, 64 usa
 TXT;
 }
 
+/** Accept positive decimal integers that fit PHP's integer range. */
+function validJobs(string $value): bool
+{
+    return preg_match('/^[1-9][0-9]*$/D', $value) === 1
+        && filter_var($value, FILTER_VALIDATE_INT) !== false;
+}
+
 /** @param list<string> $argv */
 function parseArgs(array $argv): Config
 {
     $config = new Config();
     $config->rootDir = dirname(__DIR__);
     $config->duckdbDir = getenv('DUCKDB_DIR') ?: '/opt/duckdb';
-    $nproc = trim((string) @shell_exec('nproc 2>/dev/null'));
-    $config->jobs = preg_match('/^\d+$/', $nproc) === 1 && (int) $nproc > 0 ? (int) $nproc : 1;
     $config->color = function_exists('posix_isatty') && @posix_isatty(STDOUT);
 
     $explicitStages = [];
@@ -837,7 +908,12 @@ function parseArgs(array $argv): Config
         } elseif ($arg === '--no-color') {
             $config->color = false;
         } elseif (str_starts_with($arg, '--jobs=')) {
-            $config->jobs = max(1, (int) substr($arg, 7));
+            $value = substr($arg, 7);
+            if (!validJobs($value)) {
+                fwrite(STDERR, '--jobs requires a positive integer' . PHP_EOL);
+                exit(Config::EXIT_USAGE);
+            }
+            $config->jobs = (int) $value;
         } elseif (str_starts_with($arg, '--filter=')) {
             $config->filter = substr($arg, 9);
         } elseif (str_starts_with($arg, '--duckdb-dir=')) {
@@ -853,6 +929,15 @@ function parseArgs(array $argv): Config
             fwrite(STDERR, "Unknown argument: {$arg}" . PHP_EOL . PHP_EOL . usage() . PHP_EOL);
             exit(Config::EXIT_USAGE);
         }
+    }
+
+    $environmentJobs = getenv('DUCKDB_JOBS');
+    if ($config->jobs === null && $environmentJobs !== false && $environmentJobs !== '') {
+        if (!validJobs($environmentJobs)) {
+            fwrite(STDERR, 'DUCKDB_JOBS requires a positive integer' . PHP_EOL);
+            exit(Config::EXIT_USAGE);
+        }
+        $config->jobs = (int) $environmentJobs;
     }
 
     if ($config->quick && $config->full) {
@@ -874,7 +959,6 @@ function parseArgs(array $argv): Config
     return $config;
 }
 
-// PHP on Linux: detect CPUs via nproc fallback chain handled in parseArgs.
 if (PHP_SAPI !== 'cli') {
     fwrite(STDERR, 'The harness must run under the CLI SAPI' . PHP_EOL);
     exit(Config::EXIT_USAGE);

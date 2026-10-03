@@ -23,13 +23,8 @@ jobs:
       - name: Validate package metadata
         run: composer validate --strict
 
-      - name: Install libduckdb
-        run: |
-          curl -fLsS --retry 4 --retry-all-errors --connect-timeout 20 --max-time 180 "https://github.com/duckdb/duckdb/releases/download/v1.5.6/libduckdb-linux-amd64.zip" -o /tmp/libduckdb.zip
-          sudo mkdir -p /opt/duckdb/include /opt/duckdb/lib
-          sudo unzip -o /tmp/libduckdb.zip -d /opt/duckdb
-          sudo mv /opt/duckdb/duckdb.h /opt/duckdb/include/
-          sudo mv /opt/duckdb/libduckdb.* /opt/duckdb/lib/
+      - name: Install patched DuckDB SDK
+        uses: ./.github/actions/duckdb-sdk
 
       - name: Install checkout through PIE
         run: |
@@ -73,26 +68,19 @@ jobs:
           php-version: ${{ matrix.php }}
           extensions: ffi
 
-      - name: Install libduckdb (Linux)
-        if: runner.os == 'Linux'
-        run: |
-          curl -fLsS --retry 4 --retry-all-errors --connect-timeout 20 --max-time 180 "https://github.com/duckdb/duckdb/releases/download/v1.5.6/libduckdb-linux-amd64.zip" -o /tmp/libduckdb.zip
-          sudo mkdir -p /opt/duckdb/include /opt/duckdb/lib
-          sudo unzip -o /tmp/libduckdb.zip -d /opt/duckdb
-          sudo mv /opt/duckdb/duckdb.h /opt/duckdb/include/
-          sudo mv /opt/duckdb/libduckdb.* /opt/duckdb/lib/
+      - name: Install patched DuckDB SDK
+        uses: ./.github/actions/duckdb-sdk
 
-      - name: Install libduckdb (macOS)
-        if: runner.os == 'macOS'
+
+      - name: Resource allocation and harness regression checks
         run: |
-          curl -fLsS --retry 4 --retry-all-errors --connect-timeout 20 --max-time 180 "https://github.com/duckdb/duckdb/releases/download/v1.5.6/libduckdb-osx-universal.zip" -o /tmp/libduckdb.zip
-          sudo mkdir -p /opt/duckdb/include /opt/duckdb/lib
-          sudo unzip -o /tmp/libduckdb.zip -d /opt/duckdb
-          sudo mv /opt/duckdb/duckdb.h /opt/duckdb/include/
-          sudo mv /opt/duckdb/libduckdb.* /opt/duckdb/lib/
+          python3 -m unittest discover -s packaging/resources/tests
+          php tests/harness/resources.php
+          php tests/harness/diagnostics.php
 
       - name: Harness (build + unit + examples)
         env:
+          TMPDIR: ${{ runner.temp }}
           LD_LIBRARY_PATH: /opt/duckdb/lib
           DYLD_LIBRARY_PATH: /opt/duckdb/lib
         run: php tests/harness.php --no-color --junit=junit.xml
@@ -120,6 +108,7 @@ jobs:
         with:
           name: test-failures-${{ matrix.os }}-php${{ matrix.php }}
           path: |
+            ${{ runner.temp }}/duckdb-*-run-tests-*
             tests/*.diff
             tests/*.out
             tests/*.exp
@@ -152,26 +141,35 @@ jobs:
           # coverage is collected in this job anyway.
           coverage: none
 
-      - name: Install libduckdb
-        run: |
-          curl -fLsS --retry 4 --retry-all-errors --connect-timeout 20 --max-time 180 "https://github.com/duckdb/duckdb/releases/download/v1.5.6/libduckdb-linux-amd64.zip" -o /tmp/libduckdb.zip
-          sudo mkdir -p /opt/duckdb/include /opt/duckdb/lib
-          sudo unzip -o /tmp/libduckdb.zip -d /opt/duckdb
-          sudo mv /opt/duckdb/duckdb.h /opt/duckdb/include/
-          sudo mv /opt/duckdb/libduckdb.* /opt/duckdb/lib/
+      - name: Install patched DuckDB SDK
+        uses: ./.github/actions/duckdb-sdk
 
       - name: Install Valgrind
         run: |
           sudo apt-get update
           sudo apt-get install -y valgrind
 
+      - name: Verify engine checkpoint regression
+        env:
+          LD_LIBRARY_PATH: /opt/duckdb/lib
+        run: |
+          cc -std=c11 -Wall -Wextra -Werror -I/opt/duckdb/include \
+            tests/native/nullable_bitpacking_matrix.c -L/opt/duckdb/lib -lduckdb \
+            -o /tmp/nullable-bitpacking
+          test_dir=$(mktemp -d)
+          valgrind --fair-sched=try --error-exitcode=99 --leak-check=full \
+            --errors-for-leak-kinds=definite \
+            /tmp/nullable-bitpacking "$test_dir/checkpoint.duckdb"
+
       - name: Harness (build + unit + Swoole examples)
         env:
+          TMPDIR: ${{ runner.temp }}
           LD_LIBRARY_PATH: /opt/duckdb/lib
         run: php tests/harness.php --no-color --junit=junit.xml
 
       - name: Valgrind
         env:
+          TMPDIR: ${{ runner.temp }}
           LD_LIBRARY_PATH: /opt/duckdb/lib
           USE_ZEND_ALLOC: '0'
         run: php tests/harness.php --valgrind --no-color --junit=valgrind-junit.xml
@@ -186,6 +184,7 @@ jobs:
         with:
           name: extended-failures
           path: |
+            ${{ runner.temp }}/duckdb-*-run-tests-*
             tests/*.diff
             tests/*.out
             tests/*.exp
@@ -212,13 +211,8 @@ jobs:
           extensions: ffi
           tools: composer
 
-      - name: Install libduckdb
-        run: |
-          curl -fLsS --retry 4 --retry-all-errors --connect-timeout 20 --max-time 180 "https://github.com/duckdb/duckdb/releases/download/v1.5.6/libduckdb-linux-amd64.zip" -o /tmp/libduckdb.zip
-          sudo mkdir -p /opt/duckdb/include /opt/duckdb/lib
-          sudo unzip -o /tmp/libduckdb.zip -d /opt/duckdb
-          sudo mv /opt/duckdb/duckdb.h /opt/duckdb/include/
-          sudo mv /opt/duckdb/libduckdb.* /opt/duckdb/lib/
+      - name: Install patched DuckDB SDK
+        uses: ./.github/actions/duckdb-sdk
 
       - name: Install Amp
         run: |
@@ -228,6 +222,7 @@ jobs:
 
       - name: Harness (unit + Amp examples)
         env:
+          TMPDIR: ${{ runner.temp }}
           LD_LIBRARY_PATH: /opt/duckdb/lib
           DUCKDB_AMPHP_AUTOLOAD: /tmp/amphp/vendor/autoload.php
         run: php tests/harness.php --no-color --junit=junit.xml
@@ -238,6 +233,7 @@ jobs:
         with:
           name: amphp-failures-php${{ matrix.php }}
           path: |
+            ${{ runner.temp }}/duckdb-*-run-tests-*
             tests/*.diff
             tests/*.out
             tests/*.exp
@@ -262,13 +258,8 @@ jobs:
           extensions: ffi
           tools: composer
 
-      - name: Install libduckdb
-        run: |
-          curl -fLsS --retry 4 --retry-all-errors --connect-timeout 20 --max-time 180 "https://github.com/duckdb/duckdb/releases/download/v1.5.6/libduckdb-linux-amd64.zip" -o /tmp/libduckdb.zip
-          sudo mkdir -p /opt/duckdb/include /opt/duckdb/lib
-          sudo unzip -o /tmp/libduckdb.zip -d /opt/duckdb
-          sudo mv /opt/duckdb/duckdb.h /opt/duckdb/include/
-          sudo mv /opt/duckdb/libduckdb.* /opt/duckdb/lib/
+      - name: Install patched DuckDB SDK
+        uses: ./.github/actions/duckdb-sdk
 
       - name: Install ReactPHP
         run: |
@@ -278,6 +269,7 @@ jobs:
 
       - name: Harness (unit + ReactPHP examples)
         env:
+          TMPDIR: ${{ runner.temp }}
           LD_LIBRARY_PATH: /opt/duckdb/lib
           DUCKDB_REACTPHP_AUTOLOAD: /tmp/reactphp/vendor/autoload.php
         run: php tests/harness.php --no-color --junit=junit.xml
@@ -288,6 +280,7 @@ jobs:
         with:
           name: reactphp-failures-php${{ matrix.php }}
           path: |
+            ${{ runner.temp }}/duckdb-*-run-tests-*
             tests/*.diff
             tests/*.out
             tests/*.exp
@@ -302,21 +295,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install build tools and libduckdb
-        shell: bash
-        run: |
-          set -eux
-          apt-get update
-          apt-get install -y build-essential autoconf pkg-config unzip curl git gdb
-          curl -fLsS --retry 4 --retry-all-errors --connect-timeout 20 --max-time 180 "https://github.com/duckdb/duckdb/releases/download/v1.5.6/libduckdb-linux-amd64.zip" -o /tmp/libduckdb.zip
-          mkdir -p /opt/duckdb/include /opt/duckdb/lib
-          unzip -o /tmp/libduckdb.zip -d /opt/duckdb
-          mv /opt/duckdb/duckdb.h /opt/duckdb/include/
-          mv /opt/duckdb/libduckdb.* /opt/duckdb/lib/
+      - name: Install PHP build tools
+        run: apt-get update && apt-get install -y autoconf pkg-config git gdb
+
+      - name: Install patched DuckDB SDK
+        uses: ./.github/actions/duckdb-sdk
 
       - name: Harness (build + unit + true-async examples)
         shell: bash
         env:
+          TMPDIR: ${{ runner.temp }}
           LD_LIBRARY_PATH: /opt/duckdb/lib
         run: php tests/harness.php --no-color --junit=junit.xml
 
@@ -343,6 +331,7 @@ jobs:
         with:
           name: true-async-failures
           path: |
+            ${{ runner.temp }}/duckdb-*-run-tests-*
             tests/*.diff
             tests/*.out
             tests/*.exp
@@ -363,21 +352,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install libduckdb
-        shell: bash
-        run: |
-          set -eux
-          apt-get update
-          apt-get install -y unzip curl git
-          curl -fLsS --retry 4 --retry-all-errors --connect-timeout 20 --max-time 180 "https://github.com/duckdb/duckdb/releases/download/v1.5.6/libduckdb-linux-amd64.zip" -o /tmp/libduckdb.zip
-          mkdir -p /opt/duckdb/include /opt/duckdb/lib
-          unzip -o /tmp/libduckdb.zip -d /opt/duckdb
-          mv /opt/duckdb/duckdb.h /opt/duckdb/include/
-          mv /opt/duckdb/libduckdb.* /opt/duckdb/lib/
+      - name: Install patched DuckDB SDK
+        uses: ./.github/actions/duckdb-sdk
 
       - name: Harness (ZTS build + unit + examples)
         shell: bash
         env:
+          TMPDIR: ${{ runner.temp }}
           LD_LIBRARY_PATH: /opt/duckdb/lib
         run: php tests/harness.php --no-color --junit=junit.xml
 
@@ -408,6 +389,7 @@ jobs:
         with:
           name: frankenphp-failures-php${{ matrix.php }}
           path: |
+            ${{ runner.temp }}/duckdb-*-run-tests-*
             tests/*.diff
             tests/*.out
             tests/*.exp

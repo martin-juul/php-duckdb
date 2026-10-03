@@ -1,13 +1,14 @@
 # Error Handling
 
-How DuckDB errors surface in PHP, and how to catch them precisely.
+When an operation fails, catch its exception class or inspect its error
+category to decide how to handle it.
 
 ## Exception hierarchy
 
 Every error that originates in DuckDB throws a subclass of `DuckDB\Exception`
 (itself a `\Exception`):
 
-```
+```text
 DuckDB\Exception
 ├── ConnectionException    opening/connecting, using a closed connection
 ├── ParserException        SQL syntax errors
@@ -21,7 +22,7 @@ DuckDB\Exception
 └── InternalException      internal DuckDB errors (please report upstream)
 ```
 
-PHP-side misuse throws SPL exceptions instead of driver exceptions:
+PHP-side misuse throws PHP core errors instead of driver exceptions:
 `\ValueError` (bad parameter index, unsupported bind value, non-scalar config
 value, NUL bytes in strings), `\TypeError` (wrong argument types), `\Error`
 (appender row-state mistakes).
@@ -47,8 +48,8 @@ try {
 }
 ```
 
-`getErrorType()` returns `?ErrorType` — `ErrorType::tryFrom($e->getCode())`
-under the hood, `null` when no category is known.
+`getErrorType()` returns `?ErrorType` by calling
+`ErrorType::tryFrom($e->getCode())`. It returns `null` when no category is known.
 
 Notable categories (full list in [api.md](api.md#errortype-int)): `Parser`,
 `Binder`, `Catalog`, `Constraint`, `Transaction`, `Conversion`, `Io`, `Http`,
@@ -58,18 +59,19 @@ Notable categories (full list in [api.md](api.md#errortype-int)): `Parser`,
 ## Where errors can come from
 
 | Operation | Typical exception |
-|---|---|
-| `new Database($path, $config)` | `ConnectionException` (`ErrorType::InvalidConfiguration` for unknown options, `ErrorType::Io` for lock/permission failures) |
+| --- | --- |
+| `new Database($path, $config)` | `DuckDB\Exception` with `ErrorType::InvalidConfiguration` for unknown options; `IOException` with `ErrorType::Io` for lock/permission failures; `ConnectionException` for unclassified open failures |
 | `query()` / `execute()` / `prepare()` | `ParserException`, `BinderException`, `CatalogException`, … |
 | `fetchRow()` mid-stream | the query's deferred error (e.g. `ConversionException`) |
 | `PendingQuery::await()` / `suspend()` | rethrows the background query's failure on the awaiting fiber/thread |
-| `Appender` methods | engine failures invalidate the appender (discard it) |
+| `Appender` methods | native submission or flush failures require `clear()` before reuse; conversion failures before submission leave it usable |
 
 ## Interrupts and cancellation
 
-A query killed via `Connection::interrupt()` or `PendingQuery::cancel()`
-fails with `InterruptedException` (`ErrorType::Interrupt`) — distinguish it
-from real failures when implementing timeouts:
+A query interrupted through `Connection::interrupt()` or
+`PendingQuery::cancel()` fails with `InterruptedException`
+(`ErrorType::Interrupt`). When implementing timeouts, distinguish this
+cancellation from other failures:
 
 ```php
 use DuckDB\InterruptedException;

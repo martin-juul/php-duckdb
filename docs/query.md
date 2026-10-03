@@ -1,6 +1,7 @@
 # Querying
 
-PHP counterpart of `duckdb_query()`, `duckdb_fetch_chunk()` and the
+Execute SQL through a connection, then read the returned result. The PHP
+interface wraps `duckdb_query()`, `duckdb_fetch_chunk()` and the
 `duckdb_result` inspection functions.
 
 ## Buffered queries
@@ -16,8 +17,8 @@ $name = $result->fetchColumn();              // first column of the next row
 `query()` buffers the entire result set in memory before returning. Prefer it
 for small/medium results and DDL/DML.
 
-For statements with parameters, `execute()` is prepare+bind+execute in one
-call (see [prepared.md](prepared.md)):
+For statements with parameters, `execute()` prepares the statement, binds its
+values, and executes it in one call (see [prepared.md](prepared.md)):
 
 ```php
 $result = $conn->execute('SELECT * FROM users WHERE id = ?', [$id]);
@@ -36,8 +37,8 @@ $result->fetchRow(FetchMode::Both);   // both merged in one array
 
 ## Iteration
 
-`Result` is `IteratorAggregate`; `foreach` fetches associatively and consumes
-the result (forward-only):
+`Result` implements `IteratorAggregate`. Each step of `foreach` fetches an
+associative row and consumes it, moving forward through the result:
 
 ```php
 foreach ($conn->query('SELECT * FROM users') as $row) {
@@ -66,8 +67,8 @@ while ($row = $result->fetchRow()) {
 }
 ```
 
-Under the hood this is the C API's streaming path (`duckdb_fetch_chunk()`
-equivalent): rows are produced chunk by chunk while you iterate, so
+The streaming path produces rows chunk by chunk as you iterate. It corresponds
+to the C API's `duckdb_fetch_chunk()` path and holds only a chunk at a time, so
 arbitrarily large results stream through in constant memory.
 
 Streaming caveats:
@@ -83,8 +84,9 @@ Streaming caveats:
 
 ## Errors
 
-Every DuckDB-side failure throws a subclass of `DuckDB\Exception` carrying the
-category (`ErrorType`) as its code — see [errors.md](errors.md):
+When DuckDB reports a failure, the driver throws a subclass of
+`DuckDB\Exception`. The exception carries the category (`ErrorType`) as its
+code; see [errors.md](errors.md):
 
 ```php
 use DuckDB\{Exception, ErrorType};

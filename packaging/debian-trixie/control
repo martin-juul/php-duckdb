@@ -5,7 +5,13 @@ Maintainer: Martin Juul Christiansen <code@juul.xyz>
 Build-Depends: debhelper-compat (= 13),
                dh-php,
                php-dev (>= 8.2),
-               php-cli
+               php-cli,
+               g++,
+               make,
+               cmake,
+               python3,
+               patch,
+               curl
 Standards-Version: 4.7.0
 Homepage: https://github.com/martin-juul/php-duckdb
 Rules-Requires-Root: no
@@ -20,4 +26,4 @@ Description: DuckDB in-process analytical database bindings for PHP
  prepared statements, result sets, and appender support.
  .
  This build targets Debian 13 (trixie), which has no libduckdb package;
- the prebuilt DuckDB library is vendored into this package.
+ the patched source-built DuckDB library is vendored into this package.
