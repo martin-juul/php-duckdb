@@ -619,6 +619,8 @@ jobs:
         with:
           name: windows-diagnostics-php${{ matrix.php }}-${{ matrix.ts }}
           path: |
+            ${{ runner.temp }}/duckdb-windows/duckdb-sdk-build/build/CMakeFiles/
+            ${{ runner.temp }}/duckdb-windows/duckdb-sdk/share/duckdb-sdk/
             ${{ runner.temp }}/duckdb-windows/extension/build-*.txt
             ${{ runner.temp }}/duckdb-windows/extension/tests/**/*.diff
             ${{ runner.temp }}/duckdb-windows/extension/tests/**/*.out
