@@ -21,8 +21,12 @@ export MACOSX_DEPLOYMENT_TARGET
 
 arch=$(uname -m)
 case "$arch" in
-  x86_64|arm64) ;;
-  *) echo "unsupported build arch: $arch" >&2; exit 1 ;;
+  x86_64|arm64)
+    ;;
+  *)
+    echo "unsupported build arch: $arch" >&2
+    exit 1
+    ;;
 esac
 
 echo "==> Building patched DuckDB SDK"
@@ -36,7 +40,10 @@ phpize
 make -j"$(sysctl -n hw.ncpu)"
 
 old=$(otool -L modules/duckdb.so | awk '/libduckdb/ {print $1; exit}')
-[ -n "$old" ] || { echo "modules/duckdb.so does not link libduckdb" >&2; exit 1; }
+[ -n "$old" ] || {
+    echo "modules/duckdb.so does not link libduckdb" >&2
+    exit 1
+}
 install_name_tool -change "$old" "@rpath/libduckdb.dylib" modules/duckdb.so
 install_name_tool -add_rpath "@loader_path" modules/duckdb.so
 codesign --force --sign - modules/duckdb.so

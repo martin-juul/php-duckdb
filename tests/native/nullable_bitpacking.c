@@ -10,6 +10,7 @@ int main(int argc, char **argv) {
         fprintf(stderr, "Usage: %s NEW_DATABASE_PATH\n", argv[0]);
         return 2;
     }
+
     FILE *existing = fopen(argv[1], "rb");
     if (existing) {
         fclose(existing);
@@ -22,8 +23,9 @@ int main(int argc, char **argv) {
     duckdb_connection connection = NULL;
     char *error = NULL;
     int status = 1;
-    if (duckdb_create_config(&config) == DuckDBError
-        || duckdb_set_config(config, "threads", "1") == DuckDBError) {
+
+    if (duckdb_create_config(&config) == DuckDBError ||
+        duckdb_set_config(config, "threads", "1") == DuckDBError) {
         fputs("Cannot configure DuckDB\n", stderr);
         goto cleanup;
     }
@@ -35,11 +37,12 @@ int main(int argc, char **argv) {
         fputs("Cannot connect to DuckDB\n", stderr);
         goto cleanup;
     }
+
     duckdb_result result;
     if (duckdb_query(connection,
-        "CREATE TABLE ints AS SELECT CASE WHEN i%3=0 THEN NULL "
-        "ELSE i%100 END::UINTEGER AS v FROM range(1000) t(i)",
-        &result) == DuckDBError) {
+                     "CREATE TABLE ints AS SELECT CASE WHEN i%3=0 THEN NULL "
+                     "ELSE i%100 END::UINTEGER AS v FROM range(1000) t(i)",
+                     &result) == DuckDBError) {
         fprintf(stderr, "Query failed: %s\n", duckdb_result_error(&result));
         duckdb_destroy_result(&result);
         goto cleanup;
@@ -50,7 +53,9 @@ int main(int argc, char **argv) {
 cleanup:
     duckdb_free(error);
     duckdb_destroy_config(&config);
-    if (connection) duckdb_disconnect(&connection);
-    if (database) duckdb_close(&database); /* checkpoint triggers the error */
+    if (connection)
+        duckdb_disconnect(&connection);
+    if (database)
+        duckdb_close(&database); /* checkpoint triggers the error */
     return status;
 }

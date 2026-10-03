@@ -41,6 +41,7 @@
 #include <vector>
 
 namespace {
+
 constexpr size_t header_size = 3;
 constexpr size_t maximum_payload = 8388607; // 23-bit length in the signed header.
 constexpr uint32_t decimal_base = 1000000000;
@@ -50,44 +51,51 @@ bool invalid_bignum(const char *message) {
     duckdb_throw_msg(message);
     return false;
 }
-}
+} // namespace
 
 bool duckdb_decode_bignum(duckdb_vector vec, idx_t row, zval *out) {
     /* BIGNUM's byte format is internal, although string/vector access uses the
      * stable C API. Cache the runtime gate, not a promise about future formats. */
     static const bool supported_format = [] {
         const char *version = duckdb_library_version();
-        return version && (std::strcmp(version, "v1.5.5") == 0
-                           || std::strcmp(version, "1.5.5") == 0
-                           || std::strcmp(version, "v1.5.6") == 0
-                           || std::strcmp(version, "1.5.6") == 0);
+        return version &&
+               (std::strcmp(version, "v1.5.5") == 0 ||
+                std::strcmp(version, "1.5.5") == 0 ||
+                std::strcmp(version, "v1.5.6") == 0 ||
+                std::strcmp(version, "1.5.6") == 0);
     }();
+
     if (!supported_format) {
-        return invalid_bignum("BIGNUM decoding requires a validated DuckDB 1.5.5 or 1.5.6 storage format");
+        return invalid_bignum(
+            "BIGNUM decoding requires a validated DuckDB 1.5.5 or 1.5.6 storage format");
     }
+
     auto *cells = static_cast<duckdb_string_t *>(duckdb_vector_get_data(vec));
     if (!cells) {
         return invalid_bignum("BIGNUM vector has no data");
     }
+
     auto cell = cells[row];
     const size_t length = duckdb_string_t_length(cell);
     if (length <= header_size || length - header_size > maximum_payload) {
         return invalid_bignum("Invalid BIGNUM storage length");
     }
+
     const auto *data = reinterpret_cast<const uint8_t *>(duckdb_string_t_data(&cell));
     if (!data) {
         return invalid_bignum("BIGNUM cell has no data");
     }
+
     const bool negative = (data[0] & 0x80) == 0;
     const auto magnitude_byte = [negative](uint8_t byte) -> uint8_t {
         return negative ? static_cast<uint8_t>(~byte) : byte;
     };
+
     const size_t payload = length - header_size;
-    const uint32_t declared = (uint32_t(magnitude_byte(data[0]) & 0x7f) << 16)
-                            | (uint32_t(magnitude_byte(data[1])) << 8)
-                            | magnitude_byte(data[2]);
-    if (declared != payload || (payload > 1 && magnitude_byte(data[3]) == 0)
-        || (negative && payload == 1 && magnitude_byte(data[3]) == 0)) {
+    const uint32_t declared = (uint32_t(magnitude_byte(data[0]) & 0x7f) << 16) |
+                              (uint32_t(magnitude_byte(data[1])) << 8) | magnitude_byte(data[2]);
+    if (declared != payload || (payload > 1 && magnitude_byte(data[3]) == 0) ||
+        (negative && payload == 1 && magnitude_byte(data[3]) == 0)) {
         return invalid_bignum("Invalid BIGNUM header or noncanonical payload");
     }
 
@@ -119,17 +127,20 @@ bool duckdb_decode_bignum(duckdb_vector vec, idx_t row, zval *out) {
                           << (8 * (3 - j));
                 }
             }
+
             for (auto &digit : digits) {
                 // digit < 10^9 and hi <= UINT32_MAX: tmp always fits uint64_t.
                 const uint64_t tmp = (uint64_t(digit) << 32) | hi;
                 hi = uint32_t(tmp / decimal_base);
                 digit = uint32_t(tmp - uint64_t(decimal_base) * hi);
             }
+
             while (hi) {
                 digits.push_back(hi % decimal_base);
                 hi /= decimal_base;
             }
         }
+
         if (digits.empty()) {
             digits.push_back(0);
         }
@@ -142,11 +153,13 @@ bool duckdb_decode_bignum(duckdb_vector vec, idx_t row, zval *out) {
         if (digits.size() - 1 > (ZSTR_MAX_LEN - prefix) / decimal_shift) {
             return invalid_bignum("BIGNUM decimal string exceeds PHP allocation size");
         }
+
         const size_t output_length = (digits.size() - 1) * decimal_shift + prefix;
         zend_string *result = zend_string_alloc(output_length, false);
         char *buffer = ZSTR_VAL(result);
         size_t position = output_length;
         buffer[position] = '\0';
+
         for (size_t i = 0; i + 1 < digits.size(); ++i) {
             auto remain = digits[i];
             for (size_t j = 0; j < decimal_shift; ++j) {
@@ -154,6 +167,7 @@ bool duckdb_decode_bignum(duckdb_vector vec, idx_t row, zval *out) {
                 remain /= 10;
             }
         }
+
         auto remain = digits.back();
         do {
             buffer[--position] = char('0' + remain % 10);
@@ -162,6 +176,7 @@ bool duckdb_decode_bignum(duckdb_vector vec, idx_t row, zval *out) {
         if (negative) {
             buffer[--position] = '-';
         }
+
         ZVAL_STR(out, result);
         return true;
     } catch (const std::exception &) {

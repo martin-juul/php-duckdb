@@ -27,6 +27,7 @@
 appender_inner::~appender_inner() {
     if (appender) {
         std::lock_guard<std::mutex> lk(conn->mutex);
+
         /* Native destroy itself closes the handle. Clear failed buffers first
          * so destruction cannot retry an earlier partially submitted batch. */
         if (failed) {
@@ -223,22 +224,27 @@ PHP_METHOD(DuckDB_Appender, appendRow) {
     /* One batch conversion finishes before the native row is opened. */
     std::vector<zval *> inputs;
     zval *value;
-    ZEND_HASH_FOREACH_VAL(values, value) { inputs.push_back(value); } ZEND_HASH_FOREACH_END();
+    ZEND_HASH_FOREACH_VAL(values, value) {
+        inputs.push_back(value);
+    } ZEND_HASH_FOREACH_END();
+
     std::vector<scoped_duckdb_value> converted;
     std::lock_guard<std::mutex> lk(intern->inner->conn->mutex);
     if (!duckdb_convert_values(intern->inner->conn.get(), inputs, converted)) {
         RETURN_THROWS();
     }
+
     duckdb_state st = duckdb_appender_begin_row(appender);
     for (size_t i = 0; st == DuckDBSuccess && i < converted.size(); i++) {
         st = duckdb_append_value(appender, converted[i].get());
     }
-    if (st == DuckDBSuccess) { st = duckdb_appender_end_row(appender); }
+    if (st == DuckDBSuccess) {
+        st = duckdb_appender_end_row(appender);
+    }
     if (st == DuckDBError) {
         duckdb_appender_fail(intern, "Failed to append row");
         RETURN_THROWS();
     }
-
 }
 
 PHP_METHOD(DuckDB_Appender, flush) {
@@ -262,10 +268,12 @@ PHP_METHOD(DuckDB_Appender, flush) {
 PHP_METHOD(DuckDB_Appender, clear) {
     DUCKDB_TSRMLS_CACHE_UPDATE();
     ZEND_PARSE_PARAMETERS_NONE();
+
     auto *intern = Z_DUCKDB_APPENDER_P(ZEND_THIS);
     if (!duckdb_initialized_guard(static_cast<bool>(intern->inner), "DuckDB\\Appender")) {
         RETURN_THROWS();
     }
+
     auto &inner = *intern->inner;
     if (inner.closed || !inner.appender) {
         duckdb_throw_msg("Appender is closed");
@@ -274,11 +282,13 @@ PHP_METHOD(DuckDB_Appender, clear) {
     if (!duckdb_connection_guard(inner.conn)) {
         RETURN_THROWS();
     }
+
     std::lock_guard<std::mutex> lk(inner.conn->mutex);
     if (duckdb_appender_clear(inner.appender) == DuckDBError) {
         duckdb_appender_fail(intern, "Failed to clear appender");
         RETURN_THROWS();
     }
+
     inner.row_open = false;
     inner.failed = false;
 }

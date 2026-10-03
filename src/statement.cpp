@@ -82,12 +82,16 @@ static bool duckdb_collect_params(duckdb_prepared_statement stmt, HashTable *par
     zend_ulong numeric;
     zval *value;
     idx_t position = 1;
+
     ZEND_HASH_FOREACH_KEY_VAL(params, numeric, key, value) {
         idx_t index = position++;
         if (!positional) {
             zval parameter;
-            if (key) { ZVAL_STR(&parameter, key); }
-            else { ZVAL_LONG(&parameter, (zend_long)numeric); }
+            if (key) {
+                ZVAL_STR(&parameter, key);
+            } else {
+                ZVAL_LONG(&parameter, (zend_long)numeric);
+            }
             if (!duckdb_resolve_param_index(stmt, &parameter, &index)) {
                 return false;
             }
@@ -95,6 +99,7 @@ static bool duckdb_collect_params(duckdb_prepared_statement stmt, HashTable *par
         indices.push_back(index);
         values.push_back(value);
     } ZEND_HASH_FOREACH_END();
+
     return true;
 }
 
@@ -115,6 +120,7 @@ bool duckdb_bind_params_array(duckdb_prepared_statement stmt, HashTable *params,
     std::vector<idx_t> indices;
     std::vector<zval *> values;
     std::vector<scoped_duckdb_value> converted;
+
     return duckdb_collect_params(stmt, params, indices, values) &&
            duckdb_convert_values(conn, values, converted) &&
            duckdb_bind_converted(stmt, indices, converted);
@@ -125,12 +131,19 @@ bool duckdb_bind_params_array(duckdb_prepared_statement stmt, HashTable *params,
  * allocate no retention storage. */
 class duckdb_statement_retained {
     std::vector<zval> values;
+
 public:
     ~duckdb_statement_retained() {
-        for (auto &value : values) { zval_ptr_dtor(&value); }
+        for (auto &value : values) {
+            zval_ptr_dtor(&value);
+        }
     }
+
     void keep(HashTable *bindings, idx_t index) {
-        if (!bindings) { return; }
+        if (!bindings) {
+            return;
+        }
+
         zval *old = zend_hash_index_find(bindings, index);
         if (old) {
             zval copy;
@@ -155,7 +168,10 @@ static bool duckdb_statement_bind_execution(php_duckdb_statement_object *intern,
         ZEND_HASH_FOREACH_NUM_KEY_VAL(intern->deferred_bindings, index, value) {
             bool overridden = false;
             for (auto supplied : indices) {
-                if (supplied == index) { overridden = true; break; }
+                if (supplied == index) {
+                    overridden = true;
+                    break;
+                }
             }
             if (!overridden) {
                 indices.push_back(index);
@@ -163,11 +179,13 @@ static bool duckdb_statement_bind_execution(php_duckdb_statement_object *intern,
             }
         } ZEND_HASH_FOREACH_END();
     }
+
     std::vector<scoped_duckdb_value> converted;
     if (!duckdb_convert_values(intern->inner->conn.get(), values, converted) ||
         !duckdb_bind_converted(intern->inner->stmt, indices, converted)) {
         return false;
     }
+
     /* Execution arrays persist as native bindings. Typed values also persist
      * as wrappers so their next execution resolves current catalog/settings. */
     if (params) {
@@ -177,7 +195,9 @@ static bool duckdb_statement_bind_execution(php_duckdb_statement_object *intern,
         for (size_t i = 0; i < supplied_indices.size(); i++) {
             retained.keep(intern->deferred_bindings, supplied_indices[i]);
             if (duckdb_value_contains_typed(supplied_values[i])) {
-                if (!intern->deferred_bindings) { intern->deferred_bindings = zend_new_array(0); }
+                if (!intern->deferred_bindings) {
+                    intern->deferred_bindings = zend_new_array(0);
+                }
                 zval copy;
                 ZVAL_COPY_DEREF(&copy, supplied_values[i]);
                 zend_hash_index_update(intern->deferred_bindings, supplied_indices[i], &copy);
@@ -225,7 +245,9 @@ static void duckdb_statement_bind_impl(INTERNAL_FUNCTION_PARAMETERS, bool as_blo
         }
 
         if (!as_blob && duckdb_value_contains_typed(value)) {
-            if (!intern->deferred_bindings) { intern->deferred_bindings = zend_new_array(0); }
+            if (!intern->deferred_bindings) {
+                intern->deferred_bindings = zend_new_array(0);
+            }
             zval copy;
             ZVAL_COPY_DEREF(&copy, value);
             retained.keep(intern->deferred_bindings, index);
@@ -299,7 +321,9 @@ PHP_METHOD(DuckDB_Statement, clearBindings) {
             intern->deferred_bindings = zend_new_array(0);
         }
     }
-    if (retired) { zend_array_destroy(retired); }
+    if (retired) {
+        zend_array_destroy(retired);
+    }
 }
 
 PHP_METHOD(DuckDB_Statement, parameterCount) {

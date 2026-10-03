@@ -19,5 +19,7 @@
 - Update affected docs/examples; use the
   [Markdown lint skill](.agents/skills/markdown-lint/SKILL.md) and
   `git diff --check`.
+- Keep one statement per line, expand control-flow blocks, and separate logical
+  steps with blank lines. Match the surrounding code style.
 - Keep generated build files, local IDE settings and unrelated changes out of
   commits.

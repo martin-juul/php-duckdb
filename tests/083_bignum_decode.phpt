@@ -4,6 +4,7 @@ BIGNUM decoding: exact decimal strings in buffered, streaming, prepared, async a
 <?php require_once __DIR__ . '/skipif.inc'; ?>
 --FILE--
 <?php
+
 use DuckDB\{BigNum, Database};
 
 $conn = (new Database())->connect();
@@ -33,6 +34,7 @@ SELECT v AS scalar,
 FROM (SELECT ?::BIGNUM AS v)
 SQL;
 $stmt = $conn->prepare($sql);
+
 function checkBignumRow(array $row, ?string $canonical): void {
     $expected = [
         'scalar' => $canonical,
@@ -65,7 +67,9 @@ foreach (['buffered', 'prepared', 'streaming', 'async'] as $mode) {
             'async' => $stmt->executeAsync([$typed])->await(),
         };
         checkBignumRow($result->fetchRow(), $canonical);
-        if ($result->fetchRow() !== null) { throw new RuntimeException('Unexpected extra row'); }
+        if ($result->fetchRow() !== null) {
+            throw new RuntimeException('Unexpected extra row');
+        }
     }
     echo $mode, ': ', count($cases), " exact scalar/composite cases\n";
 }
@@ -80,13 +84,17 @@ $stream = $conn->queryStreaming("SELECT CASE WHEN i % 3 = 0 THEN '0'::BIGNUM
     FROM range(5000) t(i)");
 $seen = 0;
 while (($row = $stream->fetchRow()) !== null) {
-    $expected = match ($seen % 3) { 0 => '0', 1 => '-' . $large, 2 => $large };
+    $expected = match ($seen % 3) {
+        0 => '0', 1 => '-' . $large, 2 => $large
+    };
     if ($row !== ['v' => $expected, 'nested' => [['n' => $expected]]]) {
         throw new RuntimeException('BIGNUM stream chunk or nested child offset mismatch');
     }
     ++$seen;
 }
-if ($seen !== 5000) { throw new RuntimeException('BIGNUM stream truncated'); }
+if ($seen !== 5000) {
+    throw new RuntimeException('BIGNUM stream truncated');
+}
 echo "streaming chunk boundaries: 5000 exact rows\n";
 ?>
 --EXPECT--

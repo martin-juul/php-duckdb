@@ -4,6 +4,7 @@ Result: exact UBIGINT and BIGNUM/VARIANT decoding across result contexts
 <?php require_once __DIR__ . '/skipif.inc'; ?>
 --FILE--
 <?php
+
 $conn = (new DuckDB\Database())->connect();
 $maximum = '18446744073709551615';
 $row = $conn->execute('SELECT ?::UBIGINT AS v', [$maximum])->fetchRow();
@@ -33,16 +34,24 @@ foreach ($cases as [$type, $expression, $expected]) {
         echo $type, ' ', $context, ": exact rendering\n";
     }
     $row = $conn->query("SELECT [$expression] AS v")->fetchRow();
-    if ($row !== ['v' => [$expected]]) { throw new RuntimeException("Nested LIST $type failed"); }
+    if ($row !== ['v' => [$expected]]) {
+        throw new RuntimeException("Nested LIST $type failed");
+    }
     echo $type, " nested LIST: exact rendering\n";
     $row = $conn->query("SELECT {'field': $expression} AS v")->fetchRow();
-    if ($row !== ['v' => ['field' => $expected]]) { throw new RuntimeException("Nested STRUCT $type failed"); }
+    if ($row !== ['v' => ['field' => $expected]]) {
+        throw new RuntimeException("Nested STRUCT $type failed");
+    }
     echo $type, " nested STRUCT: exact rendering\n";
 
     $row = $conn->queryStreaming("SELECT NULL::$type AS v")->fetchRow();
-    if ($row !== ['v' => null]) { throw new RuntimeException("Streaming NULL $type failed"); }
+    if ($row !== ['v' => null]) {
+        throw new RuntimeException("Streaming NULL $type failed");
+    }
     $row = $conn->query("SELECT [NULL::$type] AS v")->fetchRow();
-    if ($row !== ['v' => [null]]) { throw new RuntimeException("Nested NULL $type failed"); }
+    if ($row !== ['v' => [null]]) {
+        throw new RuntimeException("Nested NULL $type failed");
+    }
     echo $type, ": NULL remains supported\n";
 }
 ?>

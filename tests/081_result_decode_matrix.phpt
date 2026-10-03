@@ -7,6 +7,7 @@ if (PHP_INT_SIZE !== 8) { die('skip requires 64-bit PHP integer boundaries'); }
 ?>
 --FILE--
 <?php
+
 $conn = (new DuckDB\Database())->connect();
 $conn->query("SET TimeZone = 'UTC'");
 $utc = new DateTimeZone('UTC');
@@ -76,15 +77,18 @@ $cases = [
 ];
 // Typed NULL must bypass decoding for every supported scalar family too.
 foreach (['BOOLEAN', 'TINYINT', 'SMALLINT', 'INTEGER', 'BIGINT', 'UTINYINT', 'USMALLINT',
-          'UINTEGER', 'UBIGINT', 'HUGEINT', 'UHUGEINT', 'FLOAT', 'DOUBLE', 'DECIMAL(18,2)',
-          'VARCHAR', 'BLOB', 'BIT', 'UUID', 'JSON', "ENUM('red', 'blue')", 'GEOMETRY',
-          'DATE', 'TIME', 'TIME_NS', 'TIMETZ', 'TIMESTAMP_S', 'TIMESTAMP_MS', 'TIMESTAMP',
-          'TIMESTAMP_NS', 'TIMESTAMPTZ', 'INTERVAL'] as $index => $type) {
+    'UINTEGER', 'UBIGINT', 'HUGEINT', 'UHUGEINT', 'FLOAT', 'DOUBLE', 'DECIMAL(18,2)',
+    'VARCHAR', 'BLOB', 'BIT', 'UUID', 'JSON', "ENUM('red', 'blue')", 'GEOMETRY',
+    'DATE', 'TIME', 'TIME_NS', 'TIMETZ', 'TIMESTAMP_S', 'TIMESTAMP_MS', 'TIMESTAMP',
+    'TIMESTAMP_NS', 'TIMESTAMPTZ', 'INTERVAL'] as $index => $type) {
     $cases['typed_null_' . $index] = ["NULL::$type", null];
 }
 
 $columns = [];
-foreach ($cases as $name => [$expression]) { $columns[] = "$expression AS $name"; }
+foreach ($cases as $name => [$expression]) {
+    $columns[] = "$expression AS $name";
+}
+
 $sql = 'SELECT ' . implode(', ', $columns) . ' WHERE ?::INTEGER = 1';
 $literalSql = str_replace('?::INTEGER', '1::INTEGER', $sql);
 $statement = $conn->prepare($sql);
@@ -96,6 +100,7 @@ $paths = [
     'prepared streaming' => static fn() => $statement->executeStreaming([1]),
     'prepared async' => static fn() => $statement->executeAsync([1])->await(),
 ];
+
 function normalized_scalar(mixed $value): mixed {
     if ($value instanceof DateTimeImmutable) {
         return [get_class($value), $value->format('Y-m-d H:i:s.u e')];
@@ -103,8 +108,10 @@ function normalized_scalar(mixed $value): mixed {
     if ($value instanceof DuckDB\Interval) {
         return [get_class($value), $value->getMonths(), $value->getDays(), $value->getMicros()];
     }
+
     return $value;
 }
+
 $failures = [];
 foreach ($paths as $path => $run) {
     foreach (['fetchRow', 'fetchAll', 'iterator'] as $fetch) {
@@ -126,12 +133,16 @@ foreach ($paths as $path => $run) {
                 $failures[] = "$path/$fetch/$name: " . var_export(normalized_scalar($actual), true);
             }
         }
-        if ($result->fetchRow() !== null) { throw new RuntimeException("Unexpected extra row: $path/$fetch"); }
+        if ($result->fetchRow() !== null) {
+            throw new RuntimeException("Unexpected extra row: $path/$fetch");
+        }
         unset($result);
     }
     echo $path, ': ', count($cases), " scalar cases across fetchRow/fetchAll/iterator\n";
 }
-if ($failures !== []) { throw new RuntimeException(implode("\n", $failures)); }
+if ($failures !== []) {
+    throw new RuntimeException(implode("\n", $failures));
+}
 ?>
 --EXPECT--
 query: 92 scalar cases across fetchRow/fetchAll/iterator

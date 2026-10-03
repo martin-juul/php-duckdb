@@ -4,6 +4,7 @@ Result: temporal infinities, pre-epoch nanoseconds and timezone offset seconds
 <?php require_once __DIR__ . '/skipif.inc'; ?>
 --FILE--
 <?php
+
 $conn = (new DuckDB\Database())->connect();
 $conn->query("SET TimeZone = 'UTC'");
 $cases = [
@@ -17,10 +18,12 @@ $cases = [
     'TIMETZ positive offset seconds' => ["TIMETZ '12:34:56.123456+02:03:04'", '12:34:56.123456+02:03:04'],
     'TIMETZ negative offset seconds' => ["TIMETZ '12:34:56.123456-02:03:04'", '12:34:56.123456-02:03:04'],
 ];
+
 function temporal_comparison(mixed $value): mixed {
     return $value instanceof DateTimeImmutable
         ? [get_class($value), $value->format('Y-m-d H:i:s.u e')] : $value;
 }
+
 $failures = [];
 foreach ($cases as $label => [$expression, $expected]) {
     $sql = "SELECT $expression AS v WHERE ?::INTEGER = 1";
@@ -46,7 +49,9 @@ foreach ($cases as $label => [$expression, $expected]) {
     }
     echo $label, ": verified across execution paths\n";
 }
-if ($failures !== []) { throw new RuntimeException(implode("\n", $failures)); }
+if ($failures !== []) {
+    throw new RuntimeException(implode("\n", $failures));
+}
 ?>
 --EXPECT--
 TIMESTAMP_S positive infinity: verified across execution paths

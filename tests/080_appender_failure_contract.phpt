@@ -4,6 +4,7 @@ Appender failure contract: typed helper conversion is recoverable, native submis
 <?php require_once __DIR__ . '/skipif.inc'; ?>
 --FILE--
 <?php
+
 use DuckDB\{Appender, Connection, ConstraintException, ConversionException, Database, Integer, Varchar};
 
 function rejects(callable $operation, string $expectedClass, string $label): void {
@@ -14,8 +15,10 @@ function rejects(callable $operation, string $expectedClass, string $label): voi
             throw new RuntimeException("$label: unexpected " . get_class($error), 0, $error);
         }
         echo $label, "\n";
+
         return;
     }
+
     throw new RuntimeException("$label: operation unexpectedly succeeded");
 }
 
@@ -27,9 +30,14 @@ function rows(Connection $conn, string $table, array $expected): void {
 }
 
 function invalidated(Appender $app): void {
-    foreach ([fn() => $app->beginRow(), fn() => $app->appendRow([7, 8]), fn() => $app->flush()] as $operation) {
+    foreach ([
+        fn() => $app->beginRow(),
+        fn() => $app->appendRow([7, 8]),
+        fn() => $app->flush()
+    ] as $operation) {
         try {
             $operation();
+
             throw new RuntimeException('Failed appender accepted further work');
         } catch (DuckDB\Exception $error) {
             if ($error->getMessage() !== 'Appender has failed; call clear() before reusing it') {

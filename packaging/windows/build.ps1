@@ -4,8 +4,10 @@ param(
     [Parameter(Mandatory)][string]$BuilderPath,
     [Parameter(Mandatory)][string]$BuildRoot
 )
+
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
+
 $source = (Get-Location).Path
 $build = Join-Path $BuildRoot 'extension'
 $deps = Join-Path $BuildRoot 'deps'
@@ -13,7 +15,9 @@ New-Item -ItemType Directory -Force $build, "$deps/include", "$deps/lib", "$deps
 # Keep the original checkout (including pull-request merge changes). Build tools
 # live outside it, so robocopy cannot accidentally pick another config.w32.
 & robocopy $source $build /E /XD "$source/.git" /XJ /R:2 /W:1 /NFL /NDL /NJH /NJS /NP
-if ($LASTEXITCODE -ge 8) { throw "Source copy failed: $LASTEXITCODE" }
+if ($LASTEXITCODE -ge 8) {
+    throw "Source copy failed: $LASTEXITCODE"
+}
 Import-Module "$BuilderPath/extension/BuildPhpExtension/BuildPhpExtension.psd1" -Force
 $env:AUTO_DETECT_ARGS = 'false'
 $env:AUTO_DETECT_LIBS = 'false'
@@ -27,7 +31,9 @@ try {
     # does not expose, and avoids its automatic artifact upload.
     $vs = Get-VsVersion -PhpVersion $PhpVersion
     $expectedCompiler = if ($PhpVersion -in '8.2', '8.3') { 'vs16' } else { 'vs17' }
-    if ($vs.vs -ne $expectedCompiler) { throw "Unexpected compiler: $($vs.vs)" }
+    if ($vs.vs -ne $expectedCompiler) {
+        throw "Unexpected compiler: $($vs.vs)"
+    }
     Get-PhpSdk
     $config = Get-ExtensionConfig -Extension duckdb -ExtensionRef $env:GITHUB_SHA `
         -PhpVersion $PhpVersion -Arch x64 -Ts $ThreadSafety -VsVersion $vs.vs -VsToolset $vs.toolset
@@ -46,20 +52,27 @@ try {
     $duckPins = Get-Content "$duck/share/duckdb-sdk/source.json" -Raw | ConvertFrom-Json
     $duckVersion = $duckPins.version
     foreach ($file in 'include/duckdb.h', 'lib/duckdb.lib', 'bin/duckdb.dll') {
-        if (!(Test-Path "$duck/$file" -PathType Leaf)) { throw "Missing DuckDB dependency: $file" }
+        if (!(Test-Path "$duck/$file" -PathType Leaf)) {
+            throw "Missing DuckDB dependency: $file"
+        }
     }
     Copy-Item "$duck/include/duckdb.h" "$deps/include/duckdb.h"
     Copy-Item "$duck/lib/duckdb.lib" "$deps/lib/duckdb.lib"
     Copy-Item "$duck/bin/duckdb.dll" "$deps/bin/duckdb.dll"
     Invoke-Build -Config $config
     $extension = Join-Path $build "$($config.build_directory)/php_duckdb.dll"
-    if (!(Test-Path $extension -PathType Leaf)) { throw 'Build did not produce php_duckdb.dll' }
+    if (!(Test-Path $extension -PathType Leaf)) {
+        throw 'Build did not produce php_duckdb.dll'
+    }
 
     # Put the dependency next to the matching PHP executable, just as users do.
     Copy-Item "$duck/bin/duckdb.dll" "$php/duckdb.dll"
     foreach ($file in 'php_ffi.dll', 'php_sockets.dll') {
-        if (!(Test-Path "$php/ext/$file")) { throw "Missing test extension: $file" }
+        if (!(Test-Path "$php/ext/$file")) {
+            throw "Missing test extension: $file"
+        }
     }
+
     $runner = Join-Path $build 'run-tests.php'
     Invoke-WebRequest "https://raw.githubusercontent.com/php/php-src/php-$($details.phpSemver)/run-tests.php" -OutFile $runner
     $env:DUCKDB_EXTENSION_PATH = $extension
@@ -69,10 +82,15 @@ try {
     # Child processes launched by PHPT helpers inherit dependency search paths.
     $env:PATH = "$php;$env:PATH"
     & "$php/php.exe" -n $runner -q --offline --show-diff --set-timeout 120 tests
-    if ($LASTEXITCODE -ne 0) { throw "PHPT suite failed: $LASTEXITCODE" }
+    if ($LASTEXITCODE -ne 0) {
+        throw "PHPT suite failed: $LASTEXITCODE"
+    }
 
     $versionMatch = [regex]::Match((Get-Content "$source/php_duckdb.h" -Raw), 'PHP_DUCKDB_VERSION\s+"([^"]+)"')
-    if (!$versionMatch.Success) { throw 'Cannot read extension version' }
+    if (!$versionMatch.Success) {
+        throw 'Cannot read extension version'
+    }
+
     $version = $versionMatch.Groups[1].Value
     $package = Join-Path $BuildRoot 'package'
     New-Item -ItemType Directory $package | Out-Null
@@ -83,11 +101,16 @@ try {
     Copy-Item "$duck/share/duckdb-sdk" "$package/duckdb-sdk" -Recurse
     Copy-Item "$source/packaging/windows/README.md" "$package/INSTALL.md"
     @{
-        extension_version = $version; duckdb_version = $duckVersion
-        php_version = $details.phpSemver; php_minor = $PhpVersion
-        thread_safety = $ThreadSafety; compiler = $vs.vs; architecture = 'x64'
+        extension_version = $version
+        duckdb_version = $duckVersion
+        php_version = $details.phpSemver
+        php_minor = $PhpVersion
+        thread_safety = $ThreadSafety
+        compiler = $vs.vs
+        architecture = 'x64'
         source_commit = $env:GITHUB_SHA
-        duckdb_source_commit = $duckPins.commit; duckdb_source_sha256 = $duckPins.sha256
+        duckdb_source_commit = $duckPins.commit
+        duckdb_source_sha256 = $duckPins.sha256
         duckdb_patch_sha256 = (Get-FileHash "$duck/share/duckdb-sdk/nullable-bitpacking.patch" -Algorithm SHA256).Hash.ToLowerInvariant()
         duckdb_dll_sha256 = (Get-FileHash "$duck/bin/duckdb.dll" -Algorithm SHA256).Hash.ToLowerInvariant()
     } | ConvertTo-Json | Set-Content "$package/build-info.json" -Encoding utf8
@@ -109,7 +132,13 @@ try {
     Push-Location "$clean/php"
     try {
         & './php.exe' -n -d extension_dir=ext -d extension=php_duckdb.dll "$source/packaging/windows/smoke.php" $PhpVersion $ThreadSafety $vs.vs $version $duckVersion
-        if ($LASTEXITCODE -ne 0) { throw "Extracted package smoke failed: $LASTEXITCODE" }
-    } finally { Pop-Location }
+        if ($LASTEXITCODE -ne 0) {
+            throw "Extracted package smoke failed: $LASTEXITCODE"
+        }
+    } finally {
+        Pop-Location
+    }
     Write-Host "Verified package: $zip"
-} finally { Pop-Location }
+} finally {
+    Pop-Location
+}

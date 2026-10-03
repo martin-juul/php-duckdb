@@ -4,21 +4,31 @@ Appender clear: explicit discard and recovery without replay or rollback
 <?php require_once __DIR__ . '/skipif.inc'; ?>
 --FILE--
 <?php
+
 $conn = (new DuckDB\Database())->connect();
 $conn->query('CREATE TABLE t(a INTEGER PRIMARY KEY, b INTEGER)');
 $app = $conn->appender('t');
+
 function require_rows(DuckDB\Connection $conn, array $rows): void {
     if ($conn->query('SELECT * FROM t ORDER BY a')->fetchAll() !== $rows) {
         throw new RuntimeException('Unexpected rows after clear');
     }
 }
+
 function failed(callable $f, string $class): void {
-    try { $f(); } catch (Throwable $e) {
-        if ($e instanceof $class) { return; }
+    try {
+        $f();
+    } catch (Throwable $e) {
+        if ($e instanceof $class) {
+            return;
+        }
+
         throw $e;
     }
+
     throw new RuntimeException('Expected failure');
 }
+
 $app->appendRow([1, 10]);
 $app->flush();
 $app->appendRow([2, 20]);
@@ -76,7 +86,9 @@ foreach ([false, true] as $explicitClose) {
     $discard->appendRow([20, 200]);
     $discard->beginRow();
     failed(fn() => $discard->append('bad'), DuckDB\Exception::class);
-    if ($explicitClose) { $discard->close(); }
+    if ($explicitClose) {
+        $discard->close();
+    }
     unset($discard);
     require_rows($conn, [['a' => 1, 'b' => 10], ['a' => 4, 'b' => 40], ['a' => 6, 'b' => 60], ['a' => 8, 'b' => 80]]);
 }

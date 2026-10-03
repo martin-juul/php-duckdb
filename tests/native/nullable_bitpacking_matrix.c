@@ -73,19 +73,20 @@ static int query(duckdb_connection connection, const char *sql) {
     return 1;
 }
 
-static int verify(duckdb_connection connection, const char *table,
-                  const char *expression, unsigned count) {
+static int verify(duckdb_connection connection, const char *table, const char *expression, unsigned count) {
     char sql[2048];
     snprintf(sql, sizeof(sql),
              "SELECT count(*) = %u AND count(*) FILTER "
              "(WHERE v IS DISTINCT FROM (%s)) = 0 FROM %s",
              count, expression, table);
+
     duckdb_result result;
     if (duckdb_query(connection, sql, &result) == DuckDBError) {
         fprintf(stderr, "Verification query failed: %s\n", duckdb_result_error(&result));
         duckdb_destroy_result(&result);
         return 0;
     }
+
     int ok = duckdb_value_boolean(&result, 0, 0);
     duckdb_destroy_result(&result);
     if (!ok) {
@@ -106,6 +107,7 @@ int main(int argc, char **argv) {
         fprintf(stderr, "Usage: %s NEW_DATABASE_PATH\n", argv[0]);
         return 2;
     }
+
     struct stat existing;
     if (stat(argv[1], &existing) == 0) {
         fputs("Database path must not exist\n", stderr);
@@ -122,8 +124,9 @@ int main(int argc, char **argv) {
     char *error = NULL;
     int status = 1;
     char sql[4096], expression[1024], table[64];
-    if (duckdb_create_config(&config) == DuckDBError
-        || duckdb_set_config(config, "threads", "1") == DuckDBError) {
+
+    if (duckdb_create_config(&config) == DuckDBError ||
+        duckdb_set_config(config, "threads", "1") == DuckDBError) {
         fputs("Cannot configure DuckDB\n", stderr);
         goto cleanup;
     }
@@ -142,9 +145,8 @@ int main(int argc, char **argv) {
         for (size_t count = 0; count < ARRAY_SIZE(counts); ++count) {
             snprintf(table, sizeof(table), "matrix_%zu_%zu", type, count);
             frame_expression(expression, sizeof(expression), &frames[type]);
-            snprintf(sql, sizeof(sql),
-                     "CREATE TABLE %s AS SELECT i, %s AS v FROM range(%u) t(i)",
-                     table, expression, counts[count]);
+            snprintf(sql, sizeof(sql), "CREATE TABLE %s AS SELECT i, %s AS v FROM range(%u) t(i)", table,
+                     expression, counts[count]);
             if (!query(connection, sql)) {
                 goto cleanup;
             }
@@ -188,6 +190,7 @@ int main(int argc, char **argv) {
             goto cleanup;
         }
     }
+
     puts("PASS 62 bitpacking cases: NULL/valid values survive checkpoint and reopen");
     status = 0;
 

@@ -1,4 +1,5 @@
 <?php
+
 /** Standalone harness regression: php tests/harness/diagnostics.php */
 declare(strict_types=1);
 
@@ -30,7 +31,13 @@ foreach ($scenarios as $scenario => [$names, $runnerExit, $expectedExit]) {
         file_put_contents($fixtureRoot . '/tests/' . $name . '.phpt', "--TEST--\n$name\n");
     }
     $output = "Number of tests : " . count($names) . "\n";
-    foreach (['passed' => 'pass', 'failed' => 'fail', 'leaked' => 'leak', 'warned' => 'warn', 'borked' => 'bork'] as $label => $name) {
+    foreach ([
+        'passed' => 'pass',
+        'failed' => 'fail',
+        'leaked' => 'leak',
+        'warned' => 'warn',
+        'borked' => 'bork'
+    ] as $label => $name) {
         $output .= "Tests $label : " . (int) in_array($name, $names, true) . "\n";
     }
     $output .= "Tests skipped : 0\n";
@@ -51,11 +58,26 @@ foreach ($scenarios as $scenario => [$names, $runnerExit, $expectedExit]) {
         file_put_contents($fixtureRoot . '/runner-output.txt', $raw);
         $report = $fixtureRoot . '/report.xml';
         @unlink($report);
-        $command = [PHP_BINARY, $fixtureRoot . '/tests/harness.php', '--valgrind', '--no-color',
-            '--extension=' . $fixtureRoot . '/duckdb.so', '--junit=' . $report];
-        $env = array_merge(getenv(), ['PHP_RUNTESTS' => $fixtureRoot . '/run-tests.php',
-            'TMPDIR' => $fixtureRoot, 'FIXTURE_EXIT' => (string) $runnerExit]);
-        $process = proc_open($command, [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, $fixtureRoot, $env);
+        $command = [
+            PHP_BINARY,
+            $fixtureRoot . '/tests/harness.php',
+            '--valgrind',
+            '--no-color',
+            '--extension=' . $fixtureRoot . '/duckdb.so',
+            '--junit=' . $report
+        ];
+        $env = array_merge(getenv(), [
+            'PHP_RUNTESTS' => $fixtureRoot . '/run-tests.php',
+            'TMPDIR' => $fixtureRoot,
+            'FIXTURE_EXIT' => (string) $runnerExit
+        ]);
+        $process = proc_open(
+            $command,
+            [1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
+            $pipes,
+            $fixtureRoot,
+            $env
+        );
         if (!is_resource($process)) {
             throw new RuntimeException('Cannot launch fixture harness');
         }

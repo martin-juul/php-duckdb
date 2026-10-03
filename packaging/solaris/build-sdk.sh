@@ -8,18 +8,60 @@ root=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
 : "${DUCKDB_DISABLE_UNITY:=OFF}"
 : "${CC:=gcc}"
 : "${CXX:=g++}"
-case "$DUCKDB_BUILD_JOBS" in ''|*[!0-9]*|0) echo 'Invalid job count' >&2; exit 2 ;; esac
-case "$DUCKDB_DISABLE_UNITY" in ON|OFF) ;; *) echo 'Invalid unity setting' >&2; exit 2 ;; esac
-[ "$(uname -s)" = SunOS ] || { echo 'Requires native Solaris' >&2; exit 2; }
+case "$DUCKDB_BUILD_JOBS" in
+    ''|*[!0-9]*|0)
+        echo 'Invalid job count' >&2
+        exit 2
+        ;;
+esac
+case "$DUCKDB_DISABLE_UNITY" in
+    ON|OFF)
+        ;;
+    *)
+        echo 'Invalid unity setting' >&2
+        exit 2
+        ;;
+esac
+[ "$(uname -s)" = SunOS ] || {
+    echo 'Requires native Solaris' >&2
+    exit 2
+}
 for tool in python3 curl gtar gpatch cmake gmake "$CC" "$CXX"; do
-    command -v "$tool" >/dev/null || { echo "Missing tool: $tool" >&2; exit 2; }
+    command -v "$tool" >/dev/null || {
+        echo "Missing tool: $tool" >&2
+        exit 2
+    }
 done
 # Refuse existing directories instead of removing arbitrary caller paths.
 mkdir "$DUCKDB_BUILD_DIR"
 work=$(CDPATH= cd -- "$DUCKDB_BUILD_DIR" && pwd)
 manifest=$root/packaging/duckdb/source.json
-pin() { python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))[sys.argv[2]])' "$manifest" "$1"; }
-hash() { python3 -c 'import hashlib,sys; h=hashlib.sha256(); f=open(sys.argv[1],"rb"); [h.update(b) for b in iter(lambda:f.read(1048576),b"")]; print(h.hexdigest())' "$1"; }
+pin() {
+    python3 - "$manifest" "$1" <<'PYTHON'
+import json
+import sys
+
+with open(sys.argv[1]) as source:
+    manifest = json.load(source)
+
+print(manifest[sys.argv[2]])
+PYTHON
+}
+
+hash() {
+    python3 - "$1" <<'PYTHON'
+import hashlib
+import sys
+
+checksum = hashlib.sha256()
+with open(sys.argv[1], "rb") as source:
+    for block in iter(lambda: source.read(1048576), b""):
+        checksum.update(block)
+
+print(checksum.hexdigest())
+PYTHON
+}
+
 version=$(pin version)
 commit=$(pin commit)
 patch_file=$root/packaging/duckdb/$(pin patch)
@@ -28,7 +70,10 @@ if [ -z "${DUCKDB_SOURCE_ARCHIVE:-}" ]; then
     curl -fLsS --retry 4 --retry-all-errors --retry-max-time 300 \
         --connect-timeout 20 --max-time 180 "$(pin url)" -o "$archive"
 fi
-[ "$(hash "$archive")" = "$(pin sha256)" ] || { echo 'Source SHA-256 mismatch' >&2; exit 1; }
+[ "$(hash "$archive")" = "$(pin sha256)" ] || {
+    echo 'Source SHA-256 mismatch' >&2
+    exit 1
+}
 mkdir "$work/source"
 gtar -xzf "$archive" -C "$work/source" --strip-components=1
 (cd "$work/source" && gpatch -p1 -F 0 -t < "$patch_file")
@@ -62,11 +107,19 @@ cp "$patch_file" "$metadata/nullable-bitpacking.patch"
     cmake --version
 } > "$metadata/build.txt"
 python3 - "$DUCKDB_SDK_PREFIX" <<'PY'
-import hashlib, json, pathlib, sys
+import hashlib
+import json
+import pathlib
+import sys
+
 prefix = pathlib.Path(sys.argv[1])
-names = ['include/duckdb.h', 'lib/libduckdb.so',
-         'share/duckdb-sdk/LICENSE.duckdb', 'share/duckdb-sdk/source.json',
-         'share/duckdb-sdk/nullable-bitpacking.patch']
+names = [
+    'include/duckdb.h',
+    'lib/libduckdb.so',
+    'share/duckdb-sdk/LICENSE.duckdb',
+    'share/duckdb-sdk/source.json',
+    'share/duckdb-sdk/nullable-bitpacking.patch',
+]
 pins = {name: hashlib.sha256((prefix / name).read_bytes()).hexdigest() for name in names}
 (prefix / 'share/duckdb-sdk/artifacts.json').write_text(json.dumps(pins, indent=2) + '\n')
 PY

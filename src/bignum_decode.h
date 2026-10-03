@@ -2,6 +2,7 @@
 #define PHP_DUCKDB_BIGNUM_DECODE_H
 
 #include "php_duckdb_cxx_compat.h"
+
 #include <duckdb.h>
 
 /* Decode a non-NULL BIGNUM cell as an exact decimal PHP string. The caller

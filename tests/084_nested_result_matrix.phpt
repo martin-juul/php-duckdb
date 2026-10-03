@@ -4,9 +4,11 @@ Nested result matrix: supported scalars, NULLs, mixed collections, chunk offsets
 <?php require_once __DIR__ . "/skipif.inc"; ?>
 --FILE--
 <?php
+
 use DuckDB\{Database, FetchMode, Interval, Result};
 
 $conn = (new Database())->connect();
+
 function normalizeNested(mixed $value): mixed {
     if ($value instanceof DateTimeImmutable) {
         return ['date' => $value->format('Y-m-d H:i:s.u e')];
@@ -14,14 +16,19 @@ function normalizeNested(mixed $value): mixed {
     if ($value instanceof Interval) {
         return ['interval' => [$value->getMonths(), $value->getDays(), $value->getMicros()]];
     }
-    if (is_array($value)) { return array_map(normalizeNested(...), $value); }
+    if (is_array($value)) {
+        return array_map(normalizeNested(...), $value);
+    }
+
     return $value;
 }
+
 function equalNested(mixed $actual, mixed $expected, string $label): void {
     if (normalizeNested($actual) !== normalizeNested($expected)) {
         throw new RuntimeException($label . ': ' . json_encode(normalizeNested($actual)));
     }
 }
+
 $cases = [
     ["BOOLEAN", "true", true],
     ["TINYINT", "-128", -128],
@@ -60,7 +67,7 @@ $cases = [
     ["TIMESTAMP", "'-infinity'", '-infinity'],
     ["INTERVAL", "'1 year 2 months 3 days 04:05:06.789'", new DuckDB\Interval(14, 3, 14706789000)],
     ["GEOMETRY", "'POINT (1 2)'", hex2bin('0101000000000000000000f03f0000000000000040')],
- ];
+];
 foreach (['buffered', 'prepared', 'streaming', 'async'] as $mode) {
     foreach ($cases as [$type, $expression, $value]) {
         $sql = "SELECT [v,NULL::$type] AS xs, [v,NULL]::$type" . "[2] AS fixed,
@@ -71,7 +78,9 @@ foreach (['buffered', 'prepared', 'streaming', 'async'] as $mode) {
             WHERE ?::BOOLEAN";
         $statement = $conn->prepare($sql);
         $metadata = [];
-        for ($column = 0; $column < 5; $column++) { $metadata[] = $statement->columnType($column); }
+        for ($column = 0; $column < 5; $column++) {
+            $metadata[] = $statement->columnType($column);
+        }
         $result = match ($mode) {
             'buffered' => $conn->query(str_replace('?::BOOLEAN', 'true', $sql)),
             'prepared' => $statement->execute([true]),
@@ -91,7 +100,9 @@ foreach (['buffered', 'prepared', 'streaming', 'async'] as $mode) {
         equalNested($result->fetchRow(), $expected($value), "$type/$mode first row");
         // fetchAll must resume after fetchRow rather than replay the first row.
         equalNested($result->fetchAll(), [$expected(null)], "$type/$mode NULL row");
-        if ($result->fetchRow() !== null) { throw new RuntimeException('Scalar matrix cursor did not end'); }
+        if ($result->fetchRow() !== null) {
+            throw new RuntimeException('Scalar matrix cursor did not end');
+        }
     }
     echo $mode, ': ', count($cases), " scalar types in all collection families\n";
 }
@@ -130,19 +141,25 @@ FROM nested_source LEFT JOIN nested_arrays ON i=array_id AND i%19<>0
 WHERE i >= ? AND i%7<>0 ORDER BY i
 SQL;
 $largeStatement = $conn->prepare($largeSql);
+
 function expectedLargeNested(int $i): array {
     $payload = $i % 11 === 0 ? null : [
         'id' => $i, 'price' => '12.34', 'bytes' => "a\0b", 'flags' => [true, false],
         'stamp' => new DateTimeImmutable('2024-01-01 12:00:00.123456 UTC'),
     ];
     $wholeNull = $i % 13 === 0;
-    $tag = $wholeNull ? null : match ($i % 4) { 0 => 'rec', 1 => 'id', default => 'text' };
+    $tag = $wholeNull ? null : match ($i % 4) {
+        0 => 'rec', 1 => 'id', default => 'text'
+    };
     $tagged = $wholeNull ? null : match ($i % 4) {
         0 => $payload, 1 => $i, 2 => "row$i", 3 => null,
     };
+
     return [
         'id' => $i,
-        'xs' => $i % 17 === 0 ? null : match ($i % 3) { 0 => [], 1 => [$payload], 2 => [null, $payload] },
+        'xs' => $i % 17 === 0 ? null : match ($i % 3) {
+            0 => [], 1 => [$payload], 2 => [null, $payload]
+        },
         'fixed' => $i % 19 === 0 ? null : [$payload, null],
         'record' => $i % 23 === 0 ? null : ['payload' => $payload, 'empty' => [], 'nil' => null],
         'numeric_keys' => $i % 29 === 0 ? null : ($i % 5 === 0 ? [] : ['01' => $i, 1 => null]),
@@ -153,6 +170,7 @@ function expectedLargeNested(int $i): array {
         'deep' => ['children' => [['value' => $payload, 'ids' => [$i, null]]]],
     ];
 }
+
 $ids = array_values(array_filter(range(0, 4999), static fn(int $i): bool => $i % 7 !== 0));
 foreach (['buffered', 'prepared', 'streaming', 'async'] as $mode) {
     foreach (['fetchRow', 'fetchAll', 'iterator'] as $reader) {
@@ -171,7 +189,9 @@ foreach (['buffered', 'prepared', 'streaming', 'async'] as $mode) {
         if ($reader === 'iterator') {
             // Iteration owns the forward-only cursor from its first row.
             foreach ($result as $key => $row) {
-                if ($key !== $index) { throw new RuntimeException('Iterator cursor key mismatch'); }
+                if ($key !== $index) {
+                    throw new RuntimeException('Iterator cursor key mismatch');
+                }
                 equalNested($row, expectedLargeNested($ids[$index++]), "$mode/$reader row");
             }
         } else {
