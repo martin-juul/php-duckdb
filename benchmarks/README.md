@@ -6,11 +6,11 @@ Run against the built extension:
 php -n -d extension=modules/duckdb.so benchmarks/typed_bindings.php 1000
 ```
 
-The script prepares `SELECT` statements, warms each case for 20 executions, then
-measures execution with parameter arrays. Wrappers and statements are created
-before timing. DuckDB uses one query thread. Results include ordinary query
-execution as well as binding and conversion; they are not isolated cast costs or
-a throughput prediction for larger queries.
+The script creates wrappers and prepares `SELECT` statements before timing.
+It warms each case for 20 executions, then measures execution with parameter
+arrays using one DuckDB query thread. The measurements include query execution,
+binding and conversion. They do not isolate cast costs or predict throughput
+for larger queries.
 
 Sample on Linux x86-64, PHP 8.5.11 NTS, DuckDB 1.5.6, 1,000 executions per case
 (2026-10-03):
@@ -26,29 +26,29 @@ conversion added approximately 0.36 ms for one scalar, 1.47 ms for eight
 scalars, and 2.51 ms for eight structs. Scalar typed cases exercise INTEGER and
 DECIMAL casts from strings; ordinary scalar cases use PHP integers.
 
-Typed inputs resolve metadata and perform DuckDB casts on each execution.
-Conversion is batched into one helper execution, and native converted values are
-never cached across executions. This preserves current catalog definitions and
-connection settings, at a measurable cost for small queries. Machine load,
-DuckDB configuration and input complexity affect these timings.
+Each execution resolves metadata and performs DuckDB casts for typed inputs.
+One helper execution converts the batch; native converted values are never
+cached across executions. Repeating the conversion preserves current catalog
+definitions and connection settings, but adds measurable cost to small queries.
+Machine load, DuckDB configuration and input complexity affect these timings.
 
 ## Parsing and batch metadata optimization
 
-Declaration parsing happens when a wrapper is constructed. It is separate from
-DuckDB's SQL preparation during execution. Run the connection-free construction
-benchmark to measure parsing, snapshotting, object allocation and destruction
-(including PHP closure overhead):
+Constructing a wrapper parses its declaration; DuckDB prepares SQL later,
+during execution. The connection-free construction benchmark measures parsing,
+snapshotting, object allocation and destruction, including PHP closure
+overhead:
 
 ```sh
 php -n -d extension=modules/duckdb.so benchmarks/typed_construction.php 100000
 ```
 
-The binding benchmark also includes mixed typed/ordinary inputs and eight
-individually distinct types. Its wrappers are constructed before timing.
-Repeated declarations now share resolved metadata within a single conversion.
-The cache holds at most 64 declarations, then falls back to uncached resolution;
-it is destroyed after each statement execution or Appender row. It never caches
-converted values or persists across executions or connections.
+The binding benchmark also covers mixed typed/ordinary inputs and eight
+individually distinct types, with wrappers constructed before timing. During
+a single conversion, repeated declarations share resolved metadata. The cache
+holds at most 64 declarations; further declarations use uncached resolution.
+The cache is destroyed after each statement execution or Appender row. It never
+caches converted values or persists across executions or connections.
 
 Comparison against commit `581bfb6`, on the same Linux/PHP/DuckDB configuration
 as above. Numbers are medians of three runs (1,000 executions or 100,000
@@ -83,3 +83,34 @@ INTERVAL keyword set, and avoid recomputing the type name for every field.
 Scalar construction remains sub-microsecond; its small timing changes should not
 be treated as a guaranteed speedup. The larger execution gain comes from
 avoiding repeated DuckDB metadata preparation for the same declaration.
+
+## Buffered result decoding
+
+```sh
+php -n -d extension=modules/duckdb.so benchmarks/result_decoding.php 5000
+```
+
+The row count defaults to 1,000 and is limited to 1–5,000. Each case uses one
+DuckDB thread, one full warmup and the median of three runs. Statements are
+prepared and each buffered result is executed before timing; the timed loop
+fetches numeric rows, checks every value and counts the returned bytes. These
+measurements include chunk fetching, decoding and PHP row handling. They do
+not isolate decoder costs. SQL casts and query execution are excluded, and
+streaming is not measured.
+
+Sample on Linux x86-64, PHP 8.5.11 NTS and DuckDB 1.5.6 SDK/runtime, using
+5,000 rows per run (2026-10-03):
+
+| Result value          | Median time per row | Rows per second |
+| --------------------- | ------------------: | --------------: |
+| VARCHAR, 39 bytes     |            0.161 µs |       6,230,126 |
+| BIGNUM, 39 digits     |            0.248 µs |       4,025,891 |
+| BIGNUM, 1,000 digits  |           12.862 µs |          77,751 |
+| VARIANT scalar string |            0.639 µs |       1,566,048 |
+| VARIANT nested JSON   |            1.847 µs |         541,333 |
+
+Each result repeats one non-null value. The VARIANT scalar returns seven JSON
+bytes per row; the nested object returns 79. Payload size, nesting, machine load
+and allocation behavior affect throughput. No before timings are reported:
+the previous BIGNUM and VARIANT decoding paths did not return these values
+correctly.

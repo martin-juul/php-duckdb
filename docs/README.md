@@ -5,8 +5,8 @@ PHP driver for [DuckDB](https://duckdb.org) built on the stable DuckDB C API.
 
 The page structure mirrors the
 [DuckDB C API documentation](https://duckdb.org/docs/current/clients/c/overview),
-so every page answers the question "how do I do `<C API thing>` from PHP?" —
-including the things that are deliberately _not_ exposed and why.
+so each page explains how to use `<C API thing>` from PHP. It also identifies
+capabilities that are deliberately _not_ exposed and explains why.
 
 ## Contents
 
@@ -28,7 +28,7 @@ including the things that are deliberately _not_ exposed and why.
 
 ## PHP-specific topics
 
-These have no C API counterpart page because they are idioms of this driver:
+These pages cover driver-specific idioms with no corresponding C API page:
 
 - [PHP application developer guide](php-developer-guide.md)
 - [Error handling & the exception hierarchy](errors.md)
@@ -38,3 +38,9 @@ These have no C API counterpart page because they are idioms of this driver:
 - [Upgrade, rollback, and future migration policy](migrations.md)
 - [Roadmap and Doctrine driver compatibility](roadmap.md)
 - [Typed input coverage matrix](typed-coverage.md)
+
+## Documentation checks
+
+Run `python3 .agents/skills/markdown-lint/scripts/lint.py` from the repository
+root. The [Markdown lint skill](../.agents/skills/markdown-lint/SKILL.md)
+documents the pinned tool, configuration and checks for newly created files.

@@ -1,18 +1,18 @@
 # FrankenPHP
 
-[FrankenPHP](https://frankenphp.dev) runs PHP inside a Go application server
-(Caddy), either in classic mode or in **worker mode**, where your script boots
-once per worker thread and then serves requests in a loop via
-`frankenphp_handle_request()`.
+With [FrankenPHP](https://frankenphp.dev), your PHP application runs inside
+the Go application server Caddy. Classic mode runs individual requests;
+**worker mode** boots your script once per worker thread, then serves requests
+in a loop through `frankenphp_handle_request()`.
 
-The extension is fully compatible with both modes. Its ZTS-safety is verified
-against FrankenPHP's embedded ZTS PHP in CI, including a worker-mode smoke test
-under concurrent load and a graceful-shutdown check.
+The extension supports both modes. CI verifies its ZTS-safety against
+FrankenPHP's embedded ZTS PHP, with a worker-mode smoke test under concurrent
+load and a graceful-shutdown check.
 
 ## Prebuilt images
 
-Multi-arch (`linux/amd64` + `linux/arm64`) FrankenPHP images with the extension
-preinstalled are published to the GitHub Container Registry, built from
+The GitHub Container Registry publishes FrankenPHP images with the extension
+preinstalled for `linux/amd64` and `linux/arm64`. They are built from
 [`Dockerfile.frankenphp`](../Dockerfile.frankenphp):
 
 ```bash
@@ -32,14 +32,14 @@ Choose a PHP version, extension release, or both:
 | `1.3.1-frankenphp`                             | Extension release 1.3.1 with PHP 8.5                             |
 | `1.3-frankenphp`, `1-frankenphp`               | Moving minor/major release aliases with PHP 8.5                  |
 
-PHP-only tags update on master pushes and stable release builds. Release tags
-are published from Git tags; minor/major aliases follow the most recently
+Master pushes and stable release builds update the PHP-only tags. Git tags
+produce the release tags, and minor/major aliases follow the most recently
 published matching release build. Prereleases publish only full-version tags,
-such as `1.4.0-rc.1-php8.4-frankenphp` and `1.4.0-rc.1-frankenphp`, without
-changing stable aliases. Pull requests do not publish images.
+such as `1.4.0-rc.1-php8.4-frankenphp` and `1.4.0-rc.1-frankenphp`; they do not
+change stable aliases. Pull requests do not publish images.
 
-Use one as the base for your app — worker mode is a single environment variable
-away:
+Use one of these images as your application base and enable worker mode with
+the environment variable shown below:
 
 ```dockerfile
 FROM ghcr.io/martin-juul/php-duckdb:8.5-frankenphp
@@ -49,43 +49,30 @@ ENV FRANKENPHP_CONFIG="worker ./public/index.php"
 
 ## Building: ZTS and version match
 
-If you build the extension yourself instead, mind the version match.
+When building the extension yourself, match FrankenPHP's embedded PHP build.
+FrankenPHP uses **ZTS** (thread-safe) PHP. A shared extension must be compiled
+against the **same PHP minor version** (e.g. 8.4.x) with **ZTS enabled**. A
+mismatch prevents loading ("unable to load dynamic library" / API-number
+mismatch).
 
-FrankenPHP embeds a **ZTS** (thread-safe) PHP build. A shared extension must be
-compiled against the **same PHP minor version** (e.g. 8.4.x) with **ZTS
-enabled**, otherwise it will refuse to load ("unable to load dynamic library" /
-API-number mismatch). FrankenPHP prints its embedded PHP version at startup
-(`FrankenPHP started 🐘 ... php_version: 8.5.10`); check which version a release
-embeds on the [releases page](https://github.com/php/frankenphp/releases).
+FrankenPHP prints its embedded PHP version at startup
+(`FrankenPHP started 🐘 ... php_version: 8.5.10`). Check the
+[releases page](https://github.com/php/frankenphp/releases) for the PHP version
+embedded in a release.
 
-The easiest route is the official builder image:
+Use the maintained [Dockerfile](../Dockerfile.frankenphp), which matches the
+builder and runtime PHP versions and builds the patched DuckDB engine:
 
-```dockerfile
-FROM dunglas/frankenphp:builder-php8.5 AS builder
-
-# libduckdb v1.5.x
-RUN curl -sL https://github.com/duckdb/duckdb/releases/download/v1.5.6/libduckdb-linux-amd64.zip -o /tmp/libduckdb.zip \
- && unzip -o /tmp/libduckdb.zip -d /opt/duckdb \
- && mkdir -p /opt/duckdb/include /opt/duckdb/lib \
- && mv /opt/duckdb/duckdb.h /opt/duckdb/include/ \
- && mv /opt/duckdb/libduckdb.so /opt/duckdb/lib/
-
-# the image's phpize/php-config are the ZTS build FrankenPHP uses
-COPY . /src
-RUN cd /src \
- && phpize \
- && ./configure --with-duckdb=/opt/duckdb \
- && make -j"$(nproc)"
-
-FROM dunglas/frankenphp:php8.5
-COPY --from=builder /src/modules/duckdb.so /usr/local/lib/php/extensions/duckdb.so
-COPY --from=builder /opt/duckdb/lib/libduckdb.so /usr/local/lib/
-RUN echo 'extension=duckdb.so' > /usr/local/etc/php/conf.d/duckdb.ini \
- && ldconfig
+```sh
+docker build -f Dockerfile.frankenphp --build-arg PHP_VERSION=8.5 \
+    -t php-duckdb-frankenphp .
 ```
 
-Building by hand instead: configure PHP with `--enable-zts`, then build the
-extension with that build's `phpize`/`php-config`.
+The [SDK builder](../packaging/duckdb/README.md) pins the engine source and
+patch. No DuckDB C++ client headers are included in the PHP extension build.
+
+For a manual build, configure PHP with `--enable-zts`, then use that build's
+`phpize`/`php-config` to build the extension.
 
 ## Worker mode
 
@@ -113,9 +100,9 @@ A runnable version ships as
 Things to know:
 
 - **Worker-scope objects persist across requests.** A `Database` created outside
-  the request handler lives for the worker thread's lifetime — a `:memory:`
-  database becomes a per-worker-thread in-memory cache. Each worker thread has
-  its own set; there is no cross-worker sharing.
+  the request handler lives for the worker thread's lifetime. A `:memory:`
+  database therefore acts as an in-memory cache for that worker thread. Each
+  worker thread has its own set of objects; there is no cross-worker sharing.
 - **One connection per worker is enough.** FrankenPHP serves one request per
   thread at a time, and the driver serializes DuckDB calls per connection
   internally.
@@ -124,9 +111,9 @@ Things to know:
   `PendingQuery::suspend()` additionally integrates with Swoole/AMPHP/ ReactPHP
   if the worker script runs an event loop — see [async.md](async.md).
 - **Abandoned async queries are safe.** If a request ends while an async query
-  is still running, the C++ task completes independently; at server shutdown the
-  driver interrupts and waits out any in-flight workers before PHP may unload
-  the extension — there is no dlclose race.
+  is running, the C++ task completes independently. At server shutdown, the
+  driver interrupts and waits for any in-flight workers before PHP may unload
+  the extension, avoiding a dlclose race.
 - **`max_requests` restarts are safe.** If you configure worker restarts,
-  request-scoped destructors run normally; the driver is Valgrind-clean across
-  create/destroy cycles.
+  request-scoped destructors run normally. The test suite exercises
+  create/destroy cycles; see [validation scope](compatibility.md).

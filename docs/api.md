@@ -1,8 +1,8 @@
 # API Reference
 
-Complete reference of every class, method, enum and function exported by the
-extension. The canonical source is [`duckdb.stub.php`](../duckdb.stub.php),
-which also serves as the IDE/static-analysis stub.
+This reference lists every class, method, enum and function exported by the
+extension. [`duckdb.stub.php`](../duckdb.stub.php) is the canonical source and
+also serves as the stub for IDEs and static analysis.
 
 Namespace: `DuckDB`.
 
@@ -10,20 +10,20 @@ Namespace: `DuckDB`.
 
 ### `DuckDB\version(): string`
 
-Version of the linked DuckDB library, e.g. `"v1.5.6"`. Also available as the
-global `duckdb_version()` for backwards compatibility.
+Returns the version of the linked DuckDB library, e.g. `"v1.5.6"`. The global
+`duckdb_version()` provides the same information for backwards compatibility.
 
 ## Enums
 
 ### `FetchMode`
 
-Row shape returned by `Result::fetchRow()` / `Result::fetchAll()`.
+Controls the row shape returned by `Result::fetchRow()` / `Result::fetchAll()`.
 
-| Case               | Shape                                                   |
+| Case | Shape |
 | ------------------ | ------------------------------------------------------- |
 | `FetchMode::Assoc` | `array<string, mixed>` — column name => value (default) |
-| `FetchMode::Num`   | `list<mixed>` — 0-based positional                      |
-| `FetchMode::Both`  | both of the above merged in one array                   |
+| `FetchMode::Num` | `list<mixed>` — 0-based positional |
+| `FetchMode::Both` | both of the above merged in one array |
 
 ### `ErrorType: int`
 
@@ -64,26 +64,26 @@ DuckDB\Exception (extends \Exception)
 
 ## `final class Interval implements \JsonSerializable`
 
-A DuckDB `INTERVAL` value: months, days and microseconds. Returned for
-`INTERVAL` columns and accepted by `Statement::bindValue()` and
-`Appender::appendRow()`.
+An interval stores months, days and microseconds as a DuckDB `INTERVAL` value.
+The driver returns it for `INTERVAL` columns and accepts it through
+`Statement::bindValue()` and `Appender::appendRow()`.
 
-| Method                                                         | Description                                             |
+| Method | Description |
 | -------------------------------------------------------------- | ------------------------------------------------------- |
-| `__construct(int $months = 0, int $days = 0, int $micros = 0)` |                                                         |
-| `getMonths(): int`                                             |                                                         |
-| `getDays(): int`                                               |                                                         |
-| `getMicros(): int`                                             |                                                         |
-| `__toString(): string`                                         | DuckDB-style rendering, e.g. `4 months 5 days 00:01:00` |
-| `jsonSerialize(): array`                                       | `array{months: int, days: int, micros: int}`            |
-| `static fromSeconds(float $seconds): Interval`                 | Create from (fractional) seconds                        |
+| `__construct(int $months = 0, int $days = 0, int $micros = 0)` | |
+| `getMonths(): int` | |
+| `getDays(): int` | |
+| `getMicros(): int` | |
+| `__toString(): string` | DuckDB-style rendering, e.g. `4 months 5 days 00:01:00` |
+| `jsonSerialize(): array` | `array{months: int, days: int, micros: int}` |
+| `static fromSeconds(float $seconds): Interval` | Create from (fractional) seconds |
 
 ## `class Value`
 
-| Method                                    | Behavior                                                                 |
+| Method | Behavior |
 | ----------------------------------------- | ------------------------------------------------------------------------ |
 | `__construct(string $type, mixed $value)` | Validate a SQL type declaration and snapshot input without a connection. |
-| `getType(): string`                       | Canonical declared type.                                                 |
+| `getType(): string` | Canonical declared type. |
 
 See [typed value input and conversion](value.md). Serialization is denied.
 
@@ -92,25 +92,25 @@ See [typed value input and conversion](value.md). Serialization is denied.
 The extension registers final subclasses directly under `DuckDB`. Each inherits
 final `getType(): string` and accepts a typed NULL. No autoloader is required.
 
-| Class                                                                  | Constructor                                                                                |
+| Class | Constructor |
 | ---------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
-| `Boolean`                                                              | `__construct(mixed $value)`                                                                |
-| `TinyInt`, `SmallInt`, `Integer`, `BigInt`, `HugeInt`                  | `__construct(mixed $value)`                                                                |
-| `UTinyInt`, `USmallInt`, `UInteger`, `UBigInt`, `UHugeInt`             | `__construct(mixed $value)`                                                                |
-| `BigNum`, `Float32`, `Double`                                          | `__construct(mixed $value)`                                                                |
-| `Varchar`, `Blob`, `Bit`, `Uuid`, `Json`                               | `__construct(mixed $value)`                                                                |
-| `Date`, `Time`, `TimeNs`, `TimeTz`                                     | `__construct(mixed $value)`                                                                |
-| `TimestampS`, `TimestampMs`, `Timestamp`, `TimestampNs`, `TimestampTz` | `__construct(mixed $value)`                                                                |
-| `IntervalValue`, `Variant`                                             | `__construct(mixed $value)`                                                                |
-| `Decimal`                                                              | `__construct(mixed $value, int $precision = 18, int $scale = 3)`                           |
-| `Enum`                                                                 | `__construct(mixed $value, array $labels)`                                                 |
-| `ListValue`                                                            | `__construct(mixed $value, string\|Value $elementType)`                                    |
-| `ArrayValue`                                                           | `__construct(mixed $value, string\|Value $elementType, int $length)`                       |
-| `Struct`                                                               | `__construct(mixed $value, array $fields)`                                                 |
-| `Map`                                                                  | `__construct(mixed $value, string\|Value $keyType, string\|Value $valueType)`              |
-| `Union`                                                                | `__construct(mixed $value, ?string $tag, array $members)`                                  |
-| `Geometry`                                                             | `__construct(mixed $value, ?string $crs = null)`                                           |
-| `CatalogValue`                                                         | `__construct(mixed $value, string $name, ?string $schema = null, ?string $catalog = null)` |
+| `Boolean` | `__construct(mixed $value)` |
+| `TinyInt`, `SmallInt`, `Integer`, `BigInt`, `HugeInt` | `__construct(mixed $value)` |
+| `UTinyInt`, `USmallInt`, `UInteger`, `UBigInt`, `UHugeInt` | `__construct(mixed $value)` |
+| `BigNum`, `Float32`, `Double` | `__construct(mixed $value)` |
+| `Varchar`, `Blob`, `Bit`, `Uuid`, `Json` | `__construct(mixed $value)` |
+| `Date`, `Time`, `TimeNs`, `TimeTz` | `__construct(mixed $value)` |
+| `TimestampS`, `TimestampMs`, `Timestamp`, `TimestampNs`, `TimestampTz` | `__construct(mixed $value)` |
+| `IntervalValue`, `Variant` | `__construct(mixed $value)` |
+| `Decimal` | `__construct(mixed $value, int $precision = 18, int $scale = 3)` |
+| `Enum` | `__construct(mixed $value, array $labels)` |
+| `ListValue` | `__construct(mixed $value, string\|Value $elementType)` |
+| `ArrayValue` | `__construct(mixed $value, string\|Value $elementType, int $length)` |
+| `Struct` | `__construct(mixed $value, array $fields)` |
+| `Map` | `__construct(mixed $value, string\|Value $keyType, string\|Value $valueType)` |
+| `Union` | `__construct(mixed $value, ?string $tag, array $members)` |
+| `Geometry` | `__construct(mixed $value, ?string $crs = null)` |
+| `CatalogValue` | `__construct(mixed $value, string $name, ?string $schema = null, ?string $catalog = null)` |
 
 Type specifications are SQL strings, scalar class names or typed `Value`
 instances. See [constructor examples and input shapes](value.md).
@@ -121,12 +121,15 @@ A DuckDB database instance.
 
 ### `__construct(string $path = ':memory:', array $config = [])`
 
-Opens the database. `$config` is `array<string, string|int|float|bool>` of
-DuckDB configuration options, e.g.
+Opens the database with the DuckDB configuration options in `$config`, an
+`array<string, string|int|float|bool>`. For example:
 `new Database('db.duckdb', ['access_mode' => 'read_only', 'threads' => 4])`.
 
-Throws `ConnectionException` when the database cannot be opened, `\ValueError`
-when a config value is not a scalar.
+Open failures throw the exception matching DuckDB's error category, such as
+`IOException` for file-lock conflicts. Unclassified open failures throw
+`ConnectionException`; unknown options throw `DuckDB\Exception` with
+`ErrorType::InvalidConfiguration`. A config value that is not a scalar throws
+`\ValueError`.
 
 ### `connect(): Connection`
 
@@ -138,64 +141,65 @@ Throws `ConnectionException`.
 
 Created via `Database::connect()`. Not constructible directly.
 
-| Method                                                                               | Description                                                                                                                                          |
+| Method | Description |
 | ------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `query(string $sql): Result`                                                         | Execute SQL, buffer the full result in memory                                                                                                        |
-| `queryStreaming(string $sql): Result`                                                | Execute SQL, produce rows chunk-by-chunk (constant memory). `rowCount()` is not meaningful                                                           |
-| `queryAsync(string $sql): PendingQuery`                                              | Run the query on a background worker thread                                                                                                          |
-| `queryPending(string $sql): PendingQuery`                                            | Single-threaded async: `isReady()`/`await()` execute the query in slices on the calling thread                                                       |
-| `execute(string $sql, array $params = []): Result`                                   | Prepare + bind + execute in one call. List keys bind positionally (`?`/`$1`), string keys bind named parameters (`$name`/`:name`)                    |
-| `prepare(string $sql): Statement`                                                    | Prepare a statement with positional or named parameters                                                                                              |
-| `appender(string $table, ?string $schema = null, ?string $catalog = null): Appender` | Bulk inserter. Throws `CatalogException` when the table does not exist                                                                               |
-| `interrupt(): void`                                                                  | Interrupt all running queries on this connection (they fail with `InterruptedException`)                                                             |
-| `getTableNames(string $sql): array`                                                  | `list<string>` of tables referenced by the query                                                                                                     |
-| `close(): void`                                                                      | Mark the connection closed (idempotent); further use throws `ConnectionException`                                                                    |
-| `isClosed(): bool`                                                                   | Whether `close()` has been called                                                                                                                    |
-| `queryProgress(): array`                                                             | `array{percentage: float, rowsProcessed: int, totalRowsToProcess: int}`; `percentage` is -1 when unavailable. Safe to call from another thread/fiber |
-| `beginTransaction(): void`                                                           | PDO-style transaction helpers. Throw `TransactionException` on invalid state                                                                         |
-| `commit(): void`                                                                     |                                                                                                                                                      |
-| `rollBack(): void`                                                                   |                                                                                                                                                      |
+| `query(string $sql): Result` | Execute SQL, buffer the full result in memory |
+| `queryStreaming(string $sql): Result` | Execute SQL, produce rows chunk-by-chunk (constant memory). `rowCount()` is not meaningful |
+| `queryAsync(string $sql): PendingQuery` | Run the query on a background worker thread |
+| `queryPending(string $sql): PendingQuery` | Single-threaded async: `isReady()`/`await()` execute the query in slices on the calling thread |
+| `execute(string $sql, array $params = []): Result` | Prepare + bind + execute in one call. List keys bind positionally (`?`/`$1`), string keys bind named parameters (`$name`/`:name`) |
+| `prepare(string $sql): Statement` | Prepare a statement with positional or named parameters |
+| `appender(string $table, ?string $schema = null, ?string $catalog = null): Appender` | Bulk inserter. Throws `CatalogException` when the table does not exist |
+| `interrupt(): void` | Interrupt all running queries on this connection (they fail with `InterruptedException`) |
+| `getTableNames(string $sql): array` | `list<string>` of tables referenced by the query |
+| `close(): void` | Mark the connection closed (idempotent); further use throws `ConnectionException` |
+| `isClosed(): bool` | Whether `close()` has been called |
+| `queryProgress(): array` | `array{percentage: float, rowsProcessed: int, totalRowsToProcess: int}`; `percentage` is -1 when unavailable. Safe to call from another thread/fiber |
+| `beginTransaction(): void` | PDO-style transaction helpers. Throw `TransactionException` on invalid state |
+| `commit(): void` | |
+| `rollBack(): void` | |
 
 ## `final class Statement`
 
-Created via `Connection::prepare()`. Re-executable with different parameters.
+Create a statement through `Connection::prepare()` and reuse it with different
+parameters.
 
-| Method                                                   | Description                                                                                                                                                                                                                                                                              |
+| Method | Description |
 | -------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `bindValue(int\|string $param, mixed $value): Statement` | Fluent bind. `$param` is a 1-based position or a name (with/without `$`/`:` prefix). PHP→DuckDB mapping: `null`→NULL, `bool`→BOOLEAN, `int`→BIGINT, `float`→DOUBLE, `string`→VARCHAR, `Interval`→INTERVAL, `DateTimeInterface`→TIMESTAMP (µs), `list`→LIST, `array<string,mixed>`→STRUCT |
-| `bindBlob(int\|string $param, string $data): Statement`  | Bind a binary string as BLOB                                                                                                                                                                                                                                                             |
-| `clearBindings(): void`                                  | Remove all bound values                                                                                                                                                                                                                                                                  |
-| `parameterCount(): int`                                  |                                                                                                                                                                                                                                                                                          |
-| `parameterName(int $param): string`                      | Name at 1-based position (e.g. `$name`, or `1` for `?`)                                                                                                                                                                                                                                  |
-| `parameterType(int\|string $param): string`              | DuckDB type of the parameter, if resolved                                                                                                                                                                                                                                                |
-| `statementType(): string`                                | e.g. `SELECT`, `INSERT`, `CREATE`                                                                                                                                                                                                                                                        |
-| `columnCount(): int`                                     | Result columns (0 when no result set)                                                                                                                                                                                                                                                    |
-| `columnName(int $index): string`                         | 0-based                                                                                                                                                                                                                                                                                  |
-| `columnType(int $index): string`                         | DuckDB type name of the 0-based column                                                                                                                                                                                                                                                   |
-| `execute(array $params = []): Result`                    | Execute, optionally binding `$params` first                                                                                                                                                                                                                                              |
-| `executeStreaming(array $params = []): Result`           | Execute with a streaming result                                                                                                                                                                                                                                                          |
-| `executeAsync(array $params = []): PendingQuery`         | Execute on a background worker thread                                                                                                                                                                                                                                                    |
+| `bindBlob(int\|string $param, string $data): Statement` | Bind a binary string as BLOB |
+| `clearBindings(): void` | Remove all bound values |
+| `parameterCount(): int` | |
+| `parameterName(int $param): string` | Name at 1-based position (e.g. `$name`, or `1` for `?`) |
+| `parameterType(int\|string $param): string` | DuckDB type of the parameter, if resolved |
+| `statementType(): string` | e.g. `SELECT`, `INSERT`, `CREATE` |
+| `columnCount(): int` | Result columns (0 when no result set) |
+| `columnName(int $index): string` | 0-based |
+| `columnType(int $index): string` | DuckDB type name of the 0-based column |
+| `execute(array $params = []): Result` | Execute, optionally binding `$params` first |
+| `executeStreaming(array $params = []): Result` | Execute with a streaming result |
+| `executeAsync(array $params = []): PendingQuery` | Execute on a background worker thread |
 
 `bindValue()` throws `\ValueError` for an invalid parameter index or unsupported
 value, and `DuckDB\Exception` subclasses for DuckDB-side errors.
 
 ## `final class Result implements \IteratorAggregate`
 
-The result of a query. Iterating consumes the result.
+A query result is consumed as you iterate over it.
 
-| Method                                                 | Description                                                     |
+| Method | Description |
 | ------------------------------------------------------ | --------------------------------------------------------------- |
-| `columnCount(): int`                                   |                                                                 |
-| `columnName(int $index): string`                       | 0-based; throws `\ValueError` out of range                      |
-| `columnType(int $index): string`                       | DuckDB type name; throws `\ValueError` out of range             |
-| `columns(): array`                                     | `list<array{name: string, type: string}>`                       |
-| `rowCount(): int`                                      | Total rows (not meaningful for streaming results)               |
-| `rowsChanged(): int`                                   | Rows changed by INSERT/UPDATE/DELETE (0 otherwise)              |
-| `statementType(): string`                              | e.g. `SELECT`, `INSERT`                                         |
-| `fetchRow(FetchMode $mode = FetchMode::Assoc): ?array` | Next row or `null` when exhausted                               |
-| `fetchAll(FetchMode $mode = FetchMode::Assoc): array`  | All remaining rows                                              |
-| `fetchColumn(int $column = 0): mixed`                  | Single column of the next row, `null` when exhausted            |
-| `getIterator(): \Iterator`                             | Forward-only `ResultIterator` (`foreach` fetches associatively) |
+| `columnCount(): int` | |
+| `columnName(int $index): string` | 0-based; throws `\ValueError` out of range |
+| `columnType(int $index): string` | DuckDB type name; throws `\ValueError` out of range |
+| `columns(): array` | `list<array{name: string, type: string}>` |
+| `rowCount(): int` | Total rows (not meaningful for streaming results) |
+| `rowsChanged(): int` | Rows changed by INSERT/UPDATE/DELETE (0 otherwise) |
+| `statementType(): string` | e.g. `SELECT`, `INSERT` |
+| `fetchRow(FetchMode $mode = FetchMode::Assoc): ?array` | Next row or `null` when exhausted |
+| `fetchAll(FetchMode $mode = FetchMode::Assoc): array` | All remaining rows |
+| `fetchColumn(int $column = 0): mixed` | Single column of the next row, `null` when exhausted |
+| `getIterator(): \Iterator` | Forward-only `ResultIterator` (`foreach` fetches associatively) |
 
 See [types.md](types.md) for the full DuckDB→PHP value mapping.
 
@@ -206,17 +210,18 @@ advanced. Standard `current() / key() / next() / rewind() / valid()`.
 
 ## `final class PendingQuery`
 
-Handle to an asynchronously running query (`queryAsync()`, `queryPending()`,
-`executeAsync()`). The result can be consumed exactly once.
+A pending query represents asynchronous execution started through
+`queryAsync()`, `queryPending()`, or `executeAsync()`. Its result can be consumed
+exactly once.
 
-| Method               | Description                                                                                                                                                 |
+| Method | Description |
 | -------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `isReady(): bool`    | Non-blocking completion check. For `queryPending()` handles this also executes one task slice on the calling thread                                         |
-| `await(): Result`    | Block until completion; throws on query failure                                                                                                             |
-| `suspend(): Result`  | Suspend the current fiber/coroutine until completion (Swoole 6+, True Async, AMPHP v3, react/async v4+, or generic fibers)                                  |
-| `cancel(): void`     | Cancel the query; it fails with `InterruptedException`                                                                                                      |
-| `getFd(): int`       | Caller-owned duplicate completion handle; Unix fd or Windows Winsock SOCKET; -1 if unavailable. See [ownership](async.md#event-loops-completion-descriptor) |
-| `getStream(): mixed` | Readable PHP stream that fires on completion (`stream_select()`-able). Can be taken only once                                                               |
+| `isReady(): bool` | Non-blocking completion check. For `queryPending()` handles this also executes one task slice on the calling thread |
+| `await(): Result` | Block until completion; throws on query failure |
+| `suspend(): Result` | Suspend the current fiber/coroutine until completion (Swoole 6+, True Async, AMPHP v3, react/async v4+, or generic fibers) |
+| `cancel(): void` | Cancel the query; it fails with `InterruptedException` |
+| `getFd(): int` | Caller-owned duplicate completion handle; Unix fd or Windows Winsock SOCKET; -1 if unavailable. See [ownership](async.md#event-loops-completion-descriptor) |
+| `getStream(): mixed` | Readable PHP stream that fires on completion (`stream_select()`-able). Can be taken only once |
 
 See [async.md](async.md).
 
@@ -224,15 +229,17 @@ See [async.md](async.md).
 
 Created via `Connection::appender()`. Fast row-by-row bulk inserts.
 
-| Method                           | Description                                                                                                                                                                                   |
+| Method | Description |
 | -------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `appendRow(array $values): void` | Append one complete row (`list<mixed>` in column order, same type mapping as `bindValue()`). All values are converted before the row starts, so a PHP-side failure leaves the appender usable |
-| `beginRow(): void`               | Begin a piecemeal row (throws `\Error` if a row is open)                                                                                                                                      |
-| `append(mixed $value): void`     | Append one value at the next column of the open row                                                                                                                                           |
-| `appendDefault(): void`          | Append the column default at the next position                                                                                                                                                |
-| `endRow(): void`                 | Finish the open row                                                                                                                                                                           |
-| `flush(): void`                  | Flush pending rows to the table                                                                                                                                                               |
-| `close(): void`                  | Flush and invalidate (idempotent; also runs on destruction)                                                                                                                                   |
+| `beginRow(): void` | Begin a piecemeal row (throws `\Error` if a row is open) |
+| `append(mixed $value): void` | Append one value at the next column of the open row |
+| `appendDefault(): void` | Append the column default at the next position |
+| `endRow(): void` | Finish the open row |
+| `flush(): void` | Flush pending rows to the table |
+| `clear(): void` | Discard buffered and partial rows and reset a failed state; already-flushed rows are unchanged |
+| `close(): void` | Close permanently (idempotent), flushing pending rows or discarding them if failed; destruction does the same on a best-effort basis |
 
-An appender that fails against DuckDB is invalidated and must be discarded. See
-[appender.md](appender.md).
+After a native submission or flush failure, call `clear()` to discard buffered
+data before reuse, or `close()` to discard the appender. `clear()` cannot undo
+already-flushed rows or reopen a closed appender. See [appender.md](appender.md).

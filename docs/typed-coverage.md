@@ -1,9 +1,9 @@
 # Typed input coverage
 
 The coverage target is every user-facing type family in DuckDB 1.5.6. The
-[matrix test](../tests/070_typed_value_matrix.phpt) verifies native SQL `typeof`
+[matrix test](../tests/070_typed_value_matrix.phpt) checks native SQL `typeof`
 and equality through `bindValue()`, execution parameter arrays, `appendRow()`
-and `append()`, plus typed NULL through all four paths.
+and `append()`. It also checks typed NULL through all four paths.
 
 | Family                  | Matrix cases                                                                     | Additional checks                                                                             |
 | ----------------------- | -------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
@@ -46,15 +46,40 @@ inputs, repeated declarations, catalog changes, connection isolation, and
 uncached fallback beyond the 64-entry operation limit, including recursive
 conversion and failure recovery.
 
+[Result regression tests](../tests/079_result_type_limitations.phpt) check
+exact UBIGINT overflow handling and BIGNUM/VARIANT decoding through buffered,
+streaming and nested results. [Appender failure tests](../tests/080_appender_failure_contract.phpt)
+distinguish helper conversion failures from native submission and flush errors.
+
+The [scalar result matrix](../tests/081_result_decode_matrix.phpt) checks PHP
+values across six execution paths and three fetch methods. Separate tests cover
+[temporal boundaries](../tests/082_temporal_decode_edges.phpt),
+[BIGNUM](../tests/083_bignum_decode.phpt),
+[nested results](../tests/084_nested_result_matrix.phpt),
+[Appender clear](../tests/085_appender_clear.phpt), and
+[VARIANT](../tests/086_variant_result_matrix.phpt). These checks decode PHP
+results rather than checking only SQL-side equality.
+
 The [adapter fixture](../examples/typed_adapter.php) verifies connection-free
-custom type conversion and the one-placeholder DuckDB LIST contract. The
-[benchmark](../benchmarks/typed_bindings.php) compares ordinary inputs with
-typed scalar and composite batches. Run it with the built extension loaded;
-conversion cost depends on DuckDB settings, platform and workload. See
+custom type conversion and the one-placeholder DuckDB LIST contract.
+
+Run the [benchmark](../benchmarks/typed_bindings.php) with the built extension
+loaded to compare ordinary inputs with typed scalar and composite batches.
+Conversion cost depends on DuckDB settings, platform and workload; see
 [measured conversion overhead](../benchmarks/README.md).
 
-Validation on PHP 8.5.11 NTS with DuckDB 1.5.6: phpize/configure/make and CMake
-builds pass; 75 PHPTs pass, with one skipped because the optional true-async
-runtime is unavailable. Swoole, AMPHP and ReactPHP tests pass. All 14 examples
-and both stress scripts pass. Focused Valgrind checks cover snapshots, native
-classes, conversion errors, Appender, async use and registry cleanup.
+Validation with PHP 8.5.11 NTS and DuckDB 1.5.6 passes the phpize build and
+81 PHPTs, with three optional-runtime tests skipped; AMPHP and ReactPHP tests
+pass separately with their dependencies installed. An isolated CMake build
+with PHP 8.5.11 and DuckDB 1.5.5 passes 80 PHPTs, with four optional-runtime
+tests skipped. The CI TrueAsync image with PHP 8.6 ZTS and DuckDB 1.5.6 passes
+81 PHPTs, with three optional-runtime tests skipped; a focused TrueAsync test
+also passes without skipping. PHP 8.4 with DuckDB 1.5.6 passes the build and
+81 PHPTs, with three optional-runtime tests skipped. Every environment passes
+all 14 examples and both stress scripts.
+
+The full PHP 8.4 harness with the patched SDK passes all 79 Memcheck tests,
+with no warnings or errors and five existing exclusions. See the
+[nullable integer persistence analysis](compatibility.md#memcheck-and-nullable-integer-persistence)
+for the engine patch and standalone regression. Distribution-provided engines
+need the corresponding backport.

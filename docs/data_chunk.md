@@ -1,6 +1,6 @@
 # Data Chunks
 
-PHP counterpart of the C API's data-chunk interface (`duckdb_data_chunk`,
+The driver uses the C API's data-chunk interface internally (`duckdb_data_chunk`,
 `duckdb_fetch_chunk()`, `duckdb_create_data_chunk()`, …).
 
 ## Data chunks are internal to the driver
@@ -9,15 +9,14 @@ A data chunk is DuckDB's unit of data flow: a batch of up to **2048 rows**
 (`duckdb_vector_size()`) in columnar layout. The C API exposes chunks so that
 extensions can produce/consume data in engine-native batches.
 
-In PHP there is no reason to handle columnar batches directly, so chunks are
-**not exposed**. The driver uses them in exactly one place you should know
-about:
+Chunks are **not exposed** to PHP. The driver handles columnar batches
+internally and uses them in exactly one place PHP callers need to know about:
 
 ## Streaming results
 
-`Connection::queryStreaming()` / `Statement::executeStreaming()` iterate chunk
-by chunk under the hood. Only one chunk is held in memory at a time, which is
-what gives streaming results their constant-memory guarantee:
+`Connection::queryStreaming()` / `Statement::executeStreaming()` fetch one
+chunk at a time. Keeping only that chunk in memory gives streaming results
+their constant-memory guarantee:
 
 ```php
 $result = $conn->queryStreaming('SELECT * FROM events');   // 500M rows? fine.
@@ -35,7 +34,7 @@ $rows = $conn->query('SELECT * FROM events')->fetchAll();  // whole result set i
 Practical guidance:
 
 | Situation | Use |
-|---|---|
+| --- | --- |
 | Result fits comfortably in memory | `query()` + `fetchAll()` |
 | Large/unbounded result, processed row-wise | `queryStreaming()` |
 | Large result needed as one array anyway | `query()`, but mind the memory limit |

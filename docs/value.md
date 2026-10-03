@@ -1,8 +1,8 @@
 # Typed values
 
-The extension provides native PHP classes directly under `DuckDB`. They need no
-Composer package or autoloader. Each value snapshots its input and carries its
-declared DuckDB type:
+Native PHP classes under `DuckDB` pair an input snapshot with a declared
+DuckDB type. The extension provides these classes directly, so they need no
+Composer package or autoloader:
 
 ```php
 use DuckDB\{Decimal, Integer, ListValue, Struct, Varchar};
@@ -38,8 +38,8 @@ Every scalar constructor takes one argument, `mixed $value`. Every class accepts
 | `IntervalValue`                                                        | INTERVAL; accepts temporal strings or `DuckDB\Interval`         |
 | `Variant`                                                              | VARIANT, preserving source types recursively                    |
 
-`DuckDB\Interval` remains the existing months/days/microseconds component and
-result object. `IntervalValue` supplies explicit typed input. Names such as
+`DuckDB\Interval` remains the object for months/days/microseconds components
+and query results; `IntervalValue` supplies explicit typed input. The names
 `Float32`, `Varchar`, `ListValue` and `ArrayValue` avoid PHP reserved class
 names.
 
@@ -97,8 +97,8 @@ Neither class installs extensions.
 
 ## Advanced declarations
 
-The extensible base class remains an escape hatch for SQL aliases and arbitrary
-extension-provided declarations:
+The extensible base class accepts SQL aliases and arbitrary declarations
+provided by extensions:
 
 ```php
 $value = new DuckDB\Value('DECIMAL(18,2)', '12.345');
@@ -108,25 +108,26 @@ $alias = new DuckDB\Value('INT4', 7);
 All native typed classes use the same snapshot and conversion machinery as the
 base wrapper. No separate userland conversion library is required.
 
-Construction validates a type declaration and snapshots the PHP input without
-connecting. References inside arrays are detached, and mutable DateTime inputs
-are snapshotted. Wrappers can nest inside collections and be reused across
-statements and connections. `getType()` returns the canonical declared type, not
-a connection's catalog expansion. Serialization is denied. There is no general
-value string renderer in this release.
+Construction validates the type declaration and snapshots the PHP input
+without opening a connection. The snapshot detaches references inside arrays
+and captures mutable DateTime inputs. Wrappers can nest inside collections
+and be reused across statements and connections. `getType()` returns the
+canonical declared type, not a connection's catalog expansion. Serialization
+is denied. This release has no general value string renderer.
 
 ## Conversion timing
 
-`bindValue()` checks the parameter name or position immediately and records the
-wrapper. On each execution, the original connection resolves catalog types and
-performs DuckDB casts. Changes to catalog definitions, timezone settings and
-transaction-local types are visible. Within one execution or Appender row, up to
-64 distinct declarations share their resolved metadata. Additional declarations
-resolve without caching. This cache is discarded after the operation; it does
-not accumulate on a long-running connection. No converted native value is
-cached. Typed parameters are converted together before user-query execution,
-including streaming and async execution. PHP inputs never reach query worker
-threads.
+`bindValue()` checks the parameter name or position immediately, then records
+the wrapper. On each execution, the original connection resolves catalog types
+and performs DuckDB casts, so changes to catalog definitions, timezone settings
+and transaction-local types are visible. Typed parameters are converted
+together before the user query runs, including streaming and async queries.
+PHP inputs never reach query worker threads.
+
+Resolved metadata is shared for up to 64 distinct declarations within one
+execution or Appender row. Additional declarations resolve without caching.
+The cache is discarded after the operation, so it does not accumulate on a
+long-running connection. No converted native value is cached.
 
 `append()` converts before submitting the affected value. `appendRow()` converts
 all values together before beginning the row. Conversion failure leaves the row
@@ -167,9 +168,11 @@ extension exception hierarchy.
 
 Every nested child can itself be a wrapper. Plain PHP bindings keep their
 existing inferred mapping; wrapping is optional. Result decoding also keeps its
-existing mapping: UNION results are unwrapped, VARIANT results render as JSON,
-and some MAP keys lose information in PHP associative arrays. Verify exact
-native types, UNION tags and composite MAP keys in SQL when needed.
+existing mapping: UNION results are unwrapped and some MAP keys lose
+information in PHP associative arrays. BIGNUM results are exact decimal
+strings and VARIANT results are JSON text;
+see [result mappings and limits](types.md).
+Verify exact native types, UNION tags and composite MAP keys in SQL when needed.
 
 See [typed examples](../examples/typed_values.php), [type mappings](types.md),
 and the [roadmap](roadmap.md).

@@ -76,11 +76,11 @@ DuckDB's [storage compatibility guidance](https://duckdb.org/docs/stable/interna
 
 ## Policy for future releases
 
-The following is the migration policy for future extension changes; it does
+This policy governs migration guidance for future extension changes. It does
 not certify untested engine/PHP combinations or promise a fixed support period.
 
 | Change | Release and migration approach |
-|---|---|
+| --- | --- |
 | Internal fix preserving documented PHP behavior | Patch release, with focused regression validation |
 | Additional PHP methods, types, or optional behavior | Minor release; document availability and examples, preserve existing defaults |
 | Incompatible PHP signatures, return shapes, defaults, or removals | Major release, with before/after migration instructions |
@@ -88,9 +88,9 @@ not certify untested engine/PHP combinations or promise a fixed support period.
 | PHP API deprecation | Document replacement and reason in a release before removal; announce the intended removal release |
 | New engine dependency | Update pins and compatibility evidence together; declare the required engine version explicitly |
 
-For each engine update, compare the tagged C headers, distinguishing newly
-added functionality from stabilization, aliases, and documentation changes.
-Check all used symbols, ownership rules, callback threading, error handling,
+For each engine update, compare the tagged C headers. Separate new
+functionality from stabilization, aliases, and documentation changes, then
+check all used symbols, ownership rules, callback threading, error handling,
 and result semantics. A C API rename need not become a PHP rename.
 
 Implement newly useful capabilities as explicit PHP interfaces with validated

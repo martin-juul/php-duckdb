@@ -1,6 +1,7 @@
 # Prepared Statements
 
-PHP counterpart of `duckdb_prepare()`, `duckdb_bind_*()` and
+Prepare a statement once, then execute it with different parameter values. The
+PHP interface wraps `duckdb_prepare()`, `duckdb_bind_*()` and
 `duckdb_execute_prepared()`.
 
 ## Preparing and executing
@@ -12,15 +13,15 @@ $stmt->execute([1, 'Alice']);   // bind + execute in one call
 $stmt->execute([2, 'Bob']);     // reuse with new values
 ```
 
-Or bind explicitly (fluent):
+To bind values explicitly, chain the binding calls before execution:
 
 ```php
 $stmt->bindValue(1, 3)->bindValue(2, 'Carol');
 $result = $stmt->execute();
 ```
 
-Prepared statements are the fastest way to run the same statement repeatedly,
-and the safe way to interpolate values — parameters are never
+Prepared statements reuse a prepared query across executions. They also pass
+values safely: parameters are bound separately and are never
 string-concatenated into SQL.
 
 ## Parameter styles
@@ -61,16 +62,17 @@ $stmt->bindValue(3, ['a' => 1, 'b' => 'x']);   // STRUCT(a BIGINT, b VARCHAR)
 $stmt->bindBlob(4, $binaryPayload);
 ```
 
-Native typed inputs make schemas explicit without writing SQL type grammar:
+Use native typed inputs to make the schema explicit without writing SQL type
+grammar:
 
 ```php
 $stmt->bindValue('amount', new DuckDB\Decimal('12.345', precision: 18, scale: 2));
 $stmt->bindValue('ids', new DuckDB\ListValue([], DuckDB\Integer::class));
 ```
 
-Invalid parameter indexes or unsupported values throw `\ValueError`; DuckDB-side
-binding failures throw the typed exceptions (usually `BinderException` /
-`ConversionException`).
+Invalid parameter indexes or unsupported values throw `\ValueError`. When
+DuckDB rejects a binding, the driver throws a typed exception, usually
+`BinderException` / `ConversionException`.
 
 ## Introspection
 

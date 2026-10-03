@@ -1,36 +1,38 @@
 # Types
 
-PHP counterpart of the C API's type system (`duckdb_logical_type`,
-`duckdb_decimal`, `duckdb_interval`, …). In PHP you never construct logical
-types by hand — values decode to native PHP types on the way out and encode from
-native PHP types on the way in.
+The driver converts between DuckDB values and native PHP types when reading
+results and binding inputs. It handles the C API's type system
+(`duckdb_logical_type`, `duckdb_decimal`, `duckdb_interval`, …) internally;
+you never construct logical types by hand in PHP.
 
 ## DuckDB → PHP (query results)
 
-| DuckDB type                                                                   | PHP value                                                                                                                |
+| DuckDB type | PHP value |
 | ----------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
-| BOOLEAN                                                                       | `bool`                                                                                                                   |
-| TINYINT / SMALLINT / INTEGER / UTINYINT / USMALLINT / UINTEGER                | `int`                                                                                                                    |
-| BIGINT / UBIGINT                                                              | `int`                                                                                                                    |
-| HUGEINT / UHUGEINT                                                            | `int` when it fits, otherwise `string` (exact decimal)                                                                   |
-| FLOAT / DOUBLE                                                                | `float`                                                                                                                  |
-| DECIMAL                                                                       | `string` — exact decimal, **no precision loss**                                                                          |
-| VARCHAR                                                                       | `string`                                                                                                                 |
-| ENUM                                                                          | `string` (the member label)                                                                                              |
-| BLOB                                                                          | `string` (binary)                                                                                                        |
-| BIT                                                                           | `string` (binary bitstring layout)                                                                                       |
-| GEOMETRY                                                                      | `string` (binary)                                                                                                        |
-| UUID                                                                          | `string` (canonical `xxxxxxxx-xxxx-…` form)                                                                              |
-| DATE                                                                          | `DateTimeImmutable` (midnight, UTC)                                                                                      |
-| `TIMESTAMP` / `TIMESTAMP_S` / `TIMESTAMP_MS` / `TIMESTAMP_NS` / `TIMESTAMPTZ` | `DateTimeImmutable` (UTC)                                                                                                |
-| TIME / TIMETZ / TIME_NS                                                       | `string`                                                                                                                 |
-| INTERVAL                                                                      | `DuckDB\Interval`                                                                                                        |
-| LIST / ARRAY                                                                  | `list<mixed>` (recursively decoded)                                                                                      |
-| STRUCT                                                                        | `array<string, mixed>` (recursively decoded)                                                                             |
-| MAP                                                                           | assoc `array` for scalar keys; a list of `['key' => k, 'value' => v]` pairs for non-scalar keys; a NULL key maps to `''` |
-| UNION                                                                         | the member value, unwrapped                                                                                              |
-| VARIANT                                                                       | `string` (JSON rendering)                                                                                                |
-| NULL                                                                          | `null`                                                                                                                   |
+| BOOLEAN | `bool` |
+| TINYINT / SMALLINT / INTEGER / UTINYINT / USMALLINT / UINTEGER | `int` |
+| BIGINT | `int` |
+| UBIGINT | `int` when it fits, otherwise `string` (exact decimal) |
+| HUGEINT / UHUGEINT | `int` when it fits, otherwise `string` (exact decimal) |
+| FLOAT / DOUBLE | `float` |
+| DECIMAL | `string` — exact decimal, **no precision loss** |
+| BIGNUM | `string` (exact decimal) |
+| VARCHAR | `string` |
+| ENUM | `string` (the member label) |
+| BLOB | `string` (binary) |
+| BIT | `string` (textual `0`/`1` bit sequence) |
+| GEOMETRY | `string` (binary) |
+| UUID | `string` (canonical `xxxxxxxx-xxxx-…` form) |
+| DATE | `DateTimeImmutable` (midnight, UTC) |
+| `TIMESTAMP` / `TIMESTAMP_S` / `TIMESTAMP_MS` / `TIMESTAMP_NS` / `TIMESTAMPTZ` | `DateTimeImmutable` (UTC) |
+| TIME / TIMETZ / TIME_NS | `string` |
+| INTERVAL | `DuckDB\Interval` |
+| LIST / ARRAY | `list<mixed>` (recursively decoded) |
+| STRUCT | `array<string, mixed>` (recursively decoded) |
+| MAP | assoc `array` for scalar keys; a list of `['key' => k, 'value' => v]` pairs for non-scalar keys; a NULL key maps to `''` |
+| UNION | the member value, unwrapped |
+| VARIANT | `string` (DuckDB JSON rendering) |
+| NULL | `null` |
 
 Precision and edge notes:
 
@@ -42,20 +44,28 @@ Precision and edge notes:
   (standard PHP array semantics).
 - Nested decoding is depth-capped at 512 levels; deeper structures throw instead
   of overflowing the stack.
+- BIGNUM and VARIANT decode from fetched chunks in buffered, streaming and
+  nested results. Their internal storage layouts are verified for DuckDB
+  1.5.5 and 1.5.6; other versions raise an explicit decoding error until audited.
+- VARIANT rendering is JSON text, with a nesting limit of 64. It preserves
+  numeric digits without passing through PHP floats, but JSON does not retain
+  DuckDB's source type tags. SQL NULL remains PHP `null`.
+- Nanosecond timestamps become microsecond `DateTimeImmutable` values using
+  DuckDB's truncation toward zero. Use SQL string casts to retain nanoseconds.
 
 ## PHP → DuckDB (binding / appending)
 
-| PHP value              | DuckDB type                                    |
+| PHP value | DuckDB type |
 | ---------------------- | ---------------------------------------------- |
-| `null`                 | NULL                                           |
-| `bool`                 | BOOLEAN                                        |
-| `int`                  | BIGINT                                         |
-| `float`                | DOUBLE                                         |
-| `string`               | VARCHAR (use `Statement::bindBlob()` for BLOB) |
-| `DuckDB\Interval`      | INTERVAL                                       |
-| `DateTimeInterface`    | TIMESTAMP (microsecond precision)              |
-| `list<mixed>`          | LIST                                           |
-| `array<string, mixed>` | STRUCT                                         |
+| `null` | NULL |
+| `bool` | BOOLEAN |
+| `int` | BIGINT |
+| `float` | DOUBLE |
+| `string` | VARCHAR (use `Statement::bindBlob()` for BLOB) |
+| `DuckDB\Interval` | INTERVAL |
+| `DateTimeInterface` | TIMESTAMP (microsecond precision) |
+| `list<mixed>` | LIST |
+| `array<string, mixed>` | STRUCT |
 
 For complete explicit input typing, including MAP, tagged UNION, VARIANT and
 geometry, use the [native typed classes](value.md), such as `DuckDB\Decimal`,
@@ -65,9 +75,9 @@ Plain inputs retain this mapping.
 
 ## `DuckDB\Interval`
 
-`INTERVAL` has no sane native PHP equivalent (`DateInterval` cannot represent
-months+days+microseconds faithfully), so the driver provides a small value
-object:
+`DateInterval` cannot faithfully represent the months+days+microseconds
+components of `INTERVAL`. The driver provides a value object for that
+representation:
 
 ```php
 use DuckDB\Interval;
@@ -92,7 +102,7 @@ $stmt->parameterType('name');    // 'VARCHAR'
 The C API's _logical type construction_ functions
 (`duckdb_create_logical_type()`, `duckdb_create_list_type()`,
 `duckdb_register_logical_type()`, …) exist for C extensions and UDF
-registration. Since PHP user-defined functions are not part of this driver (see
-[table_functions.md](table_functions.md)), logical type handles are not exposed
-either. Struct/list/union values are _described_ by the SQL type system and
-_consumed_ as native PHP arrays.
+registration. The driver does not expose logical type handles because it does
+not support PHP user-defined functions (see
+[table_functions.md](table_functions.md)). SQL types _describe_ struct/list/union
+values; PHP consumes them as native arrays.

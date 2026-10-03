@@ -1,11 +1,11 @@
 # Roadmap
 
 The extension provides binding primitives for a future Doctrine DBAL driver
-maintained in a separate repository. It has no Doctrine dependency. Native
+in a separate repository, without a Doctrine dependency of its own. Native
 classes such as `DuckDB\Decimal` and `DuckDB\ListValue` let custom DBAL types
-return a typed value without opening a connection. They extend `DuckDB\Value`,
-which remains an advanced declaration escape hatch. The consuming connection
-resolves catalog types and casts values.
+return typed values without opening a connection. These classes extend
+`DuckDB\Value`, which accepts advanced declarations. Catalog resolution and
+casting happen later, on the consuming connection.
 
 The intended PR sequence is:
 
@@ -22,8 +22,9 @@ The intended PR sequence is:
 11. UTF-8 checks.
 12. Additional geometry CRS APIs.
 
-Later APIs extend capabilities; complete type input support belongs in the first
-change. The internal native capture callback is not a public PHP UDF API.
+Complete type input support belongs in the first change; the later APIs add
+further capabilities. The internal native capture callback is not a public
+PHP UDF API.
 
 A DBAL adapter can pass wrappers to `Statement::bindValue()` and translate
 extension exceptions to its driver exceptions. DuckDB's 1-based positions and

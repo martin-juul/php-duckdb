@@ -1,12 +1,15 @@
 # Overview
 
-`duckdb` is a PHP extension (written in C++ against the Zend API) that embeds
-[DuckDB](https://duckdb.org) — an in-process analytical database — directly into
-PHP. There is no server, no socket and no daemon: the database engine runs
-inside the PHP process, linked through the stable DuckDB C API (`libduckdb`).
+`duckdb` embeds [DuckDB](https://duckdb.org), an in-process analytical database,
+in PHP. The extension is written in C++ against the Zend API and links to
+the engine through the stable DuckDB C API (`libduckdb`). The engine runs
+inside the PHP process, with no server, socket or daemon.
 
-- **Package**: [`martinjuul/duckdb`](https://packagist.org/packages/martinjuul/duckdb) (PIE), extension name `duckdb`
-- **Requirements**: PHP 8.2+; pinned builds target `libduckdb` v1.5.6 (see [compatibility](compatibility.md))
+- **Package**:
+  [`martinjuul/duckdb`](https://packagist.org/packages/martinjuul/duckdb) (PIE),
+  extension name `duckdb`
+- **Requirements**: PHP 8.2+; pinned builds target `libduckdb` v1.5.6 (see
+  [compatibility](compatibility.md))
 - **License**: MIT
 
 ## Installation
@@ -22,18 +25,19 @@ Install [PIE](https://php.github.io/pie/), a C++17 compiler, `make`,
 pie install martinjuul/duckdb --with-duckdb=/opt/duckdb
 ```
 
-On macOS, use `--with-duckdb=$(brew --prefix duckdb)`. PIE attempts to
-enable the extension automatically; follow its instructions if enabling
-fails. Windows PIE binaries are not provided yet.
+On macOS, use `--with-duckdb=$(brew --prefix duckdb)`. PIE attempts to enable
+the extension automatically. If that fails, follow its instructions to enable
+it. Windows PIE binaries are not provided yet.
 
 ### From source
+
+Install the [SDK builder prerequisites](../packaging/duckdb/README.md) first.
 
 ```bash
 git clone https://github.com/martin-juul/php-duckdb.git
 cd php-duckdb
-phpize
-./configure --with-duckdb=/path/to/duckdb   # dir containing include/duckdb.h and lib/libduckdb
-make -j$(nproc)
+sh packaging/duckdb/build-sdk.sh --prefix /path/to/duckdb --jobs 2
+php tests/harness.php doctor build --duckdb-dir=/path/to/duckdb
 sudo make install
 ```
 
@@ -44,7 +48,8 @@ your PHP configuration. On Windows, build using `config.w32` and the PHP SDK.
 
 The packaging workflow builds x64 ZIPs for PHP 8.2–8.5, in both TS and NTS
 variants. Choose the archive matching your PHP minor version, thread-safety
-mode, and compiler. Follow the [Windows installation guide](../packaging/windows/README.md)
+mode, and compiler. Follow the
+[Windows installation guide](../packaging/windows/README.md)
 for DLL placement, runtime prerequisites, and configuration. Availability is
 determined by the assets on the selected release; older tags are not backfilled.
 
@@ -75,16 +80,16 @@ foreach ($result as $row) {
 }
 ```
 
-See the [`examples/`](../examples) directory for runnable scripts covering sync,
+The [`examples/`](../examples) directory contains runnable scripts for sync,
 prepared, async, transaction, appender and error-handling workflows.
 
 ## How the C API maps to PHP
 
-The driver is a thin, object-oriented layer over the C API. If you know the C
-API, the PHP surface will feel familiar:
+The driver maps C API concepts to PHP objects and methods. The following table
+shows the counterparts in its thin, object-oriented interface:
 
 | C API concept | PHP counterpart |
-|---|---|
+| --- | --- |
 | `duckdb_database` + `duckdb_open_ext()` | `DuckDB\Database` (constructor) |
 | `duckdb_connection` + `duckdb_connect()` | `DuckDB\Connection` via `Database::connect()` |
 | `duckdb_query()` | `Connection::query()` / `Connection::execute()` |
@@ -113,12 +118,17 @@ API, the PHP surface will feel familiar:
 
 ## Stability
 
-The current pinned builds target DuckDB 1.5.6. The driver uses three C entry
+The current pinned builds target DuckDB 1.5.6. The driver uses two C entry
 points deprecated upstream: `duckdb_pending_prepared_streaming` for streaming
-prepared execution, `duckdb_row_count` for materialized row counts, and
-`duckdb_value_varchar` for fallback string rendering. These internal dependencies
-do not deprecate the corresponding PHP methods. Replacements must preserve
-existing behavior before they are adopted.
+prepared execution and `duckdb_row_count` for materialized row counts. These
+internal dependencies do not deprecate the corresponding PHP methods.
+Replacements must preserve supported behavior before they are adopted.
+
+BIGNUM and VARIANT results use chunk-based decoders adapted from DuckDB's
+implementation, without including or linking the C++ client. Their internal
+storage layouts are verified for 1.5.5 and 1.5.6; other runtime versions are
+rejected for these two result types until audited.
 
 See [compatibility](compatibility.md) for configured platform coverage and the
-1.5.6 API audit, and [migrations](migrations.md) for upgrade and rollback guidance.
+1.5.6 API audit, and [migrations](migrations.md) for upgrade and rollback
+guidance.
