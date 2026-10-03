@@ -28,6 +28,17 @@ dev-lang/php:8.4 cli ffi sockets
 dev-lang/php:8.4 ~amd64
 ```
 
+Until these changes are merged into the default branch, select the PR branch
+with a package-specific environment:
+
+```text
+# /etc/portage/package.env/php-duckdb
+dev-php/php-duckdb php-duckdb-live
+
+# /etc/portage/env/php-duckdb-live
+EGIT_BRANCH="feature/typed-value-classes"
+```
+
 ```sh
 emerge --ask dev-php/php-duckdb
 php -r 'printf("extension %s; engine %s\n", phpversion("duckdb"), DuckDB\version());'
