@@ -54,13 +54,16 @@ Comparison against commit `581bfb6`, on the same Linux/PHP/DuckDB configuration
 as above. Numbers are medians of three runs (1,000 executions or 100,000
 constructions per run), with no concurrent test workloads:
 
-| Execution case                         |     Before |  Optimized | Reduction |
-| -------------------------------------- | ---------: | ---------: | --------: |
-| One typed scalar                       |   477.3 µs |   475.5 µs |      0.4% |
-| Eight typed decimals, same declaration | 1,580.4 µs |   756.0 µs |     52.2% |
-| Eight mixed typed/ordinary values      | 1,154.8 µs |   912.1 µs |     21.0% |
-| Eight different typed declarations     | 1,362.4 µs | 1,405.7 µs |     -3.2% |
-| Eight typed structs, same declaration  | 2,732.1 µs | 1,830.5 µs |     33.0% |
+| Execution case                         |     Before |  Optimized | Change in execution time |
+| -------------------------------------- | ---------: | ---------: | -----------------------: |
+| One typed scalar                       |   477.3 µs |   475.5 µs |                0.4% less |
+| Eight typed decimals, same declaration | 1,580.4 µs |   756.0 µs |               52.2% less |
+| Eight mixed typed/ordinary values      | 1,154.8 µs |   912.1 µs |               21.0% less |
+| Eight different typed declarations     | 1,362.4 µs | 1,405.7 µs |       3.2% more (slower) |
+| Eight typed structs, same declaration  | 2,732.1 µs | 1,830.5 µs |               33.0% less |
+
+Eight different declarations took 43.3 µs longer after the change in this
+measurement; this case did not improve.
 
 Ordinary binding varied between -2.4% and +2.3% in these runs. Distinct-type
 batches receive no reuse benefit and pay a small cache lookup/insertion cost;

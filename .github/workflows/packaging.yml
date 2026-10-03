@@ -71,7 +71,10 @@ jobs:
             /etc/zypp/repos.d/*.repo
           zypper --non-interactive --gpg-auto-import-keys refresh
           for attempt in 1 2 3; do
-            if zypper --non-interactive install --no-recommends \
+            # The container image can be newer than the rolling repository.
+            # Allow the solver to align installed dependencies with available
+            # development packages (for example PCRE2 runtime and headers).
+            if zypper --non-interactive install --no-recommends --allow-downgrade \
               rpm-build php8 php8-devel gcc gcc-c++ make autoconf automake \
               chrpath unzip curl tar gzip gawk; then
               break
