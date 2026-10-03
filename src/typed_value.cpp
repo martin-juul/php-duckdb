@@ -22,6 +22,7 @@ extern "C" {
 #endif
 #include <atomic>
 #include <cctype>
+#include <cstddef>
 #include <set>
 #include <stdexcept>
 #include <unordered_map>
@@ -36,7 +37,7 @@ zend_class_entry *value_ce;
 zend_object_handlers value_handlers;
 value_object *obj(zend_object *o) {
   return reinterpret_cast<value_object *>(reinterpret_cast<char *>(o) -
-                                          XtOffsetOf(value_object, std));
+                                          offsetof(value_object, std));
 }
 std::string quote(const std::string &s, char q = '"') {
   std::string r(1, q);
@@ -406,7 +407,7 @@ void duckdb_register_value_class() {
   value_ce->create_object = create;
   memcpy(&value_handlers, zend_get_std_object_handlers(),
          sizeof(value_handlers));
-  value_handlers.offset = XtOffsetOf(value_object, std);
+  value_handlers.offset = offsetof(value_object, std);
   value_handlers.free_obj = free_value;
   value_handlers.get_gc = value_gc;
   value_handlers.clone_obj = nullptr;

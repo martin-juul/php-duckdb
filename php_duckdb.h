@@ -37,12 +37,8 @@ ZEND_TSRMLS_CACHE_EXTERN()
 #include "zend_interfaces.h"
 #include "duckdb.h"
 
-/* Shared compile-time SDK check for phpize, Windows and CMake builds. */
-#if !defined(DUCKDB_API_VERSION_AT_LEAST)
-#error "DuckDB 1.5.6 or newer headers are required"
-#elif !DUCKDB_API_VERSION_AT_LEAST(1, 5, 6)
-#error "DuckDB 1.5.6 or newer headers are required"
-#endif
+/* Check required APIs in the build scripts and their call sites. DuckDB 1.5.5
+ * provides these APIs but predates the DUCKDB_API_VERSION_* header macros. */
 
 #include <atomic>
 #include <condition_variable>

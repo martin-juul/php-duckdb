@@ -83,7 +83,8 @@ For application integration, see the
 - A C++17 compiler
 - The DuckDB C library (`libduckdb` + `duckdb.h`), e.g. from
   <https://duckdb.org/docs/installation/> — this driver is developed and tested
-  against **DuckDB v1.5.6**, the minimum required C API version
+  against **DuckDB v1.5.6**. Distribution builds also support **v1.5.5**;
+  headers and library must match and provide the required C APIs.
 
 ```text
 /opt/duckdb

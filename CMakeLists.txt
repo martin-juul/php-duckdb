@@ -115,7 +115,7 @@ int main() {
     return 0;
 }" DUCKDB_HAS_TYPED_VALUE_APIS)
 if (NOT DUCKDB_HAS_TYPED_VALUE_APIS)
-    message(FATAL_ERROR "DuckDB 1.5.6 expression folding and scalar bind APIs are required")
+    message(FATAL_ERROR "DuckDB expression folding and scalar bind APIs are required")
 endif()
 unset(CMAKE_REQUIRED_INCLUDES)
 unset(CMAKE_REQUIRED_LIBRARIES)

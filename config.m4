@@ -36,9 +36,9 @@ if test "$PHP_DUCKDB" != "no"; then
     [AC_MSG_ERROR([not found. Try --with-duckdb=DIR or check that libduckdb is in $DUCKDB_DIR/lib])],
     [-L$DUCKDB_DIR/lib])
 
-  dnl Typed values require the stable 1.5.6 expression/bind APIs.
+  dnl Check capabilities: distribution SDKs may predate API version macros.
   PHP_CHECK_LIBRARY([duckdb], [duckdb_expression_fold], [],
-    [AC_MSG_ERROR([DuckDB 1.5.6 or newer is required (duckdb_expression_fold missing)])],
+    [AC_MSG_ERROR([DuckDB expression folding is required (duckdb_expression_fold missing)])],
     [-L$DUCKDB_DIR/lib])
   PHP_CHECK_LIBRARY([duckdb], [duckdb_scalar_function_set_bind], [],
     [AC_MSG_ERROR([DuckDB scalar bind callbacks are required])],

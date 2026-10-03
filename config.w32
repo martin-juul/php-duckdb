@@ -6,8 +6,8 @@ if (PHP_DUCKDB != "no") {
     if (CHECK_HEADER_ADD_INCLUDE("duckdb.h", "CFLAGS_DUCKDB", PHP_DUCKDB + "\\include") &&
         CHECK_LIB("duckdb.lib", "duckdb", PHP_DUCKDB + "\\lib")) {
         EXTENSION("duckdb", "duckdb.cpp src\\typed_value.cpp src\\type_classes.cpp src\\values.cpp src\\result.cpp src\\statement.cpp src\\pending.cpp src\\suspend_swoole.cpp src\\suspend_true_async.cpp src\\suspend_amphp.cpp src\\suspend_reactphp.cpp src\\appender.cpp");
-        // php_duckdb.h checks the SDK API version; compiling typed_value.cpp
-        // and linking duckdb.lib check the required 1.5.6 bind/fold/CRS APIs.
+        // Compiling typed_value.cpp and linking duckdb.lib check the required
+        // bind/fold/CRS APIs, including SDKs without API version macros.
         // duckdb.h defaults to dllimport on Windows; do not define
         // DUCKDB_STATIC_BUILD or DUCKDB_BUILD_LIBRARY for the official DLL.
         ADD_FLAG("CFLAGS_DUCKDB", "/EHsc /std:c++17");
