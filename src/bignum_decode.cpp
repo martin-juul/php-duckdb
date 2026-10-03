@@ -102,7 +102,7 @@ bool duckdb_decode_bignum(duckdb_vector vec, idx_t row, zval *out) {
     try {
         /* Since 10^9 > 2^29, this bounds the number of decimal limbs for
          * payload*8 bits. Check arithmetic before allocating native storage. */
-        if (payload > (std::numeric_limits<size_t>::max() - 28) / 8) {
+        if (payload > ((std::numeric_limits<size_t>::max)() - 28) / 8) {
             return invalid_bignum("BIGNUM conversion size overflows");
         }
         const size_t maximum_limbs = (payload * 8 + 28) / 29;
