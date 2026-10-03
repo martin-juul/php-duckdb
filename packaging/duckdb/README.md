@@ -10,6 +10,10 @@ sh packaging/duckdb/build-sdk.sh \
 php tests/harness.php --duckdb-dir=/opt/duckdb
 ```
 
+See the [patch inventory](patches/README.md) for the defect, local origin,
+affected builds, regression evidence and removal criteria. There is currently
+one engine patch; it is part of the shipped SDK, including release builds.
+
 The builder needs Python 3, curl, tar, patch, CMake, make and C/C++ compilers.
 The source archive is pinned by SHA-256, and the patch applies without fuzz.
 Set `DUCKDB_SOURCE_ARCHIVE` to use an already downloaded archive; the same hash

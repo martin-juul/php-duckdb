@@ -92,6 +92,8 @@ Repository builds that vendor DuckDB use the
 [patched SDK builder](packaging/duckdb/README.md). Its engine patch fixes
 nullable bitpacking writes while retaining compression. External DuckDB
 packages need an equivalent backport; see [compatibility](docs/compatibility.md).
+The [patch inventory](packaging/duckdb/patches/README.md) records its purpose,
+origin, build scope and removal criteria.
 
 ```text
 /opt/duckdb
