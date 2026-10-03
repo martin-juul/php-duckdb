@@ -1,0 +1,9 @@
+set name=pkg.fmri value=pkg://$(PUBLISHER)/library/php-duckdb-$(PHP_MINOR)@$(VERSION)
+set name=pkg.summary value="DuckDB extension for PHP $(PHP_MINOR)"
+set name=pkg.description value="PHP C API bindings with the pinned, patched DuckDB engine."
+set name=variant.arch value=i386
+set name=info.classification value=org.opensolaris.category.2008:Development/PHP
+depend type=require fmri=$(PHP_FMRI)
+license $(PREFIX)/share/duckdb-sdk/LICENSE.duckdb license=MIT-DuckDB
+license $(PREFIX)/share/LICENSE.php-duckdb license=MIT-php-duckdb
+<transform dir path=opt$ -> drop>
