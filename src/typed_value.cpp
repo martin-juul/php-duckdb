@@ -40,7 +40,9 @@ value_object *obj(zend_object *o) {
                                           offsetof(value_object, std));
 }
 std::string quote(const std::string &s, char q = '"') {
-  std::string r(1, q);
+  std::string r;
+  r.reserve(s.size() + 2);
+  r += q;
   for (char c : s) {
     r += c;
     if (c == q)
@@ -88,14 +90,14 @@ struct parser {
         }
         if (!done)
           throw std::runtime_error("Unterminated quoted token");
-        ts.push_back({t, q});
+        ts.push_back({std::move(t), q});
       } else if (std::isalpha(c) || c == '_' || c >= 128) {
         size_t st = i++;
         while (i < n && (std::isalnum((unsigned char)s[i]) || s[i] == '_' ||
                          s[i] == '$' || (unsigned char)s[i] >= 128))
           i++;
         std::string t(s + st, i - st);
-        ts.push_back({t, 'i'});
+        ts.push_back({std::move(t), 'i'});
       } else if (std::isdigit(c)) {
         size_t st = i++;
         while (i < n && std::isdigit((unsigned char)s[i]))
@@ -111,7 +113,13 @@ struct parser {
   }
   bool at(char k) { return pos < ts.size() && ts[pos].kind == k; }
   bool word(const char *s) {
-    return pos < ts.size() && ts[pos].kind == 'i' && upper(ts[pos].text) == s;
+    if (!at('i'))
+      return false;
+    for (unsigned char c : ts[pos].text) {
+      if (!*s || std::toupper(c) != *s++)
+        return false;
+    }
+    return *s == '\0';
   }
   static std::string upper(std::string s) {
     for (char &c : s)
@@ -121,7 +129,7 @@ struct parser {
   std::string ident() {
     if (!at('i') && !at('"'))
       throw std::runtime_error("Expected type or field name");
-    auto t = ts[pos++];
+    const auto &t = ts[pos++];
     return t.kind == '"' ? quote(t.text) : t.text;
   }
   void need(char k) {
@@ -173,8 +181,8 @@ struct parser {
       name += " VARYING";
     }
     if (name == "INTERVAL") {
-      const std::set<std::string> units = {"YEAR", "MONTH",  "DAY",
-                                           "HOUR", "MINUTE", "SECOND"};
+      static const std::set<std::string> units = {
+          "YEAR", "MONTH", "DAY", "HOUR", "MINUTE", "SECOND"};
       if (pos < ts.size() && ts[pos].kind == 'i' &&
           units.count(upper(ts[pos].text))) {
         name += " " + upper(ts[pos++].text);
@@ -188,6 +196,7 @@ struct parser {
       }
     }
     if (at('(')) {
+      const std::string base = name;
       pos++;
       name += '(';
       bool first = true;
@@ -197,7 +206,6 @@ struct parser {
           name += ", ";
         }
         first = false;
-        std::string base = name.substr(0, name.find('('));
         if (base == "STRUCT" || base == "UNION") {
           name += ident();
           name += ' ';
@@ -647,6 +655,11 @@ bool initialize_registry(db_inner *database) {
 struct builder {
   conn_inner *conn;
   std::vector<scoped_duckdb_value> params;
+  /* Metadata belongs to this conversion only: repeated declarations share a
+   * resolution, but later executions observe catalog and setting changes.
+   * Large heterogeneous batches fall back to uncached resolution. */
+  static constexpr size_t max_cached_types = 64;
+  std::unordered_map<std::string, scoped_duckdb_logical_type> types;
   std::string parameter(duckdb_value value) {
     if (!value)
       throw std::runtime_error("PHP input conversion failed");
@@ -656,7 +669,11 @@ struct builder {
   std::string cast(const std::string &s, const std::string &t) {
     return "CAST(" + s + " AS " + t + ")";
   }
-  scoped_duckdb_logical_type resolve(const std::string &type) {
+  duckdb_logical_type resolve(const std::string &type,
+                             scoped_duckdb_logical_type &uncached) {
+    auto found = types.find(type);
+    if (found != types.end())
+      return found->second.get();
     scoped_duckdb_prepared p;
     if (duckdb_prepare(conn->conn,
                        ("SELECT CAST(NULL AS " + type + ")").c_str(),
@@ -664,8 +681,13 @@ struct builder {
       duckdb_throw_prepare_error(duckdb_prepare_error(p.get()));
       throw std::runtime_error("Type resolution failed");
     }
-    return scoped_duckdb_logical_type(
+    scoped_duckdb_logical_type metadata(
         duckdb_prepared_statement_column_logical_type(p.get(), 0));
+    if (types.size() >= max_cached_types) {
+      uncached = std::move(metadata);
+      return uncached.get();
+    }
+    return types.emplace(type, std::move(metadata)).first->second.get();
   }
   std::string inferred(zval *v, unsigned depth) {
     ZVAL_DEREF(v);
@@ -681,8 +703,9 @@ struct builder {
         throw std::runtime_error("uninitialized");
       }
       std::string t(ZSTR_VAL(w->type), ZSTR_LEN(w->type));
-      auto metadata = resolve(t);
-      return typed(&w->input, metadata.get(), t, depth + 1);
+      scoped_duckdb_logical_type uncached;
+      auto metadata = resolve(t, uncached);
+      return typed(&w->input, metadata, t, depth + 1);
     }
     if (Z_TYPE_P(v) == IS_ARRAY && duckdb_value_contains_typed(v)) {
       bool list = zend_array_is_list(Z_ARRVAL_P(v));
@@ -754,8 +777,9 @@ struct builder {
       auto source = inferred(v, depth + 1);
       if (duckdb_get_type_id(t) == DUCKDB_TYPE_GEOMETRY) {
         auto *w = obj(Z_OBJ_P(v));
-        auto st = resolve(std::string(ZSTR_VAL(w->type), ZSTR_LEN(w->type)));
-        source = duckdb_get_type_id(st.get()) == DUCKDB_TYPE_BLOB
+        scoped_duckdb_logical_type uncached;
+        auto st = resolve(std::string(ZSTR_VAL(w->type), ZSTR_LEN(w->type)), uncached);
+        source = duckdb_get_type_id(st) == DUCKDB_TYPE_BLOB
                      ? "ST_GeomFromWKB(" + source + ")"
                      : cast(source, "GEOMETRY");
       }
@@ -908,7 +932,7 @@ bool duckdb_convert_values(conn_inner *c, const std::vector<zval *> &inputs,
       std::lock_guard<std::mutex> lock(state->mutex);
       state->active.emplace(id, &op);
     }
-    builder b{c, {}};
+    builder b{c, {}, {}};
     std::string sql = "SELECT " + quote(state->name) + "(";
     for (size_t i = 0; i < inputs.size(); i++) {
       if (i)

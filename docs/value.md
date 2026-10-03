@@ -120,9 +120,13 @@ value string renderer in this release.
 `bindValue()` checks the parameter name or position immediately and records the
 wrapper. On each execution, the original connection resolves catalog types and
 performs DuckDB casts. Changes to catalog definitions, timezone settings and
-transaction-local types are visible. No converted native value is cached. Typed
-parameters are converted together before user-query execution, including
-streaming and async execution. PHP inputs never reach query worker threads.
+transaction-local types are visible. Within one execution or Appender row, up to
+64 distinct declarations share their resolved metadata. Additional declarations
+resolve without caching. This cache is discarded after the operation; it does
+not accumulate on a long-running connection. No converted native value is
+cached. Typed parameters are converted together before user-query execution,
+including streaming and async execution. PHP inputs never reach query worker
+threads.
 
 `append()` converts before submitting the affected value. `appendRow()` converts
 all values together before beginning the row. Conversion failure leaves the row

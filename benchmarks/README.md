@@ -31,3 +31,52 @@ Conversion is batched into one helper execution, and native converted values are
 never cached across executions. This preserves current catalog definitions and
 connection settings, at a measurable cost for small queries. Machine load,
 DuckDB configuration and input complexity affect these timings.
+
+## Parsing and batch metadata optimization
+
+Declaration parsing happens when a wrapper is constructed. It is separate from
+DuckDB's SQL preparation during execution. Run the connection-free construction
+benchmark to measure parsing, snapshotting, object allocation and destruction
+(including PHP closure overhead):
+
+```sh
+php -n -d extension=modules/duckdb.so benchmarks/typed_construction.php 100000
+```
+
+The binding benchmark also includes mixed typed/ordinary inputs and eight
+individually distinct types. Its wrappers are constructed before timing.
+Repeated declarations now share resolved metadata within a single conversion.
+The cache holds at most 64 declarations, then falls back to uncached resolution;
+it is destroyed after each statement execution or Appender row. It never caches
+converted values or persists across executions or connections.
+
+Comparison against commit `581bfb6`, on the same Linux/PHP/DuckDB configuration
+as above. Numbers are medians of three runs (1,000 executions or 100,000
+constructions per run), with no concurrent test workloads:
+
+| Execution case                         |     Before |  Optimized | Reduction |
+| -------------------------------------- | ---------: | ---------: | --------: |
+| One typed scalar                       |   477.3 µs |   475.5 µs |      0.4% |
+| Eight typed decimals, same declaration | 1,580.4 µs |   756.0 µs |     52.2% |
+| Eight mixed typed/ordinary values      | 1,154.8 µs |   912.1 µs |     21.0% |
+| Eight different typed declarations     | 1,362.4 µs | 1,405.7 µs |     -3.2% |
+| Eight typed structs, same declaration  | 2,732.1 µs | 1,830.5 µs |     33.0% |
+
+Ordinary binding varied between -2.4% and +2.3% in these runs. Distinct-type
+batches receive no reuse benefit and pay a small cache lookup/insertion cost;
+the measured change also includes run-to-run noise.
+
+| Construction case                             |   Before | Optimized |
+| --------------------------------------------- | -------: | --------: |
+| Generic INTEGER                               | 0.246 µs |  0.220 µs |
+| Native Integer                                | 0.227 µs |  0.245 µs |
+| Native Decimal                                | 0.538 µs |  0.512 µs |
+| INTERVAL declaration                          | 0.870 µs |  0.566 µs |
+| STRUCT declaration with 16 fields, null input | 3.886 µs |  3.547 µs |
+| Native Struct with 16 fields and values       | 6.522 µs |  6.212 µs |
+
+Parser changes avoid temporary uppercase strings and token copies, reuse the
+INTERVAL keyword set, and avoid recomputing the type name for every field.
+Scalar construction remains sub-microsecond; its small timing changes should not
+be treated as a guaranteed speedup. The larger execution gain comes from
+avoiding repeated DuckDB metadata preparation for the same declaration.

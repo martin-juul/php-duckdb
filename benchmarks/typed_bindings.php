@@ -13,6 +13,12 @@ $cases['ordinary composite batch (8)'] = array_fill(0, 8, ['id' => 42, 'tags' =>
 if (class_exists(Value::class)) {
     $cases['typed scalar'] = [new Integer('42')];
     $cases['typed scalar batch (8)'] = array_fill(0, 8, new Decimal('12.345', 18, 2));
+    $cases['mixed batch (8)'] = [new Integer('42'), new DuckDB\Varchar('hello'),
+        new Integer('7'), null, 3.5, new Decimal('12.345', 18, 2),
+        new Decimal('98.765', 18, 2), 'ordinary'];
+    $cases['distinct typed batch (8)'] = [new DuckDB\Boolean(true), new DuckDB\TinyInt('1'),
+        new DuckDB\SmallInt('2'), new Integer('3'), new DuckDB\BigInt('4'),
+        new DuckDB\Float32('5.5'), new DuckDB\Double('6.5'), new DuckDB\Varchar('hello')];
     $cases['typed composite batch (8)'] = array_fill(0, 8,
         new Struct(['id' => 42, 'tags' => ['a', 'b']], ['id' => Integer::class, 'tags' => 'VARCHAR[]']));
 }

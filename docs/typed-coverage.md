@@ -41,6 +41,11 @@ and `append()`, plus typed NULL through all four paths.
   or clearing custom typed values releases PHP objects outside the connection
   lock.
 
+[Batch metadata tests](../tests/078_typed_metadata_batch.phpt) check mixed
+inputs, repeated declarations, catalog changes, connection isolation, and
+uncached fallback beyond the 64-entry operation limit, including recursive
+conversion and failure recovery.
+
 The [adapter fixture](../examples/typed_adapter.php) verifies connection-free
 custom type conversion and the one-placeholder DuckDB LIST contract. The
 [benchmark](../benchmarks/typed_bindings.php) compares ordinary inputs with
@@ -49,7 +54,7 @@ conversion cost depends on DuckDB settings, platform and workload. See
 [measured conversion overhead](../benchmarks/README.md).
 
 Validation on PHP 8.5.11 NTS with DuckDB 1.5.6: phpize/configure/make and CMake
-builds pass; 74 PHPTs pass, with one skipped because the optional true-async
+builds pass; 75 PHPTs pass, with one skipped because the optional true-async
 runtime is unavailable. Swoole, AMPHP and ReactPHP tests pass. All 14 examples
 and both stress scripts pass. Focused Valgrind checks cover snapshots, native
 classes, conversion errors, Appender, async use and registry cleanup.

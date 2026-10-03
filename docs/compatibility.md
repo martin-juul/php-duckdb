@@ -21,7 +21,7 @@ for this checkout. See [CI](../.github/workflows/ci.yml),
 | 8.2 | Linux and macOS                         | amd64 and arm64 | Not run locally                                                                                                            |
 | 8.3 | Linux and macOS                         | amd64 and arm64 | Not run locally                                                                                                            |
 | 8.4 | Linux and macOS; PIE install smoke test | amd64 and arm64 | Not run locally                                                                                                            |
-| 8.5 | Linux and macOS                         | amd64 and arm64 | Linux x86_64, PHP 8.5.11: build, 74 tests passed; 1 optional-runtime test skipped; 14 examples and 2 stress scripts passed |
+| 8.5 | Linux and macOS                         | amd64 and arm64 | Linux x86_64, PHP 8.5.11: build, 75 tests passed; 1 optional-runtime test skipped; 14 examples and 2 stress scripts passed |
 
 | Packaging target     | PHP selection                | DuckDB source          | Architectures |
 | -------------------- | ---------------------------- | ---------------------- | ------------- |
