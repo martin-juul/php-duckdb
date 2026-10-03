@@ -18,7 +18,10 @@
 #include "php_duckdb_cxx_compat.h"
 #include "php_ini.h"
 #include "ext/standard/info.h"
+// php_json.h lacks C++ linkage guards for its exported class entry.
+extern "C" {
 #include "ext/json/php_json.h"
+}
 #include "zend_interfaces.h"
 #include "php_streams.h"
 #include "php_duckdb.h"
