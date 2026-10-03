@@ -172,6 +172,9 @@ Prereleases such as `1.4.0-rc.1` publish only their full release tags, with and
 without the PHP suffix, and leave stable aliases unchanged. Pull requests build
 images without publishing tags.
 
+CI builds and smoke-tests each architecture on a native runner. Publishing jobs
+combine the successful AMD64 and ARM64 builds into the multi-architecture tags.
+
 Images are based on `php:X.Y-cli-bookworm` and ship the matching libduckdb, so
 the extension loads with no extra setup. To build locally instead:
 
