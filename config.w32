@@ -9,6 +9,8 @@ if (PHP_DUCKDB != "no") {
         // duckdb.h defaults to dllimport on Windows; do not define
         // DUCKDB_STATIC_BUILD or DUCKDB_BUILD_LIBRARY for the official DLL.
         ADD_FLAG("CFLAGS_DUCKDB", "/EHsc /std:c++17");
+        // Sources under src/ also include extension headers from the root.
+        ADD_FLAG("CFLAGS_DUCKDB", '/I "' + configure_module_dirname + '"');
         // Pending-query notifications use Winsock socket/select primitives.
         ADD_FLAG("LIBS_DUCKDB", "ws2_32.lib");
     } else {
