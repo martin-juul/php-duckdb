@@ -146,8 +146,9 @@ foreach ($scenarios as $scenario => [$names, $runnerExit, $expectedExit]) {
             throw new RuntimeException("$scenario: saved output differs from runner output");
         }
         if ($hasRawLog) {
-            $saved = trim($match[1]);
-            $uploadFiles = glob($fixtureRoot . '/duckdb-*-run-tests-*') ?: [];
+            // tempnam() resolves symlinks such as macOS /var -> /private/var.
+            $saved = realpath(trim($match[1]));
+            $uploadFiles = array_map('realpath', glob($fixtureRoot . '/duckdb-*-run-tests-*') ?: []);
             if (!in_array($saved, $uploadFiles, true)) {
                 throw new RuntimeException("$scenario: raw output does not match CI upload pattern");
             }
