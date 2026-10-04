@@ -10,7 +10,7 @@
 ARG PHP_VERSION=8.4
 
 # Build the engine independently of the PHP version.
-FROM debian:bookworm-slim AS duckdb-sdk
+FROM debian:bookworm-slim AS duckdb-sdk-build
 
 ARG TARGETPLATFORM
 ARG DUCKDB_BUILD_JOBS
@@ -30,6 +30,12 @@ RUN set -eux; \
     esac; \
     sh /opt/duckdb-build-tools/duckdb/build-sdk.sh \
         --prefix /opt/duckdb --work-dir /tmp/duckdb-sdk-build --jobs "${DUCKDB_BUILD_JOBS:-}"
+
+
+# Export only the installed SDK, without the compiler or engine build tree.
+# CI also supplies this stage as a named context from the native SDK job.
+FROM scratch AS duckdb-sdk
+COPY --from=duckdb-sdk-build /opt/duckdb/ /opt/duckdb/
 
 
 # ==================================================================== #

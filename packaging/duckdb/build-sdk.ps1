@@ -3,6 +3,8 @@ param(
     [Parameter(Mandatory)][string]$WorkDirectory,
     [ValidateRange(1, 2147483647)][int]$Jobs = 0,
     [string]$SourceArchive = $env:DUCKDB_SOURCE_ARCHIVE,
+    [string]$CacheDirectory = $env:DUCKDB_SDK_CACHE_DIR,
+    [switch]$Fingerprint,
     [ValidateSet('ON', 'OFF')][string]$DisableUnity = $(if ($env:DUCKDB_DISABLE_UNITY) { $env:DUCKDB_DISABLE_UNITY } else { 'OFF' })
 )
 
@@ -132,28 +134,97 @@ $buildMetadata = Join-Path $sdkMetadata 'build.txt'
 $artifactNames = @('include/duckdb.h', 'lib/duckdb.lib', 'bin/duckdb.dll',
     'share/duckdb-sdk/LICENSE.duckdb', 'share/duckdb-sdk/source.json',
     'share/duckdb-sdk/nullable-bitpacking.patch')
-if ((Test-Path -LiteralPath $buildMetadata -PathType Leaf) `
-    -and (Get-Content -LiteralPath $buildMetadata -Raw).TrimEnd() -eq $metadata.TrimEnd()) {
-    $verified = $false
+
+function Test-DuckDBSdk {
+    param([string]$Directory)
+
+    $metadataPath = Join-Path $Directory 'share/duckdb-sdk/build.txt'
     try {
-        $pins = Get-Content (Join-Path $sdkMetadata 'artifacts.json') -Raw | ConvertFrom-Json
+        if (!(Test-Path -LiteralPath $metadataPath -PathType Leaf) `
+            -or (Get-Content -LiteralPath $metadataPath -Raw).TrimEnd() -ne $metadata.TrimEnd()) {
+            return $false
+        }
+        $pins = Get-Content (Join-Path $Directory 'share/duckdb-sdk/artifacts.json') -Raw | ConvertFrom-Json
         $names = @($pins.PSObject.Properties.Name)
-        $verified = $names.Count -eq $artifactNames.Count
+        if ($names.Count -ne $artifactNames.Count) {
+            return $false
+        }
         foreach ($name in $artifactNames) {
-            $path = Join-Path $Prefix $name
+            $path = Join-Path $Directory $name
             if ($name -notin $names -or !(Test-Path -LiteralPath $path -PathType Leaf) `
                 -or (Get-FileHash $path -Algorithm SHA256).Hash.ToLowerInvariant() -ne $pins.$name) {
-                $verified = $false
-                break
+                return $false
             }
         }
+        return $true
     } catch {
-        $verified = $false
+        return $false
     }
-    if ($verified) {
-        Write-Host "Reusing verified patched DuckDB SDK at $Prefix"
+}
+
+function Copy-DuckDBSdk {
+    param([string]$Source, [string]$Destination)
+
+    foreach ($name in $artifactNames + @('share/duckdb-sdk/build.txt', 'share/duckdb-sdk/artifacts.json')) {
+        $target = Join-Path $Destination $name
+        New-Item -ItemType Directory -Force (Split-Path -Parent $target) | Out-Null
+        Copy-Item -LiteralPath (Join-Path $Source $name) -Destination $target -Force
+    }
+}
+
+$sha256 = [Security.Cryptography.SHA256]::Create()
+try {
+    $buildFingerprint = [BitConverter]::ToString($sha256.ComputeHash(
+        [Text.Encoding]::UTF8.GetBytes($metadata.TrimEnd()))).Replace('-', '').ToLowerInvariant()
+} finally {
+    $sha256.Dispose()
+}
+if ($Fingerprint) {
+    Write-Output $buildFingerprint
+    return
+}
+
+$cacheEntry = $null
+if (![string]::IsNullOrEmpty($CacheDirectory)) {
+    $CacheDirectory = [IO.Path]::GetFullPath($CacheDirectory)
+    $cacheEntry = Join-Path $CacheDirectory $buildFingerprint
+}
+
+function Save-DuckDBSdk {
+    if (!$cacheEntry -or (Test-DuckDBSdk $cacheEntry)) {
         return
     }
+    New-Item -ItemType Directory -Force $CacheDirectory | Out-Null
+    $temporary = Join-Path $CacheDirectory ('.' + [guid]::NewGuid().ToString() + '.tmp')
+    try {
+        Copy-DuckDBSdk $Prefix $temporary
+        if (!(Test-DuckDBSdk $temporary)) {
+            throw 'Completed DuckDB SDK failed cache verification'
+        }
+        if (Test-Path -LiteralPath $cacheEntry) {
+            Remove-Item -LiteralPath $cacheEntry -Recurse -Force
+        }
+        Move-Item -LiteralPath $temporary -Destination $cacheEntry
+    } finally {
+        if (Test-Path -LiteralPath $temporary) {
+            Remove-Item -LiteralPath $temporary -Recurse -Force
+        }
+    }
+    Write-Host "Cached verified DuckDB SDK at $cacheEntry"
+}
+
+if (Test-DuckDBSdk $Prefix) {
+    Save-DuckDBSdk
+    Write-Host "Reusing verified patched DuckDB SDK at $Prefix"
+    return
+}
+if ($cacheEntry -and (Test-DuckDBSdk $cacheEntry)) {
+    Copy-DuckDBSdk $cacheEntry $Prefix
+    if (!(Test-DuckDBSdk $Prefix)) {
+        throw 'Restored DuckDB SDK failed verification'
+    }
+    Write-Host "Reusing verified cached DuckDB SDK at $Prefix"
+    return
 }
 
 if ([string]::IsNullOrEmpty($SourceArchive)) {
@@ -234,4 +305,5 @@ foreach ($name in $artifactNames) {
 }
 
 $hashes | ConvertTo-Json | Set-Content (Join-Path $sdkMetadata 'artifacts.json') -Encoding utf8
+Save-DuckDBSdk
 Write-Host "Installed patched DuckDB $($manifest.version) C API SDK at $Prefix"

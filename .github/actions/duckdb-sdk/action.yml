@@ -8,7 +8,11 @@ runs:
       run: |
         set -euo pipefail
         if [[ "$RUNNER_OS" == Linux ]]; then
-          if [[ "$(id -u)" == 0 ]]; then privilege=(); else privilege=(sudo); fi
+          if [[ "$(id -u)" == 0 ]]; then
+            privilege=()
+          else
+            privilege=(sudo)
+          fi
           "${privilege[@]}" apt-get update
           "${privilege[@]}" apt-get install -y build-essential cmake python3 curl patch ca-certificates
         else
@@ -22,29 +26,40 @@ runs:
           mkdir -p /opt/duckdb
         fi
 
-    - name: Identify build environment
-      id: abi
+    - name: Test SDK cache metadata and artifact validation
+      shell: bash
+      run: python3 packaging/duckdb/tests/test_sdk_cache.py
+
+    - name: Compute SDK build fingerprint
+      id: fingerprint
       shell: bash
       run: |
-        python3 - <<'PY'
-        import hashlib, os, pathlib, platform, subprocess
-        compiler = subprocess.check_output(['c++', '--version'])
-        release = pathlib.Path('/etc/os-release')
-        identity = compiler + platform.platform().encode()
-        if release.exists():
-            identity += release.read_bytes()
-        with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
-            output.write('key=' + hashlib.sha256(identity).hexdigest() + '\n')
-        PY
+        set -euo pipefail
+        fingerprint=$(bash packaging/duckdb/build-sdk.sh --fingerprint)
+        if [[ ! "$fingerprint" =~ ^[a-f0-9]{64}$ ]]; then
+          echo "Invalid DuckDB SDK build fingerprint" >&2
+          exit 1
+        fi
+
+        echo "key=duckdb-patched-v2-${RUNNER_OS}-${RUNNER_ARCH}-$fingerprint" >> "$GITHUB_OUTPUT"
 
     - name: Restore SDK cache
-      uses: actions/cache@v4
+      id: cache
+      uses: actions/cache/restore@v4
       with:
         path: /opt/duckdb
-        key: duckdb-patched-${{ runner.os }}-${{ runner.arch }}-${{ steps.abi.outputs.key }}-${{ hashFiles('packaging/duckdb/source.json', 'packaging/duckdb/build-sdk.sh', 'packaging/duckdb/patches/**', 'packaging/resources/jobs.py') }}
+        key: ${{ steps.fingerprint.outputs.key }}
 
     - name: Build or verify SDK
       shell: bash
       run: |
         bash packaging/duckdb/build-sdk.sh \
           --prefix /opt/duckdb --work-dir "${RUNNER_TEMP}/duckdb-sdk-build"
+
+    # Persist the verified SDK before later extension builds or tests can fail.
+    - name: Save SDK cache
+      if: steps.cache.outputs.cache-hit != 'true'
+      uses: actions/cache/save@v4
+      with:
+        path: /opt/duckdb
+        key: ${{ steps.fingerprint.outputs.key }}

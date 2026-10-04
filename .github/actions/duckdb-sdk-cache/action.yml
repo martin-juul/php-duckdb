@@ -1,0 +1,38 @@
+name: Packaging DuckDB SDK cache
+description: Restore verified engine artifacts independently of package build trees
+inputs:
+  target:
+    description: Packaging recipe (opensuse, fedora, almalinux, debian-trixie, ubuntu, macos or windows)
+    required: true
+outputs:
+  key:
+    value: ${{ steps.identity.outputs.key }}
+    description: Exact cache key for the packaging environment
+  path:
+    value: ${{ steps.identity.outputs.path }}
+    description: External SDK cache directory
+  cache-hit:
+    value: ${{ steps.restore.outputs.cache-hit }}
+    description: Whether the exact cache key was restored
+runs:
+  using: composite
+  steps:
+    - name: Identify packaging SDK cache
+      id: identity
+      shell: bash
+      env:
+        SDK_CACHE_TARGET: ${{ inputs.target }}
+        SDK_CACHE_PATH: ${{ runner.temp }}/duckdb-sdk-cache
+      run: |
+        if [[ "$RUNNER_OS" == Windows ]]; then
+          python .github/scripts/sdk-cache-key.py
+        else
+          python3 .github/scripts/sdk-cache-key.py
+        fi
+
+    - name: Restore packaging SDK cache
+      id: restore
+      uses: actions/cache/restore@v4
+      with:
+        path: ${{ steps.identity.outputs.path }}
+        key: ${{ steps.identity.outputs.key }}
