@@ -23,7 +23,7 @@ $appender->appendRow([
 
 Every scalar constructor takes one argument, `mixed $value`. Every class accepts
 `null` and retains its declared SQL type. These classes are final and extend
-`DuckDB\Value`; `getType()` is final and inherited.
+`DuckDB\Value`; `getType()` and `toString()` are final and inherited.
 
 | Classes                                                                | SQL targets                                                     |
 | ---------------------------------------------------------------------- | --------------------------------------------------------------- |
@@ -113,7 +113,36 @@ without opening a connection. The snapshot detaches references inside arrays
 and captures mutable DateTime inputs. Wrappers can nest inside collections
 and be reused across statements and connections. `getType()` returns the
 canonical declared type, not a connection's catalog expansion. Serialization
-is denied. This release has no general value string renderer.
+is denied.
+
+## Display text
+
+`toString(Connection $connection): string` converts the snapshot to its declared
+type and asks DuckDB to cast that value to `VARCHAR`. It uses the supplied
+connection's catalog and settings, including its timezone:
+
+```php
+$amount = new DuckDB\Decimal('12.345', precision: 18, scale: 2);
+echo $amount->toString($conn); // 12.35
+echo (new DuckDB\ListValue([], DuckDB\Integer::class))->toString($conn); // []
+echo (new DuckDB\Integer(null))->toString($conn); // NULL
+```
+
+This is display text for logs and debugging, not an SQL literal or a
+serialization format. Strings retain embedded NUL bytes, quotes and other
+characters. SQL NULL displays as `NULL`; that text alone cannot distinguish
+NULL from a VARCHAR containing `NULL`. Composite formatting follows DuckDB.
+Continue using bound parameters when sending values to queries.
+
+Rendering resolves types and performs casts on each call. The wrapper remains
+immutable and reusable across connections; no rendered result or connection is
+stored in it. A closed connection raises `ConnectionException`, and invalid
+inputs raise the same conversion errors as binding.
+
+The conversion executes helper queries, so rendering can invalidate an active
+stream on the same connection, even if conversion fails. Buffered results and
+streams on other connections remain readable. There is no implicit `__toString()`:
+rendering needs an explicit connection for catalog types and session settings.
 
 ## Conversion timing
 

@@ -1,5 +1,5 @@
 /* This is a generated file, edit the .stub.php file instead.
- * Stub hash: 74a5526fbeeb656a14b7adb137e37c987e5d654f */
+ * Stub hash: a795103ab60c387f9421ba9331cac3f554fde2fb */
 
 ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_DuckDB_version, 0, 0, IS_STRING, 0)
 ZEND_END_ARG_INFO()
@@ -35,6 +35,10 @@ ZEND_BEGIN_ARG_INFO_EX(arginfo_class_DuckDB_Value___construct, 0, 0, 2)
 ZEND_END_ARG_INFO()
 
 #define arginfo_class_DuckDB_Value_getType arginfo_DuckDB_version
+
+ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_class_DuckDB_Value_toString, 0, 1, IS_STRING, 0)
+	ZEND_ARG_OBJ_INFO(0, connection, DuckDB\\Connection, 0)
+ZEND_END_ARG_INFO()
 
 ZEND_BEGIN_ARG_INFO_EX(arginfo_class_DuckDB_Boolean___construct, 0, 0, 1)
 	ZEND_ARG_TYPE_INFO(0, value, IS_MIXED, 0)
@@ -344,6 +348,7 @@ ZEND_METHOD(DuckDB_Interval, jsonSerialize);
 ZEND_METHOD(DuckDB_Interval, fromSeconds);
 ZEND_METHOD(DuckDB_Value, __construct);
 ZEND_METHOD(DuckDB_Value, getType);
+ZEND_METHOD(DuckDB_Value, toString);
 ZEND_METHOD(DuckDB_Boolean, __construct);
 ZEND_METHOD(DuckDB_TinyInt, __construct);
 ZEND_METHOD(DuckDB_SmallInt, __construct);
@@ -538,6 +543,7 @@ static const zend_function_entry class_DuckDB_Interval_methods[] = {
 static const zend_function_entry class_DuckDB_Value_methods[] = {
 	ZEND_ME(DuckDB_Value, __construct, arginfo_class_DuckDB_Value___construct, ZEND_ACC_PUBLIC)
 	ZEND_ME(DuckDB_Value, getType, arginfo_class_DuckDB_Value_getType, ZEND_ACC_PUBLIC|ZEND_ACC_FINAL)
+	ZEND_ME(DuckDB_Value, toString, arginfo_class_DuckDB_Value_toString, ZEND_ACC_PUBLIC|ZEND_ACC_FINAL)
 	ZEND_FE_END
 };
 
