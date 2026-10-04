@@ -6,7 +6,7 @@ Build-Depends: debhelper-compat (= 13),
                dh-php,
                php-dev (>= 8.2),
                php-cli,
-               libduckdb-dev (>= 1.1)
+               libduckdb-dev (>= 1.5.5)
 Standards-Version: 4.7.0
 Homepage: https://github.com/martin-juul/php-duckdb
 Rules-Requires-Root: no

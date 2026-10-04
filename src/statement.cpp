@@ -69,69 +69,143 @@ bool duckdb_resolve_param_index(duckdb_prepared_statement stmt, zval *param, idx
     return false;
 }
 
-bool duckdb_bind_params_array(duckdb_prepared_statement stmt, HashTable *params) {
-    if (zend_hash_num_elements(params) == 0) {
-        return true;
+/* Resolve every position before conversion or changing any native binding. */
+static bool duckdb_collect_params(duckdb_prepared_statement stmt, HashTable *params,
+                                 std::vector<idx_t> &indices, std::vector<zval *> &values) {
+    bool positional = zend_array_is_list(params);
+    if (positional && zend_hash_num_elements(params) > duckdb_nparams(stmt)) {
+        zend_value_error("Too many values: statement has %d parameter(s), %d given",
+                         (int)duckdb_nparams(stmt), (int)zend_hash_num_elements(params));
+        return false;
     }
-
-    if (zend_array_is_list(params)) {
-        /* A list binds positionally; validate the count up front so an
-         * out-of-range position is a programmer error (ValueError), not a
-         * DuckDB bind failure. */
-        idx_t nparams = duckdb_nparams(stmt);
-        uint32_t given = zend_hash_num_elements(params);
-        if ((idx_t)given > nparams) {
-            zend_value_error("Too many values: statement has %d parameter(s), %d given",
-                             (int)nparams, (int)given);
-            return false;
-        }
-        idx_t i = 1;
-        zval *val;
-        ZEND_HASH_FOREACH_VAL(params, val) {
-            duckdb_value duck_val = duckdb_php_to_duckdb_value(val);
-            if (duck_val == nullptr) {
-                return false;
-            }
-            duckdb_state st = duckdb_bind_value(stmt, i, duck_val);
-            duckdb_destroy_value(&duck_val);
-            if (st == DuckDBError) {
-                zend_throw_exception_ex(duckdb_binder_exception_ce, DUCKDB_ERROR_BINDER,
-                                        "Failed to bind parameter %d", (int)i);
-                return false;
-            }
-            i++;
-        } ZEND_HASH_FOREACH_END();
-        return true;
-    }
-
     zend_string *key;
-    zend_long num_key;
-    zval *val;
-    ZEND_HASH_FOREACH_KEY_VAL(params, num_key, key, val) {
-        zval param_zv;
-        if (key) {
-            ZVAL_STR(&param_zv, key);
-        } else {
-            /* Mixed arrays are ambiguous: integer keys in an associative
-             * parameter array are treated as 1-based positions. */
-            ZVAL_LONG(&param_zv, num_key);
+    zend_ulong numeric;
+    zval *value;
+    idx_t position = 1;
+
+    ZEND_HASH_FOREACH_KEY_VAL(params, numeric, key, value) {
+        idx_t index = position++;
+        if (!positional) {
+            zval parameter;
+            if (key) {
+                ZVAL_STR(&parameter, key);
+            } else {
+                ZVAL_LONG(&parameter, (zend_long)numeric);
+            }
+            if (!duckdb_resolve_param_index(stmt, &parameter, &index)) {
+                return false;
+            }
         }
-        idx_t index;
-        if (!duckdb_resolve_param_index(stmt, &param_zv, &index)) {
-            return false;
-        }
-        duckdb_value duck_val = duckdb_php_to_duckdb_value(val);
-        if (duck_val == nullptr) {
-            return false;
-        }
-        duckdb_state st = duckdb_bind_value(stmt, index, duck_val);
-        duckdb_destroy_value(&duck_val);
-        if (st == DuckDBError) {
-            zend_throw_exception_ex(duckdb_binder_exception_ce, DUCKDB_ERROR_BINDER,
-                                    "Failed to bind parameter %d", (int)index);
-            return false;
-        }
+        indices.push_back(index);
+        values.push_back(value);
     } ZEND_HASH_FOREACH_END();
+
+    return true;
+}
+
+static bool duckdb_bind_converted(duckdb_prepared_statement stmt,
+                                 const std::vector<idx_t> &indices,
+                                 const std::vector<scoped_duckdb_value> &values) {
+    for (size_t i = 0; i < indices.size(); i++) {
+        if (duckdb_bind_value(stmt, indices[i], values[i].get()) == DuckDBError) {
+            zend_throw_exception_ex(duckdb_binder_exception_ce, DUCKDB_ERROR_BINDER,
+                                    "Failed to bind parameter %d", (int)indices[i]);
+            return false;
+        }
+    }
+    return true;
+}
+
+bool duckdb_bind_params_array(duckdb_prepared_statement stmt, HashTable *params, conn_inner *conn) {
+    std::vector<idx_t> indices;
+    std::vector<zval *> values;
+    std::vector<scoped_duckdb_value> converted;
+
+    return duckdb_collect_params(stmt, params, indices, values) &&
+           duckdb_convert_values(conn, values, converted) &&
+           duckdb_bind_converted(stmt, indices, converted);
+}
+
+/* Releasing a custom Value may invoke PHP destructors. Keep overwritten values
+ * alive until the caller's connection lock has left scope. Ordinary bindings
+ * allocate no retention storage. */
+class duckdb_statement_retained {
+    std::vector<zval> values;
+
+public:
+    ~duckdb_statement_retained() {
+        for (auto &value : values) {
+            zval_ptr_dtor(&value);
+        }
+    }
+
+    void keep(HashTable *bindings, idx_t index) {
+        if (!bindings) {
+            return;
+        }
+
+        zval *old = zend_hash_index_find(bindings, index);
+        if (old) {
+            zval copy;
+            ZVAL_COPY(&copy, old);
+            values.push_back(copy);
+        }
+    }
+};
+
+/* Deferred wrappers are held only by the PHP object: worker threads see native
+ * DuckDB bindings, and conversion is repeated for each execution. */
+static bool duckdb_statement_bind_execution(php_duckdb_statement_object *intern, HashTable *params,
+                                           duckdb_statement_retained &retained) {
+    std::vector<idx_t> indices;
+    std::vector<zval *> values;
+    if (params && !duckdb_collect_params(intern->inner->stmt, params, indices, values)) {
+        return false;
+    }
+    if (intern->deferred_bindings) {
+        zend_ulong index;
+        zval *value;
+        ZEND_HASH_FOREACH_NUM_KEY_VAL(intern->deferred_bindings, index, value) {
+            bool overridden = false;
+            for (auto supplied : indices) {
+                if (supplied == index) {
+                    overridden = true;
+                    break;
+                }
+            }
+            if (!overridden) {
+                indices.push_back(index);
+                values.push_back(value);
+            }
+        } ZEND_HASH_FOREACH_END();
+    }
+
+    std::vector<scoped_duckdb_value> converted;
+    if (!duckdb_convert_values(intern->inner->conn.get(), values, converted) ||
+        !duckdb_bind_converted(intern->inner->stmt, indices, converted)) {
+        return false;
+    }
+
+    /* Execution arrays persist as native bindings. Typed values also persist
+     * as wrappers so their next execution resolves current catalog/settings. */
+    if (params) {
+        std::vector<idx_t> supplied_indices;
+        std::vector<zval *> supplied_values;
+        duckdb_collect_params(intern->inner->stmt, params, supplied_indices, supplied_values);
+        for (size_t i = 0; i < supplied_indices.size(); i++) {
+            retained.keep(intern->deferred_bindings, supplied_indices[i]);
+            if (duckdb_value_contains_typed(supplied_values[i])) {
+                if (!intern->deferred_bindings) {
+                    intern->deferred_bindings = zend_new_array(0);
+                }
+                zval copy;
+                ZVAL_COPY_DEREF(&copy, supplied_values[i]);
+                zend_hash_index_update(intern->deferred_bindings, supplied_indices[i], &copy);
+            } else if (intern->deferred_bindings) {
+                zend_hash_index_del(intern->deferred_bindings, supplied_indices[i]);
+            }
+        }
+    }
     return true;
 }
 
@@ -159,6 +233,7 @@ static void duckdb_statement_bind_impl(INTERNAL_FUNCTION_PARAMETERS, bool as_blo
         RETURN_THROWS();
     }
 
+    duckdb_statement_retained retained;
     idx_t index;
     duckdb_state st;
     {
@@ -167,6 +242,17 @@ static void duckdb_statement_bind_impl(INTERNAL_FUNCTION_PARAMETERS, bool as_blo
         std::lock_guard<std::mutex> lk(intern->inner->conn->mutex);
         if (!duckdb_resolve_param_index(intern->inner->stmt, param, &index)) {
             RETURN_THROWS();
+        }
+
+        if (!as_blob && duckdb_value_contains_typed(value)) {
+            if (!intern->deferred_bindings) {
+                intern->deferred_bindings = zend_new_array(0);
+            }
+            zval copy;
+            ZVAL_COPY_DEREF(&copy, value);
+            retained.keep(intern->deferred_bindings, index);
+            zend_hash_index_update(intern->deferred_bindings, index, &copy);
+            RETURN_THIS();
         }
 
         duckdb_value duck_val;
@@ -181,6 +267,10 @@ static void duckdb_statement_bind_impl(INTERNAL_FUNCTION_PARAMETERS, bool as_blo
 
         st = duckdb_bind_value(intern->inner->stmt, index, duck_val);
         duckdb_destroy_value(&duck_val);
+        if (st == DuckDBSuccess && intern->deferred_bindings) {
+            retained.keep(intern->deferred_bindings, index);
+            zend_hash_index_del(intern->deferred_bindings, index);
+        }
     }
 
     if (st == DuckDBError) {
@@ -222,7 +312,18 @@ PHP_METHOD(DuckDB_Statement, clearBindings) {
     if (!duckdb_connection_guard(intern->inner->conn)) {
         RETURN_THROWS();
     }
-    duckdb_clear_bindings(intern->inner->stmt);
+    HashTable *retired = nullptr;
+    {
+        std::lock_guard<std::mutex> lk(intern->inner->conn->mutex);
+        duckdb_clear_bindings(intern->inner->stmt);
+        if (intern->deferred_bindings && zend_hash_num_elements(intern->deferred_bindings)) {
+            retired = intern->deferred_bindings;
+            intern->deferred_bindings = zend_new_array(0);
+        }
+    }
+    if (retired) {
+        zend_array_destroy(retired);
+    }
 }
 
 PHP_METHOD(DuckDB_Statement, parameterCount) {
@@ -388,10 +489,11 @@ static void duckdb_statement_execute_impl(INTERNAL_FUNCTION_PARAMETERS, bool str
         RETURN_THROWS();
     }
 
+    duckdb_statement_retained retained;
     duckdb_result res = {};
     {
         std::lock_guard<std::mutex> lk(intern->inner->conn->mutex);
-        if (params && !duckdb_bind_params_array(intern->inner->stmt, params)) {
+        if (!duckdb_statement_bind_execution(intern, params, retained)) {
             RETURN_THROWS();
         }
         duckdb_state st;
@@ -463,12 +565,13 @@ PHP_METHOD(DuckDB_Statement, executeAsync) {
         RETURN_THROWS();
     }
 
+    duckdb_statement_retained retained;
     /* Bind on the request thread, under the connection mutex so this cannot
      * interleave with a running async execution of the same statement; the
      * worker thread only executes. */
-    if (params) {
+    {
         std::lock_guard<std::mutex> lk(intern->inner->conn->mutex);
-        if (!duckdb_bind_params_array(intern->inner->stmt, params)) {
+        if (!duckdb_statement_bind_execution(intern, params, retained)) {
             RETURN_THROWS();
         }
     }

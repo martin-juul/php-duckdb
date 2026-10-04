@@ -13,8 +13,7 @@ name: Packaging
 #
 # Every Linux job runs on amd64 (ubuntu-latest) AND arm64
 # (ubuntu-24.04-arm — native ARM64 runners, free for public repos), so
-# each distro package is built and smoke-tested on both architectures
-# DuckDB ships prebuilt libduckdb archives for.
+# each distro package is built and smoke-tested on both architectures.
 #
 # When a GitHub Release is published, all packages are rebuilt from the
 # release tag and attached to the release as downloadable assets by the
@@ -71,9 +70,12 @@ jobs:
             /etc/zypp/repos.d/*.repo
           zypper --non-interactive --gpg-auto-import-keys refresh
           for attempt in 1 2 3; do
-            if zypper --non-interactive install --no-recommends \
+            # The container image can be newer than the rolling repository.
+            # Allow the solver to align installed dependencies with available
+            # development packages (for example PCRE2 runtime and headers).
+            if zypper --non-interactive install --no-recommends --allow-downgrade \
               rpm-build php8 php8-devel gcc gcc-c++ make autoconf automake \
-              chrpath unzip curl tar gzip gawk; then
+              chrpath cmake python3 patch curl tar gzip gawk; then
               break
             else
               status=$?
@@ -90,29 +92,20 @@ jobs:
             zypper --non-interactive --gpg-auto-import-keys refresh --force
           done
 
-      # rpmbuild never downloads Source URLs itself; stage them exactly as
-      # the spec names them. The version is read from the spec so the two
-      # cannot drift apart. The spec's Source1 is arch-conditional
-      # (%ifarch x86_64 -> amd64 zip, aarch64 -> arm64 zip), so the
-      # staged file name must match the build architecture.
-      # NOTE: actions/checkout falls back to a REST tarball download when
-      # the container has no git — leaving no .git directory — so pack the
-      # workspace with tar instead of `git archive`.
+      # Stage both pinned source archives; rpmbuild performs an offline engine build.
+      # Pack the checkout directly because REST checkout may not provide .git.
       - name: Stage rpmbuild sources
         run: |
           set -eu
           ver=$(awk '/^Version:/ {print $2}' packaging/opensuse/php-duckdb.spec)
-          dver=$(awk '/^%define duckdb_version/ {print $3}' packaging/opensuse/php-duckdb.spec)
-          case "$(uname -m)" in
-            x86_64) duck_arch=amd64 ;;
-            aarch64) duck_arch=arm64 ;;
-            *) echo "unsupported build arch: $(uname -m)" >&2; exit 1 ;;
-          esac
+          dver=$(python3 -c 'import json; print(json.load(open("packaging/duckdb/source.json"))["version"])')
+          source_url=$(python3 -c 'import json; print(json.load(open("packaging/duckdb/source.json"))["url"])')
           mkdir -p /root/rpmbuild/SOURCES /root/rpmbuild/SPECS /root/rpmbuild/BUILD /root/rpmbuild/RPMS /root/rpmbuild/SRPMS
           tar --exclude='./.git' --transform "s,^\.,php-duckdb-${ver}," \
             -czf "/root/rpmbuild/SOURCES/php-duckdb-${ver}.tar.gz" .
-          curl -fsSL -o "/root/rpmbuild/SOURCES/libduckdb-linux-${duck_arch}.zip" \
-            "https://github.com/duckdb/duckdb/releases/download/v${dver}/libduckdb-linux-${duck_arch}.zip"
+          curl -fsSL --retry 4 --retry-all-errors --retry-max-time 300 \
+            --connect-timeout 20 --max-time 180 -o "/root/rpmbuild/SOURCES/duckdb-${dver}.tar.gz" \
+            "$source_url"
           cp packaging/opensuse/php-duckdb.spec /root/rpmbuild/SPECS/
 
       # -ba builds the binary RPMs AND the SRPM; the spec's %check runs
@@ -152,28 +145,21 @@ jobs:
         run: |
           dnf install -y --setopt=install_weak_deps=False \
             rpm-build php-devel php-cli gcc gcc-c++ make libtool chrpath \
-            unzip curl tar gzip gawk
+            cmake python3 patch curl tar gzip gawk
 
-      # Same staging story as the openSUSE job: checkout may fall back to
-      # a REST tarball (no git in the container, no .git), so pack the
-      # workspace with tar; rpmbuild never downloads Source URLs itself.
-      # The spec's Source1 is arch-conditional (%ifarch), so stage the
-      # libduckdb zip under the name matching the build architecture.
+      # Stage source archives for the offline engine and extension build.
       - name: Stage rpmbuild sources
         run: |
           set -eu
           ver=$(awk '/^%global upstream_version/ {print $3}' packaging/fedora/php-pecl-duckdb.spec)
-          dver=$(awk '/^%global duckdb_version/ {print $3}' packaging/fedora/php-pecl-duckdb.spec)
-          case "$(uname -m)" in
-            x86_64) duck_arch=amd64 ;;
-            aarch64) duck_arch=arm64 ;;
-            *) echo "unsupported build arch: $(uname -m)" >&2; exit 1 ;;
-          esac
+          dver=$(python3 -c 'import json; print(json.load(open("packaging/duckdb/source.json"))["version"])')
+          source_url=$(python3 -c 'import json; print(json.load(open("packaging/duckdb/source.json"))["url"])')
           mkdir -p /root/rpmbuild/SOURCES /root/rpmbuild/SPECS /root/rpmbuild/BUILD /root/rpmbuild/RPMS /root/rpmbuild/SRPMS
           tar --exclude='./.git' --transform "s,^\.,php-duckdb-${ver}," \
             -czf "/root/rpmbuild/SOURCES/php-duckdb-${ver}.tar.gz" .
-          curl -fsSL -o "/root/rpmbuild/SOURCES/libduckdb-linux-${duck_arch}.zip" \
-            "https://github.com/duckdb/duckdb/releases/download/v${dver}/libduckdb-linux-${duck_arch}.zip"
+          curl -fsSL --retry 4 --retry-all-errors --retry-max-time 300 \
+            --connect-timeout 20 --max-time 180 -o "/root/rpmbuild/SOURCES/duckdb-${dver}.tar.gz" \
+            "$source_url"
           cp packaging/fedora/php-pecl-duckdb.spec /root/rpmbuild/SPECS/
 
       # -ba builds the binary RPMs AND the SRPM; the spec's %check runs
@@ -231,29 +217,22 @@ jobs:
           dnf module install -y "php:remi-${{ matrix.php }}/common"
           dnf install -y --setopt=install_weak_deps=False --allowerasing \
             php-devel php-cli \
-            rpm-build gcc gcc-c++ make libtool chrpath unzip curl tar gzip gawk
+            rpm-build gcc gcc-c++ make libtool chrpath cmake python3 patch curl tar gzip gawk
           php -v | head -1
 
-      # Same staging story as the Fedora job: checkout may fall back to a
-      # REST tarball (no git in the container, no .git), so pack the
-      # workspace with tar; rpmbuild never downloads Source URLs itself.
-      # The spec's Source1 is arch-conditional (%ifarch), so stage the
-      # libduckdb zip under the name matching the build architecture.
+      # Stage source archives for the offline engine and extension build.
       - name: Stage rpmbuild sources
         run: |
           set -eu
           ver=$(awk '/^%global upstream_version/ {print $3}' packaging/almalinux/php-pecl-duckdb.spec)
-          dver=$(awk '/^%global duckdb_version/ {print $3}' packaging/almalinux/php-pecl-duckdb.spec)
-          case "$(uname -m)" in
-            x86_64) duck_arch=amd64 ;;
-            aarch64) duck_arch=arm64 ;;
-            *) echo "unsupported build arch: $(uname -m)" >&2; exit 1 ;;
-          esac
+          dver=$(python3 -c 'import json; print(json.load(open("packaging/duckdb/source.json"))["version"])')
+          source_url=$(python3 -c 'import json; print(json.load(open("packaging/duckdb/source.json"))["url"])')
           mkdir -p /root/rpmbuild/SOURCES /root/rpmbuild/SPECS /root/rpmbuild/BUILD /root/rpmbuild/RPMS /root/rpmbuild/SRPMS
           tar --exclude='./.git' --transform "s,^\.,php-duckdb-${ver}," \
             -czf "/root/rpmbuild/SOURCES/php-duckdb-${ver}.tar.gz" .
-          curl -fsSL -o "/root/rpmbuild/SOURCES/libduckdb-linux-${duck_arch}.zip" \
-            "https://github.com/duckdb/duckdb/releases/download/v${dver}/libduckdb-linux-${duck_arch}.zip"
+          curl -fsSL --retry 4 --retry-all-errors --retry-max-time 300 \
+            --connect-timeout 20 --max-time 180 -o "/root/rpmbuild/SOURCES/duckdb-${dver}.tar.gz" \
+            "$source_url"
           cp packaging/almalinux/php-pecl-duckdb.spec /root/rpmbuild/SPECS/
 
       # -bb builds the binary RPM only: this 16-cell matrix would
@@ -290,8 +269,8 @@ jobs:
       - uses: actions/checkout@v4
 
       # Debian is the one target using the system libduckdb strategy:
-      # sid ships libduckdb-dev (amd64 + arm64), so no vendored archive
-      # is downloaded.
+      # sid ships libduckdb-dev (amd64 + arm64), so no engine is vendored.
+      # A distribution backport is required to fix nullable bitpacking.
       - name: Install build tooling
         run: |
           apt-get update
@@ -354,14 +333,14 @@ jobs:
       - uses: actions/checkout@v4
 
       # trixie has no libduckdb package (DuckDB entered Debian after the
-      # freeze), so this job vendors the prebuilt archive — the same
-      # strategy as the RPM jobs; the sid job uses libduckdb-dev instead.
+      # freeze), so this job builds and vendors the patched source SDK.
+      # The sid job retains its distribution-provided library.
       - name: Install build tooling
         run: |
           apt-get update
           apt-get install -y --no-install-recommends \
             build-essential debhelper dh-php php-dev php-cli \
-            curl unzip ca-certificates
+            curl cmake python3 patch ca-certificates
 
       - name: Guard version drift
         run: |
@@ -374,30 +353,18 @@ jobs:
             exit 1
           fi
 
-      # dpkg insists on ./debian at the source root; restore the execute
-      # bit on debian/rules. The vendored libduckdb is staged as
-      # duckdb-sdk/{include,lib}; the pin lives in debian-trixie/rules
-      # so the two cannot drift apart. The zip is selected per build
-      # architecture (DuckDB publishes amd64 + arm64 archives).
-      - name: Stage debian packaging and vendored libduckdb
+      # Stage the pinned archive. debian/rules builds the patched SDK offline
+      # with the distribution's compiler flags before building the extension.
+      - name: Stage debian packaging and engine source
         run: |
           set -eu
           cp -a "$GITHUB_WORKSPACE" /root/src
           cp -r /root/src/packaging/debian-trixie /root/src/debian
           chmod +x /root/src/debian/rules
-          dver=$(awk -F':= *' '/^DUCKDB_VERSION/ {print $2}' /root/src/debian/rules)
-          arch=$(dpkg --print-architecture)
-          case "$arch" in
-            amd64) duck_arch=amd64 ;;
-            arm64) duck_arch=arm64 ;;
-            *) echo "no prebuilt libduckdb archive for $arch"; exit 1 ;;
-          esac
-          curl -fsSL -o /tmp/libduckdb.zip \
-            "https://github.com/duckdb/duckdb/releases/download/v${dver}/libduckdb-linux-${duck_arch}.zip"
-          unzip -o /tmp/libduckdb.zip -d /tmp/libduckdb
-          mkdir -p /root/src/duckdb-sdk/include /root/src/duckdb-sdk/lib
-          cp /tmp/libduckdb/duckdb.h /root/src/duckdb-sdk/include/
-          cp /tmp/libduckdb/libduckdb.so /root/src/duckdb-sdk/lib/
+          source_url=$(python3 -c 'import json; print(json.load(open("/root/src/packaging/duckdb/source.json"))["url"])')
+          curl -fsSL --retry 4 --retry-all-errors --retry-max-time 300 \
+            --connect-timeout 20 --max-time 180 -o /root/src/duckdb-source.tar.gz \
+            "$source_url"
 
       # dpkg-buildpackage -b builds the binary debs (landing next to the
       # source tree); dh_auto_test runs the full .phpt suite with
@@ -441,7 +408,7 @@ jobs:
           apt-get update
           apt-get install -y --no-install-recommends \
             build-essential debhelper dh-php php-dev php-cli \
-            curl unzip ca-certificates
+            curl cmake python3 patch ca-certificates
 
       - name: Guard version drift
         run: |
@@ -454,30 +421,18 @@ jobs:
             exit 1
           fi
 
-      # dpkg insists on ./debian at the source root; restore the execute
-      # bit on debian/rules. The vendored libduckdb is staged as
-      # duckdb-sdk/{include,lib}; the pin lives in ubuntu/rules so the
-      # two cannot drift apart. The zip is selected per build
-      # architecture (DuckDB publishes amd64 + arm64 archives).
-      - name: Stage debian packaging and vendored libduckdb
+      # Stage the pinned archive. debian/rules builds the patched SDK offline
+      # with the distribution's compiler flags before building the extension.
+      - name: Stage debian packaging and engine source
         run: |
           set -eu
           cp -a "$GITHUB_WORKSPACE" /root/src
           cp -r /root/src/packaging/ubuntu /root/src/debian
           chmod +x /root/src/debian/rules
-          dver=$(awk -F':= *' '/^DUCKDB_VERSION/ {print $2}' /root/src/debian/rules)
-          arch=$(dpkg --print-architecture)
-          case "$arch" in
-            amd64) duck_arch=amd64 ;;
-            arm64) duck_arch=arm64 ;;
-            *) echo "no prebuilt libduckdb archive for $arch"; exit 1 ;;
-          esac
-          curl -fsSL -o /tmp/libduckdb.zip \
-            "https://github.com/duckdb/duckdb/releases/download/v${dver}/libduckdb-linux-${duck_arch}.zip"
-          unzip -o /tmp/libduckdb.zip -d /tmp/libduckdb
-          mkdir -p /root/src/duckdb-sdk/include /root/src/duckdb-sdk/lib
-          cp /tmp/libduckdb/duckdb.h /root/src/duckdb-sdk/include/
-          cp /tmp/libduckdb/libduckdb.so /root/src/duckdb-sdk/lib/
+          source_url=$(python3 -c 'import json; print(json.load(open("/root/src/packaging/duckdb/source.json"))["url"])')
+          curl -fsSL --retry 4 --retry-all-errors --retry-max-time 300 \
+            --connect-timeout 20 --max-time 180 -o /root/src/duckdb-source.tar.gz \
+            "$source_url"
 
       # dpkg-buildpackage -b builds the binary debs (landing next to the
       # source tree); dh_auto_test runs the full .phpt suite with
@@ -513,8 +468,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # Ubuntu devel (26.10+) ships libduckdb-dev in universe — the
-      # system strategy, reusing the Debian sid packaging unchanged.
+      # Ubuntu devel (26.10+) keeps the system library strategy; a distribution
+      # backport is required for nullable bitpacking. It ships libduckdb-dev
+      # in universe; reuse the Debian sid packaging unchanged.
       - name: Install build tooling
         run: |
           apt-get update
@@ -561,11 +517,8 @@ jobs:
   # (duckdb.so + vendored libduckdb.dylib + install script). Builds are
   # native: macos-15-intel (GitHub's last Intel image, available until
   # August 2027) for x86_64 and macos-15 for arm64, both targeting
-  # macOS 12+. The vendored universal libduckdb is baseline x86-64
-  # (verified: zero AVX/AVX2 instructions in its x86_64 slice) with a
-  # macOS 11.0 deployment target, so the single x86_64 build also covers
-  # pre-AVX2 Intel Macs (Mac Pro 2013) and x86_64 PHP under Rosetta,
-  # which only supports AVX2 from macOS 15.
+  # macOS 12+. Both engine and extension are compiled for baseline CPUs;
+  # no native CPU optimization is enabled in the source SDK builder.
   macos-tarball:
     name: macOS 12+ ${{ matrix.arch }} tarball — PHP ${{ matrix.php }}
     runs-on: ${{ matrix.arch == 'x86_64' && 'macos-15-intel' || 'macos-15' }}
@@ -592,7 +545,10 @@ jobs:
       # the full .phpt suite (Swoole/AMPHP/ReactPHP/True-Async tests
       # skip — those extensions are not installed here) and packs the
       # tarball. MACOSX_DEPLOYMENT_TARGET pins our own compile to
-      # macOS 12+; the vendored dylib already targets 11.0.
+      # macOS 12+; the vendored dylib is built for the same target.
+      - name: Install SDK build tools
+        run: brew install cmake python
+
       - name: Build, test and package
         env:
           MACOSX_DEPLOYMENT_TARGET: '12.0'
@@ -663,6 +619,8 @@ jobs:
         with:
           name: windows-diagnostics-php${{ matrix.php }}-${{ matrix.ts }}
           path: |
+            ${{ runner.temp }}/duckdb-windows/duckdb-sdk-build/build/CMakeFiles/
+            ${{ runner.temp }}/duckdb-windows/duckdb-sdk/share/duckdb-sdk/
             ${{ runner.temp }}/duckdb-windows/extension/build-*.txt
             ${{ runner.temp }}/duckdb-windows/extension/tests/**/*.diff
             ${{ runner.temp }}/duckdb-windows/extension/tests/**/*.out

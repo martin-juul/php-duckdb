@@ -1,10 +1,16 @@
 # Build context: the Dockerfile copies only the extension sources, so this
 # file is purely a context-size optimization.
 .git
+.idea
 .github
 tests
 examples
 modules
+**/.libs
+**/*.dep
+**/*.lo
+**/*.la
+**/*.o
 *.md
 Dockerfile
 Dockerfile.frankenphp

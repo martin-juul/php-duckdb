@@ -25,6 +25,8 @@ extern "C" {
 }
 
 #include "php_duckdb.h"
+#include "bignum_decode.h"
+#include "variant_decode.h"
 
 #if defined(ZTS) && defined(COMPILE_DL_DUCKDB)
 #define DUCKDB_TSRMLS_CACHE_UPDATE() ZEND_TSRMLS_CACHE_UPDATE()
@@ -192,6 +194,30 @@ static bool duckdb_timestamp_scale_to_micros(int64_t magnitude, int64_t factor, 
         return false;
     }
     *out = magnitude * factor;
+    return true;
+}
+
+/* Render an owned scalar value without mixing legacy result access with chunks. */
+static bool duckdb_render_scalar(duckdb_value value, zval *out) {
+    char *text = nullptr;
+    try {
+        text = value ? duckdb_get_varchar(value) : nullptr;
+    } catch (const std::exception &error) {
+        duckdb_destroy_value(&value);
+        duckdb_throw_error(DUCKDB_ERROR_CONVERSION, error.what());
+        return false;
+    } catch (...) {
+        duckdb_destroy_value(&value);
+        duckdb_throw_msg("DuckDB could not render the result value");
+        return false;
+    }
+    duckdb_destroy_value(&value);
+    if (!text) {
+        duckdb_throw_msg("DuckDB could not render the result value");
+        return false;
+    }
+    ZVAL_STRING(out, text);
+    duckdb_free(text);
     return true;
 }
 
@@ -458,6 +484,10 @@ static bool duckdb_decode_value(decode_ctx *ctx, duckdb_vector vec, duckdb_logic
             }
             return true;
         }
+        case DUCKDB_TYPE_VARIANT:
+            return duckdb_decode_variant(vec, row, out);
+        case DUCKDB_TYPE_BIGNUM:
+            return duckdb_decode_bignum(vec, row, out);
         case DUCKDB_TYPE_HUGEINT: {
             duckdb_hugeint v = ((duckdb_hugeint *)data)[row];
             if (v.upper == 0 && v.lower <= (uint64_t)ZEND_LONG_MAX) {
@@ -575,6 +605,9 @@ static bool duckdb_decode_value(decode_ctx *ctx, duckdb_vector vec, duckdb_logic
                                t.time.hour, t.time.min, t.time.sec,
                                sign, offset / 3600, (offset / 60) % 60);
             }
+            if (offset % 60 != 0) {
+                len += snprintf(buf + len, sizeof(buf) - (size_t)len, ":%02d", offset % 60);
+            }
             ZVAL_STRINGL(out, buf, (size_t)len);
             return true;
         }
@@ -604,18 +637,26 @@ static bool duckdb_decode_value(decode_ctx *ctx, duckdb_vector vec, duckdb_logic
         }
         case DUCKDB_TYPE_TIMESTAMP_S: {
             duckdb_timestamp_s ts = ((duckdb_timestamp_s *)data)[row];
+            if (!duckdb_is_finite_timestamp_s(ts)) {
+                ZVAL_STRING(out, ts.seconds > 0 ? "infinity" : "-infinity");
+                return true;
+            }
             int64_t micros;
             if (!duckdb_timestamp_scale_to_micros(ts.seconds, 1000000LL, &micros)) {
-                break; /* out of int64 micros range: string fallback below */
+                return duckdb_render_scalar(duckdb_create_timestamp_s(ts), out);
             }
             duckdb_make_datetime_from_micros(out, micros, duckdb_is_finite_timestamp_s(ts));
             return true;
         }
         case DUCKDB_TYPE_TIMESTAMP_MS: {
             duckdb_timestamp_ms ts = ((duckdb_timestamp_ms *)data)[row];
+            if (!duckdb_is_finite_timestamp_ms(ts)) {
+                ZVAL_STRING(out, ts.millis > 0 ? "infinity" : "-infinity");
+                return true;
+            }
             int64_t micros;
             if (!duckdb_timestamp_scale_to_micros(ts.millis, 1000LL, &micros)) {
-                break; /* out of int64 micros range: string fallback below */
+                return duckdb_render_scalar(duckdb_create_timestamp_ms(ts), out);
             }
             duckdb_make_datetime_from_micros(out, micros, duckdb_is_finite_timestamp_ms(ts));
             return true;
@@ -646,24 +687,8 @@ static bool duckdb_decode_value(decode_ctx *ctx, duckdb_vector vec, duckdb_logic
             break;
     }
 
-    /* Types without a public vector layout (VARIANT, ...): fall back to
-     * the canonical string rendering, which is only available for
-     * materialized results. duckdb_value_varchar is deprecated upstream,
-     * but no non-deprecated API renders an arbitrary result cell as a
-     * string; kept deliberately, isolated to this call site. */
-    if (ctx->depth == 0 && !ctx->data->streaming) {
-        char *str = duckdb_value_varchar(&ctx->data->result, ctx->column_index, ctx->abs_row);
-        if (str) {
-            ZVAL_STRING(out, str);
-            duckdb_free(str);
-        } else {
-            ZVAL_NULL(out);
-        }
-        return true;
-    }
-
     zend_throw_exception_ex(duckdb_exception_ce, 0,
-                            "Values of type %s cannot be fetched from streaming or nested results",
+                            "Values of type %s cannot be decoded",
                             duckdb_type_name(duckdb_get_type_id(type)));
     return false;
 }

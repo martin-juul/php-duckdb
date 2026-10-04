@@ -158,6 +158,219 @@ final class Interval implements \JsonSerializable
 }
 
 /**
+ * An immutable, connection-independent input with an explicit SQL type.
+ *
+ * Syntax and PHP input are validated and snapshotted at construction.
+ * Catalog resolution and DuckDB casts happen on the consuming connection.
+ * Serialization is not supported.
+ */
+class Value
+{
+    public function __construct(string $type, mixed $value) {}
+
+    /** Return the canonical declared SQL type. */
+    final public function getType(): string {}
+}
+
+/** Native typed input classes; every class accepts a typed NULL. */
+final class Boolean extends Value
+{
+    public function __construct(mixed $value) {}
+}
+
+final class TinyInt extends Value
+{
+    public function __construct(mixed $value) {}
+}
+
+final class SmallInt extends Value
+{
+    public function __construct(mixed $value) {}
+}
+
+final class Integer extends Value
+{
+    public function __construct(mixed $value) {}
+}
+
+final class BigInt extends Value
+{
+    public function __construct(mixed $value) {}
+}
+
+final class UTinyInt extends Value
+{
+    public function __construct(mixed $value) {}
+}
+
+final class USmallInt extends Value
+{
+    public function __construct(mixed $value) {}
+}
+
+final class UInteger extends Value
+{
+    public function __construct(mixed $value) {}
+}
+
+final class UBigInt extends Value
+{
+    public function __construct(mixed $value) {}
+}
+
+final class HugeInt extends Value
+{
+    public function __construct(mixed $value) {}
+}
+
+final class UHugeInt extends Value
+{
+    public function __construct(mixed $value) {}
+}
+
+final class BigNum extends Value
+{
+    public function __construct(mixed $value) {}
+}
+
+final class Float32 extends Value
+{
+    public function __construct(mixed $value) {}
+}
+
+final class Double extends Value
+{
+    public function __construct(mixed $value) {}
+}
+
+final class Varchar extends Value
+{
+    public function __construct(mixed $value) {}
+}
+
+final class Blob extends Value
+{
+    public function __construct(mixed $value) {}
+}
+
+final class Bit extends Value
+{
+    public function __construct(mixed $value) {}
+}
+
+final class Uuid extends Value
+{
+    public function __construct(mixed $value) {}
+}
+
+final class Json extends Value
+{
+    public function __construct(mixed $value) {}
+}
+
+final class Date extends Value
+{
+    public function __construct(mixed $value) {}
+}
+
+final class Time extends Value
+{
+    public function __construct(mixed $value) {}
+}
+
+final class TimeNs extends Value
+{
+    public function __construct(mixed $value) {}
+}
+
+final class TimeTz extends Value
+{
+    public function __construct(mixed $value) {}
+}
+
+final class TimestampS extends Value
+{
+    public function __construct(mixed $value) {}
+}
+
+final class TimestampMs extends Value
+{
+    public function __construct(mixed $value) {}
+}
+
+final class Timestamp extends Value
+{
+    public function __construct(mixed $value) {}
+}
+
+final class TimestampNs extends Value
+{
+    public function __construct(mixed $value) {}
+}
+
+final class TimestampTz extends Value
+{
+    public function __construct(mixed $value) {}
+}
+
+final class IntervalValue extends Value
+{
+    public function __construct(mixed $value) {}
+}
+
+final class Variant extends Value
+{
+    public function __construct(mixed $value) {}
+}
+
+final class Decimal extends Value
+{
+    public function __construct(mixed $value, int $precision = 18, int $scale = 3) {}
+}
+
+final class Enum extends Value
+{
+    public function __construct(mixed $value, array $labels) {}
+}
+
+final class ListValue extends Value
+{
+    public function __construct(mixed $value, string|Value $elementType) {}
+}
+
+final class ArrayValue extends Value
+{
+    public function __construct(mixed $value, string|Value $elementType, int $length) {}
+}
+
+final class Struct extends Value
+{
+    /** @param array $fields Field name => SQL string, scalar class name or Value. */
+    public function __construct(mixed $value, array $fields) {}
+}
+
+final class Map extends Value
+{
+    public function __construct(mixed $value, string|Value $keyType, string|Value $valueType) {}
+}
+
+final class Union extends Value
+{
+    /** @param array $members Member name => SQL string, scalar class name or Value. */
+    public function __construct(mixed $value, ?string $tag, array $members) {}
+}
+
+final class Geometry extends Value
+{
+    public function __construct(mixed $value, ?string $crs = null) {}
+}
+
+final class CatalogValue extends Value
+{
+    public function __construct(mixed $value, string $name, ?string $schema = null, ?string $catalog = null) {}
+}
+
+/**
  * A DuckDB database instance. Open with a file path or `:memory:`.
  *
  * The second constructor argument accepts any DuckDB configuration option,
@@ -417,12 +630,13 @@ final class Statement
  * Type mapping (DuckDB -> PHP):
  *  - BOOLEAN                          -> bool
  *  - (U)TINYINT/(U)SMALLINT/(U)INTEGER -> int
- *  - BIGINT/UBIGINT (and huge values that fit) -> int
- *  - HUGEINT/UHUGEINT (overflowing)   -> string (exact decimal)
+ *  - BIGINT/UBIGINT/HUGEINT/UHUGEINT   -> int when it fits, else exact decimal string
+ *  - BIGNUM                           -> string (exact decimal)
  *  - FLOAT/DOUBLE                     -> float
  *  - DECIMAL                          -> string (exact decimal, no precision loss)
  *  - VARCHAR/ENUM                     -> string
- *  - BLOB/BIT/GEOMETRY                -> string (binary)
+ *  - BLOB/GEOMETRY                    -> string (binary)
+ *  - BIT                              -> string (text of 0 and 1 digits)
  *  - UUID                             -> string (canonical form)
  *  - DATE                             -> \DateTimeImmutable (midnight UTC)
  *  - TIMESTAMP[_S/_MS/_NS/_TZ]        -> \DateTimeImmutable (UTC)
@@ -620,8 +834,9 @@ final class PendingQuery
  * {@see beginRow()}, then one {@see append()}/{@see appendDefault()} per
  * column, then {@see endRow()}. Values are flushed to storage in batches;
  * call {@see flush()} to force a flush, or {@see close()} (also run on
- * destruction) to flush and finish. An appender that fails against DuckDB
- * is invalidated and must be discarded.
+ * destruction) to flush and finish. After native submission or flush fails,
+ * call clear() to discard pending data before reuse. Closing or destroying a
+ * failed appender discards pending data without flushing it.
  */
 final class Appender
 {
@@ -636,7 +851,8 @@ final class Appender
      *
      * @param array $values `list<mixed>`, in column order.
      * @throws \ValueError When the value count does not match the table.
-     * @throws Exception On a DuckDB conversion error; the appender is left invalid.
+     * @throws Exception On a conversion or native submission error. Native
+     * submission failures require clear() before reuse.
      */
     public function appendRow(array $values): void {}
 
@@ -653,7 +869,8 @@ final class Appender
      * {@see Statement::bindValue()}.
      *
      * @throws \Error When no row is open.
-     * @throws Exception On a DuckDB conversion error; the appender is left invalid.
+     * @throws Exception On a conversion or native submission error. Native
+     * submission failures require clear() before reuse.
      */
     public function append(mixed $value): void {}
 
@@ -675,7 +892,13 @@ final class Appender
     /** Flush pending rows to the table. */
     public function flush(): void {}
 
-    /** Flush pending rows and invalidate the appender (idempotent). */
+    /**
+     * Discard all buffered rows and any partial row, clearing a failed state.
+     * Already-flushed data is unchanged. Closed appenders cannot be cleared.
+     */
+    public function clear(): void {}
+
+    /** Close permanently (idempotent), flushing pending rows or discarding them if failed. */
     public function close(): void {}
 }
 

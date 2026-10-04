@@ -1,0 +1,19 @@
+--- a/src/storage/compression/bitpacking.cpp
++++ b/src/storage/compression/bitpacking.cpp
+@@ -194,6 +194,16 @@
+ 
+ 		using T_U = typename MakeUnsigned<T_INNER>::type;
+ 
++		if (!all_valid) {
++			// NULL slots are not populated by Update(). Initialize them to
++			// the frame so subtraction produces a defined, in-range zero.
++			for (idx_t i = 0; i < compression_buffer_idx; i++) {
++				if (!compression_buffer_validity[i]) {
++					buffer[i] = frame_of_reference;
++				}
++			}
++		}
++
+ 		for (idx_t i = 0; i < compression_buffer_idx; i++) {
+ 			reinterpret_cast<T_U *>(buffer)[i] -= static_cast<T_U>(frame_of_reference);
+ 		}
