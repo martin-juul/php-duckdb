@@ -9,9 +9,9 @@
 %global pecl_name        duckdb
 %global upstream_version 1.3.1
 
-# libduckdb is not packaged for Fedora yet; build the pinned, patched
-# source SDK used by the project's Docker images.
-# Switch to a system duckdb-devel package once the distribution ships one.
+# Build the pinned, patched source SDK used by all packaging targets.
+# Keep the engine patch set consistent with the project SDK.
+# Package the patched engine alongside the PHP extension.
 %global duckdb_version   1.5.6
 
 # duckdb is a normal extension without load-order constraints: the
@@ -143,7 +143,8 @@ export DUCKDB_EXTENSION_PATH="$PWD/modules/duckdb.so"
 %files
 %license LICENSE duckdb-sdk/share/duckdb-sdk/LICENSE.duckdb
 %doc duckdb-sdk/share/duckdb-sdk/build.txt duckdb-sdk/share/duckdb-sdk/source.json
-%doc duckdb-sdk/share/duckdb-sdk/nullable-bitpacking.patch duckdb-sdk/share/duckdb-sdk/artifacts.json
+%doc duckdb-sdk/share/duckdb-sdk/nullable-bitpacking.patch
+%doc duckdb-sdk/share/duckdb-sdk/arrow-geometry.patch duckdb-sdk/share/duckdb-sdk/artifacts.json
 %doc README.md
 %config(noreplace) %{php_inidir}/%{ini_name}
 %{php_extdir}/%{pecl_name}.so

@@ -8,8 +8,13 @@ return typed values without opening a connection. These classes extend
 casting happen later, on the consuming connection.
 
 Full typed binding was merged in [PR #7](https://github.com/martin-juul/php-duckdb/pull/7).
-Value string rendering is the current feature: explicit, connection-aware
-display text for logs and debugging, without a round-trip SQL guarantee.
+Value string rendering was merged in
+[PR #8](https://github.com/martin-juul/php-duckdb/pull/8): explicit,
+connection-aware display text for logs and debugging, without a round-trip SQL
+guarantee. [Arrow schema/chunk conversion](arrow.md) is the current feature:
+C Data Interface import/export, reusable native chunks and batch appending.
+It is under development in this checkout and is not yet released. Standalone
+vectors are next.
 
 The intended PR sequence is:
 

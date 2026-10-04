@@ -50,6 +50,9 @@ tests/*.sh
 *.duckdb.wal
 .DS_Store
 
+# CMake / CLion build directories
+cmake-build-*/
+
 # CMake (in case of an accidental in-source configure)
 CMakeCache.txt
 CMakeFiles/

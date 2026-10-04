@@ -39,6 +39,13 @@ Rules:
 | `default_order` | `'DESC'` | Default sort order |
 | `enable_object_cache` | `true` | Cache parsed objects |
 | `enable_optimistic_write` | `false` | DuckDB 1.5.6+: disable optimistic writes during large appends (default `true`) |
+| `arrow_lossless_conversion` | `true` | Preserve Arrow extension types; enabled by default by this PHP extension |
+
+This checkout enables `arrow_lossless_conversion` before applying your constructor
+options. An explicit `false` is honored, but Arrow exports that would lose
+HUGEINT, UHUGEINT, BIT or TIMETZ data throw. Set it back to `true` before querying
+or exporting a native chunk. See [Arrow conversion](arrow.md) for consumer
+compatibility and type conversion details.
 
 Set `enable_optimistic_write` through the constructor configuration array or
 `SET enable_optimistic_write = false`; no new PHP method is needed. If you use

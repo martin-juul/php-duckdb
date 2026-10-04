@@ -104,12 +104,16 @@ source_url=$(pin url)
 source_hash=$(pin sha256)
 source_commit=$(pin commit)
 patch_file=$script_dir/$(pin patch)
-[ -f "$patch_file" ] || {
-    echo "Pinned DuckDB patch missing: $patch_file" >&2
-    exit 2
-}
+arrow_patch_file=$script_dir/patches/arrow-geometry.patch
+for required_patch in "$patch_file" "$arrow_patch_file"; do
+    [ -f "$required_patch" ] || {
+        echo "Pinned DuckDB patch missing: $required_patch" >&2
+        exit 2
+    }
+done
 
 patch_hash=$(hash "$patch_file")
+arrow_patch_hash=$(hash "$arrow_patch_file")
 platform=$(uname -s)
 case "$platform" in
     Linux)
@@ -146,6 +150,7 @@ fi
     echo "source_commit=$source_commit"
     echo "manifest_sha256=$(hash "$manifest")"
     echo "patch_sha256=$patch_hash"
+    echo "arrow_patch_sha256=$arrow_patch_hash"
     echo "builder_sha256=$(hash "$script_dir/build-sdk.sh")"
     echo "platform=$platform/$(uname -m)"
     if [ "$platform" = Linux ]; then
@@ -205,6 +210,7 @@ try:
         "share/duckdb-sdk/LICENSE.duckdb",
         "share/duckdb-sdk/source.json",
         "share/duckdb-sdk/nullable-bitpacking.patch",
+        "share/duckdb-sdk/arrow-geometry.patch",
     }
     if not isinstance(pins, dict) or set(pins) != required:
         raise ValueError("SDK artifact manifest does not contain the required files")
@@ -221,7 +227,7 @@ copy_sdk() {
     mkdir -p "$2/include" "$2/lib" "$destination_metadata"
     cp "$1/include/duckdb.h" "$2/include/duckdb.h"
     cp "$1/lib/$library" "$2/lib/$library"
-    for name in LICENSE.duckdb source.json nullable-bitpacking.patch build.txt artifacts.json; do
+    for name in LICENSE.duckdb source.json nullable-bitpacking.patch arrow-geometry.patch build.txt artifacts.json; do
         cp "$1/share/duckdb-sdk/$name" "$destination_metadata/$name"
     done
 }
@@ -294,6 +300,7 @@ rm -rf "$source_dir" "$build_dir"
 mkdir -p "$source_dir"
 tar -xzf "$archive" -C "$source_dir" --strip-components=1
 (cd "$source_dir" && patch -p1 -F 0 -t < "$patch_file")
+(cd "$source_dir" && patch -p1 -F 0 -t < "$arrow_patch_file")
 
 set -- -S "$source_dir" -B "$build_dir" -G "Unix Makefiles" \
     -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER="$cc" -DCMAKE_CXX_COMPILER="$cxx" \
@@ -318,6 +325,7 @@ cp "$build_dir/src/$library" "$prefix/lib/$library"
 cp "$source_dir/LICENSE" "$sdk_metadata/LICENSE.duckdb"
 cp "$manifest" "$sdk_metadata/source.json"
 cp "$patch_file" "$sdk_metadata/nullable-bitpacking.patch"
+cp "$arrow_patch_file" "$sdk_metadata/arrow-geometry.patch"
 cp "$metadata" "$sdk_metadata/build.txt"
 
 python3 - "$prefix" "$library" <<'PY'
@@ -333,6 +341,7 @@ names = [
     "share/duckdb-sdk/LICENSE.duckdb",
     "share/duckdb-sdk/source.json",
     "share/duckdb-sdk/nullable-bitpacking.patch",
+    "share/duckdb-sdk/arrow-geometry.patch",
 ]
 pins = {name: hashlib.sha256((prefix / name).read_bytes()).hexdigest() for name in names}
 (prefix / "share/duckdb-sdk/artifacts.json").write_text(json.dumps(pins, indent=2) + "\n")

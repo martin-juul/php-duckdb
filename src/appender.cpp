@@ -17,6 +17,8 @@
 
 #include "php_duckdb_cxx_compat.h"
 #include "php_duckdb.h"
+#include "data_chunk.h"
+#include <algorithm>
 
 #if defined(ZTS) && defined(COMPILE_DL_DUCKDB)
 #define DUCKDB_TSRMLS_CACHE_UPDATE() ZEND_TSRMLS_CACHE_UPDATE()
@@ -263,6 +265,85 @@ PHP_METHOD(DuckDB_Appender, flush) {
         duckdb_appender_fail(intern, "Failed to flush appender");
         RETURN_THROWS();
     }
+}
+
+static void duckdb_appender_append_chunk(INTERNAL_FUNCTION_PARAMETERS, bool from_arrow) {
+    zval *value;
+    zend_class_entry *ce = from_arrow ? duckdb_arrow_chunk_class_entry() : duckdb_data_chunk_ce;
+    ZEND_PARSE_PARAMETERS_START(1, 1)
+        Z_PARAM_OBJECT_OF_CLASS(value, ce)
+    ZEND_PARSE_PARAMETERS_END();
+
+    auto *intern = Z_DUCKDB_APPENDER_P(ZEND_THIS);
+    duckdb_appender appender = duckdb_appender_get(INTERNAL_FUNCTION_PARAM_PASSTHRU, intern);
+    if (!appender) {
+        RETURN_THROWS();
+    }
+    if (intern->inner->row_open) {
+        zend_throw_error(nullptr, "DuckDB\\Appender: a row is already open (call endRow() first)");
+        RETURN_THROWS();
+    }
+
+    std::lock_guard<std::mutex> lock(intern->inner->conn->mutex);
+    std::shared_ptr<data_chunk_data> data;
+    if (from_arrow) {
+        auto arrow = duckdb_arrow_chunk_from_zval(value);
+        if (!arrow) {
+            RETURN_THROWS();
+        }
+        data = duckdb_import_arrow_chunk(intern->inner->conn.get(), arrow);
+    } else {
+        data = duckdb_data_chunk_from_zval(value);
+    }
+    if (!data) {
+        RETURN_THROWS();
+    }
+    idx_t size = duckdb_data_chunk_get_size(data->chunk);
+    if (size <= duckdb_vector_size()) {
+        if (duckdb_append_data_chunk(appender, data->chunk) == DuckDBError) {
+            duckdb_appender_fail(intern, "Failed to append data chunk");
+            RETURN_THROWS();
+        }
+        return;
+    }
+
+    /* Arrow batches need not respect DuckDB's vector size. The appender's
+     * cast buffer does, so submit bounded chunks even for implicit casts. */
+    std::vector<scoped_duckdb_logical_type> owned_types;
+    std::vector<duckdb_logical_type> types;
+    for (idx_t col = 0; col < data->names.size(); col++) {
+        owned_types.emplace_back(duckdb_vector_get_column_type(duckdb_data_chunk_get_vector(data->chunk, col)));
+        types.push_back(owned_types.back().get());
+    }
+    scoped_duckdb_chunk batch(duckdb_create_data_chunk(types.data(), types.size()));
+    scoped_duckdb_selection selection(duckdb_create_selection_vector(duckdb_vector_size()));
+    sel_t *indices = duckdb_selection_vector_get_data_ptr(selection.get());
+    for (idx_t offset = 0; offset < size; offset += duckdb_vector_size()) {
+        idx_t count = std::min<idx_t>(duckdb_vector_size(), size - offset);
+        duckdb_data_chunk_reset(batch.get());
+        for (idx_t row = 0; row < count; row++) {
+            indices[row] = static_cast<sel_t>(offset + row);
+        }
+        for (idx_t col = 0; col < types.size(); col++) {
+            duckdb_vector_copy_sel(duckdb_data_chunk_get_vector(data->chunk, col),
+                                  duckdb_data_chunk_get_vector(batch.get(), col), selection.get(), count, 0, 0);
+        }
+        duckdb_data_chunk_set_size(batch.get(), count);
+        if (duckdb_append_data_chunk(appender, batch.get()) == DuckDBError) {
+            duckdb_appender_fail(intern, "Failed to append data chunk");
+            RETURN_THROWS();
+        }
+    }
+}
+
+PHP_METHOD(DuckDB_Appender, appendChunk) {
+    DUCKDB_TSRMLS_CACHE_UPDATE();
+    duckdb_appender_append_chunk(INTERNAL_FUNCTION_PARAM_PASSTHRU, false);
+}
+
+PHP_METHOD(DuckDB_Appender, appendArrow) {
+    DUCKDB_TSRMLS_CACHE_UPDATE();
+    duckdb_appender_append_chunk(INTERNAL_FUNCTION_PARAM_PASSTHRU, true);
 }
 
 PHP_METHOD(DuckDB_Appender, clear) {

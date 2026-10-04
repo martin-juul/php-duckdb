@@ -163,24 +163,53 @@ void duckdb_async_shutdown() {
  * returns. */
 static void duckdb_async_run_task(std::shared_ptr<async_task> task) {
     {
-        std::lock_guard<std::mutex> lk(task->conn->mutex);
-        duckdb_state state;
-        if (task->mode == task_mode::THREAD_PREPARED) {
-            state = duckdb_execute_prepared(task->stmt->stmt, &task->result);
-        } else {
-            state = duckdb_query(task->conn->conn, task->sql.c_str(), &task->result);
+        std::lock_guard<std::mutex> connection_lock(task->conn->mutex);
+        bool cancelled;
+        {
+            std::lock_guard<std::mutex> task_lock(task->m);
+            cancelled = task->cancel_requested;
+            task->worker_running = !cancelled;
         }
-        if (state == DuckDBError) {
+
+        if (cancelled) {
             task->error = true;
-            task->error_type = duckdb_result_error_type(&task->result);
-            const char *err = duckdb_result_error(&task->result);
-            task->error_msg = err ? err : "Query failed";
+            task->error_type = DUCKDB_ERROR_INTERRUPT;
+            task->error_msg = "Query interrupted";
+        } else {
+            duckdb_state state;
+            if (task->mode == task_mode::THREAD_PREPARED) {
+                state = duckdb_execute_prepared(task->stmt->stmt, &task->result);
+            } else {
+                state = duckdb_query(task->conn->conn, task->sql.c_str(), &task->result);
+            }
+            if (state == DuckDBError) {
+                task->error = true;
+                task->error_type = duckdb_result_error_type(&task->result);
+                const char *err = duckdb_result_error(&task->result);
+                task->error_msg = err ? err : "Query failed";
+            }
+        }
+
+        if (task->error) {
+            // Retain the copied error, but release its native result before
+            // publishing completion. Dropping this handle must not wait for
+            // a newer query to release the connection mutex.
+            duckdb_destroy_result(&task->result);
+            task->consumed = true;
+        }
+
+        // Publish completion before a subsequent query can acquire this
+        // connection. Cancellation interrupts under the same task mutex.
+        {
+            std::lock_guard<std::mutex> task_lock(task->m);
+            task->worker_running = false;
+            task->done = true;
         }
     }
 
-    {
-        std::lock_guard<std::mutex> lk(task->m);
-        task->done = true;
+    task->cv.notify_all();
+    if (task->cancellation_worker.joinable()) {
+        task->cancellation_worker.join();
     }
 
     if (duckdb_notify_fd_valid(task->notify_write_fd)) {
@@ -250,6 +279,10 @@ bool duckdb_task_step(std::shared_ptr<async_task> task) {
             /* duckdb_execute_pending does NOT consume the pending handle;
              * it stays owned by us and must be destroyed explicitly. */
             duckdb_destroy_pending(&task->pending);
+            if (task->error) {
+                duckdb_destroy_result(&task->result);
+                task->consumed = true;
+            }
         }
         /* DUCKDB_PENDING_RESULT_NOT_READY: call again to execute the next
          * task. DUCKDB_PENDING_NO_TASKS_AVAILABLE: all tasks are currently
@@ -278,7 +311,7 @@ void duckdb_pending_complete(php_duckdb_pending_object *intern, zval *return_val
     }
     task->consumed = true;
 
-    duckdb_result_instantiate(return_value, &task->result, /*streaming=*/false, nullptr);
+    duckdb_result_instantiate(return_value, &task->result, /*streaming=*/false, nullptr, task->conn);
 }
 
 /* ================================================================== */
@@ -347,6 +380,8 @@ void duckdb_task_cancel(std::shared_ptr<async_task> &task) {
             if (task->pending) {
                 task->discard_pending();
             }
+            duckdb_destroy_result(&task->result);
+            task->consumed = true;
         }
         {
             std::lock_guard<std::mutex> lk(task->m);
@@ -357,11 +392,37 @@ void duckdb_task_cancel(std::shared_ptr<async_task> &task) {
         }
         task->cv.notify_all();
     } else {
-        /* Interrupt the connection; the worker observes the interrupt and
-         * finishes with a DUCKDB_ERROR_INTERRUPT error. DuckDB interrupts
-         * are connection-level, so every query currently running on this
-         * connection is cancelled. */
-        duckdb_interrupt(task->conn->conn);
+        std::lock_guard<std::mutex> task_lock(task->m);
+        if (task->done || task->cancel_requested) {
+            return;
+        }
+
+        try {
+            // DuckDB clears its interrupt flag at query startup. Repeat
+            // interrupts until completion so cancellation cannot disappear
+            // between the worker's flag check and native query startup.
+            // The execution worker owns and joins this helper before its
+            // shared task is released or module shutdown can continue.
+            task->cancellation_worker = std::thread([raw_task = task.get()] {
+                std::unique_lock<std::mutex> lock(raw_task->m);
+                while (!raw_task->done) {
+                    if (raw_task->worker_running) {
+                        duckdb_interrupt(raw_task->conn->conn);
+                    }
+                    raw_task->cv.wait_for(lock, std::chrono::milliseconds(1),
+                                         [raw_task] { return raw_task->done; });
+                }
+            });
+        } catch (const std::exception &error) {
+            zend_throw_exception_ex(duckdb_internal_exception_ce, DUCKDB_ERROR_INTERNAL,
+                                    "Failed to start cancellation worker: %s", error.what());
+            return;
+        }
+
+        task->cancel_requested = true;
+        if (task->worker_running) {
+            duckdb_interrupt(task->conn->conn);
+        }
     }
 }
 

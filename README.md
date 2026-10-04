@@ -23,6 +23,8 @@ Feature highlights:
   `:name`) parameters
 - **Transactions** with PDO-style helpers
 - **Bulk inserts** via the Appender API
+- **Arrow batches** through the [C Data Interface](docs/arrow.md), with native
+  chunk conversion, schema inspection and batch appending
 - **Asynchronous execution** on background worker threads, with cancellation,
   progress reporting, Fiber suspension, coroutine-native **Swoole 6+**, **True
   Async**, **AMPHP v3** and **ReactPHP** integration, and event-loop support
@@ -34,6 +36,10 @@ Feature highlights:
   catalog types, VARIANT and GEOMETRY. Results use documented
   [PHP mappings](docs/types.md), including exact DECIMAL/HUGEINT strings and
   temporal objects; those mappings have type-specific precision limitations.
+
+The [runnable examples and API map](examples/README.md) cover the public API
+and application workflows: order analytics, typed ingestion, Arrow batch
+exchange and asynchronous reporting. Run them with `php tests/harness.php examples`.
 
 ## Comparison with alternatives
 
@@ -132,6 +138,40 @@ php -r 'var_dump(DuckDB\version());'   # e.g. "v1.5.6"
 
 On macOS use `--duckdb-dir=$(brew --prefix duckdb)`. On Windows use
 `config.w32` with `phpize` from the PHP SDK.
+
+### CLion and CMake setup
+
+Opening this repository in CLion with its default Ninja profile works without
+setting `DUCKDB_DIR` when a repository phpize/harness build already selected an
+SDK in `config.nice`. CMake reads that file as configuration data and checks the
+SDK's required APIs. A missing legacy cached `/opt/duckdb` default is migrated
+when the IDE reloads the project. If an automatically discovered temporary SDK
+disappears, the next configure retries discovery and automatic setup;
+`DUCKDB_AUTO_BUILD=OFF` still prevents downloading or compilation.
+
+On a fresh checkout, CMake automatically runs the shared SDK builder into
+`<build directory>/duckdb-sdk`. Cold configuration downloads the pinned engine,
+applies both repository patches and compiles it with the resource-aware worker
+budget. The builder needs Python 3, CMake, C/C++ compilers, curl, tar, patch and
+make; `DUCKDB_BUILD_JOBS` and `DUCKDB_SDK_CACHE_DIR` retain their usual meanings.
+The first configure can therefore take substantially longer than later reloads.
+Reloads verify automatically built SDK artifacts and source/patch pins; a pin
+change can trigger a rebuild. Explicit or `config.nice` SDKs remain managed by
+the build that supplied them.
+
+For an existing SDK, pass `-DDUCKDB_DIR=/path/to/sdk` in the CLion profile or
+set `DUCKDB_DIR` in its environment. Explicit paths are checked directly, with
+no fallback to an arbitrary system engine. For offline configuration, use
+`-DDUCKDB_AUTO_BUILD=OFF` and provide or reuse an existing SDK. SDK downloading
+and compilation then remain disabled.
+
+```bash
+cmake -S . -B cmake-build-debug -G Ninja
+cmake --build cmake-build-debug --parallel 2
+```
+
+CMake is an auxiliary Unix build for IDEs and analysis. Use the harness for
+normal validation and `config.w32` for Windows PHP SDK builds.
 
 For Packagist registration and tagged PIE releases, see the
 [publishing instructions](packaging/README.md#publishing-to-packagist-for-pie).
@@ -270,6 +310,37 @@ A query that fails _mid-stream_, for example on a cast error millions of rows
 into a result, throws the usual typed exception while fetching. A stream never
 silently truncates. Fetching again rethrows the error; the connection stays
 usable.
+
+## Arrow batches
+
+These APIs are under development in this checkout and are not included in the
+released 1.3.1 archive.
+
+Fetch columnar batches from buffered or streaming results, inspect their schemas,
+and convert them to reusable native chunks. Lossless Arrow conversion is enabled
+by default. Explicitly disabling it makes exports of HUGEINT, UHUGEINT, BIT and
+TIMETZ throw instead of losing data. The bundled SDK preserves geometry CRS
+without requiring an explicit transaction. VARIANT export is unsupported.
+See [conversion semantics](docs/arrow.md#type-conversion-settings).
+
+```php
+$source->query('SET arrow_lossless_conversion = true');
+$result = $source->queryStreaming('SELECT i::INTEGER AS id FROM range(10000) t(i)');
+$schema = $result->arrowSchema()->toArray();
+while (($arrow = $result->fetchArrowChunk()) !== null) {
+    $chunk = $destination->dataChunkFromArrow($arrow);
+    $appender->appendChunk($chunk);
+}
+```
+
+Create the destination table and appender on a separate connection before the
+loop. Conversion consumes the Arrow batch; native chunks can be appended,
+decoded with `toRows()` and exported again. Native address import/export uses
+the Arrow C Data Interface. Schema exports copy, array exports move, and
+callers own release of native exports. These APIs work without PHP FFI;
+FFI is optional for native address exchange. See [Arrow conversion](docs/arrow.md)
+for ownership, mixed row fetching and supported conversion semantics, and the
+[runnable example](examples/arrow.php).
 
 ## Prepared statements
 
@@ -783,14 +854,16 @@ build failure. `--junit=FILE` emits a JUnit report for CI.
 ### Layout
 
 `duckdb.stub.php` defines every signature and supplies the IDE/static-analysis
-stubs. Generate `duckdb_arginfo.h` from it and commit the generated file:
+stubs. Generate `duckdb_arginfo.h` using the generator from PHP 8.2 source,
+the minimum supported PHP version, and commit the generated file:
 
 ```bash
-php /path/to/php-src/build/gen_stub.php duckdb.stub.php
+php /path/to/php-8.2-src/build/gen_stub.php --force-regeneration duckdb.stub.php
 ```
 
 Never edit `duckdb_arginfo.h` by hand; regenerate it in the same commit as the
-stub change.
+stub change. Newer PHP generators can emit macros unavailable on PHP 8.2,
+even when the stub signatures themselves are compatible.
 
 Layout:
 

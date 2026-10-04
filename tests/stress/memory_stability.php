@@ -67,6 +67,16 @@ for ($iter = 0; $iter < $iterations; $iter++) {
         exit(1);
     }
 
+    // Repeated Arrow ownership transfers, nested decoding and re-export.
+    $arrow = $conn->query('SELECT i, [s, NULL] AS labels FROM stress LIMIT 100')->fetchArrowChunk();
+    $chunk = $conn->dataChunkFromArrow($arrow);
+    $copy = $conn->dataChunkFromArrow($chunk->toArrow($conn));
+    if (!$arrow->isConsumed() || $copy->rowCount() !== 100 || $copy->toRows() !== $chunk->toRows()) {
+        fwrite(STDERR, "wrong Arrow roundtrip at iteration {$iter}\n");
+        exit(1);
+    }
+    unset($arrow, $chunk, $copy);
+
     if ($iter === $warmup || $iter === $iterations - 1 || $iter % 50 === 0) {
         $readings[$iter] = memory_get_usage(true);
     }

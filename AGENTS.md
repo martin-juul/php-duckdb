@@ -22,6 +22,9 @@
   builds just to populate caches. Confirm cancellation has completed.
 - Edit `duckdb.stub.php` and regenerate arginfo; do not hand-edit generated
   signatures.
+- When native source lists, required SDK APIs, or build/packaging/CI settings
+  change, use the
+  [configuration synchronization skill](.agents/skills/php-duckdb-config-sync/SKILL.md).
 - Update affected docs/examples; use the
   [Markdown lint skill](.agents/skills/markdown-lint/SKILL.md) and
   `git diff --check`.

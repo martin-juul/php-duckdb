@@ -84,15 +84,28 @@ configuration is needed.
 ## Cancelling
 
 ```php
-$pending->cancel();   // the query fails with InterruptedException
+$pending->cancel();   // idempotent; await() reports InterruptedException
 ```
+
+Worker cancellation is nonblocking and belongs to that pending query. It
+persists through native query startup; queued cancelled work is skipped. It
+does not interrupt an earlier or later query on the same connection. Drain the
+handle with `await()` or the active scheduler to observe `InterruptedException`
+before reusing application state. Cancelling a completed query leaves its
+result and connection unchanged. Polling cancellation drains its native pending
+work on the calling thread.
 
 ## Progress and interruption from elsewhere
 
 ```php
 $conn->queryProgress();   // ['percentage' => 42.0, 'rowsProcessed' => …, 'totalRowsToProcess' => …]
-$conn->interrupt();       // kill everything running on this connection
+$conn->interrupt();       // interrupt the currently running connection query
 ```
+
+`Connection::interrupt()` targets the query currently executing on the
+connection; it cannot cancel queued work or reserve an interruption for a
+query that has not started. Use `PendingQuery::cancel()` to cancel a specific
+background job, including one still queued.
 
 A watchdog fiber can use these methods to display progress or enforce a
 timeout. Both are safe to call from another thread/fiber.

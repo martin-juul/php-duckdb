@@ -2,7 +2,9 @@
 
 The PHP extension and the embedded DuckDB engine have separate versions. This
 checkout uses extension **1.3.1**, and its pinned build recipes use **DuckDB
-1.5.6**. Before upgrading, check the versions loaded by the actual process:
+1.5.6**. Arrow APIs documented here are under development in this checkout
+and are not included in the released 1.3.1 archive. Before upgrading, check
+the versions loaded by the actual process:
 
 ```php
 printf("PHP %s; extension %s; DuckDB %s\n",
@@ -16,33 +18,72 @@ for this checkout. The job definitions are in [CI](../.github/workflows/ci.yml),
 [packaging](../.github/workflows/packaging.yml), and
 [Docker](../.github/workflows/docker.yml).
 
-| PHP | Source CI | Docker | Local validation for this change |
+| PHP | Source CI | Docker | Current local validation |
 | --- | --------------------------------------- | --------------- | -------------------------------------------------------------------------------------------------------------------------- |
-| 8.2 | Linux and macOS | amd64 and arm64 | Not run locally |
-| 8.3 | Linux and macOS | amd64 and arm64 | Not run locally |
-| 8.4 | Linux and macOS; PIE install smoke test | amd64 and arm64 | Linux x86_64, DuckDB 1.5.6: build passed; 81 PHPTs passed, 3 optional-runtime tests skipped |
-| 8.5 | Linux and macOS | amd64 and arm64 | Linux x86_64, PHP 8.5.11 NTS, DuckDB 1.5.6: build passed; 81 PHPTs passed, 3 optional-runtime tests skipped |
+| 8.2 | Linux and macOS | amd64 and arm64 | Amazon Linux 2023 x86_64, PHP 8.2.33: native package checks passed; 92 PHPTs passed, 4 optional-runtime tests skipped; 21 examples passed |
+| 8.3 | Linux and macOS | amd64 and arm64 | Amazon Linux 2023 x86_64, PHP 8.3.33: native package checks passed; 92 PHPTs passed, 4 optional-runtime tests skipped; 21 examples passed |
+| 8.4 | Linux and macOS; PIE install smoke test | amd64 and arm64 | Linux x86_64, PHP 8.4.26 NTS, DuckDB 1.5.6: full harness passed; 92 PHPTs passed, 4 optional-runtime tests skipped; 91 Valgrind tests passed |
+| 8.5 | Linux and macOS | amd64 and arm64 | Linux x86_64, PHP 8.5.11 NTS, DuckDB 1.5.6: build and 93 PHPTs passed, 3 optional-runtime tests skipped; full host Valgrind run blocked by its internal Fiber crash |
 
-AMPHP and ReactPHP tests also pass in a separate run with those dependencies
-installed. An isolated CMake build with PHP 8.5.11 and DuckDB 1.5.5 passes 80
-PHPTs, with four optional-runtime tests skipped. The CI TrueAsync image with
-PHP 8.6 ZTS and DuckDB 1.5.6 passes 81 PHPTs, with three optional-runtime tests
-skipped; a focused run confirms that the TrueAsync reactor test executes and
-passes. All environments, including PHP 8.4, pass all 14 examples and both
-stress scripts.
+The PHP 8.4 and 8.5 development environments passed all 21 example scripts
+and both stress scripts,
+including repeated Arrow ownership transfers. Optional framework examples
+report a skip when their runtime is absent. The PHP 8.4 full run used an
+isolated container with FFI enabled, 12 CPUs and 40 GiB RAM; four workers were
+allocated while independent package builds ran. Swoole, True Async, AMPHP and
+ReactPHP integration tests skipped there; the PHP 8.5 host ran Swoole and
+skipped the other three.
+
+The full Valgrind run retains five existing exclusions: streaming mid-flight
+errors and the Swoole, True Async, AMPHP and ReactPHP integration tests. All
+Arrow tests, including FFI exchange and sliced batches, ran under Memcheck.
+No new exclusions or suppressions were added. The native geometry C API
+regression passed normally and under Valgrind with zero errors and zero lost
+allocations.
+
+Host Valgrind 3.27.1 crashes internally in its stack unwinder during the
+existing Fiber test. A separate PHP FFI/native-thread reproducer triggers the
+same crash without loading DuckDB. The isolated PHP 8.4 run with Valgrind
+3.19.0 passes the full suite, including that Fiber test. The host full
+Valgrind run is therefore not a pass.
+
+Earlier validation before the Arrow changes also covered DuckDB 1.5.5,
+AMPHP/ReactPHP dependencies and the PHP 8.6 ZTS True Async runtime. Those
+combinations have not been revalidated for Arrow in this checkout.
 
 | Packaging target | PHP selection | DuckDB source | Architectures |
 | -------------------- | ---------------------------- | ---------------------- | ------------- |
-| Debian sid | Distribution PHP | System `libduckdb-dev` | amd64, arm64 |
+| Debian sid | Distribution PHP | Vendored 1.5.6 | amd64, arm64 |
 | Debian 13 trixie | Distribution PHP | Vendored 1.5.6 | amd64, arm64 |
 | Ubuntu 24.04 / 26.04 | Distribution PHP (8.3 / 8.5) | Vendored 1.5.6 | amd64, arm64 |
-| Ubuntu devel | Distribution PHP | System `libduckdb-dev` | amd64, arm64 |
+| Ubuntu devel | Distribution PHP | Vendored 1.5.6 | amd64, arm64 |
 | Fedora 44 | Distribution PHP | Vendored 1.5.6 | amd64, arm64 |
 | AlmaLinux 9 / 10 | Remi PHP 8.2–8.5 | Vendored 1.5.6 | amd64, arm64 |
+| Amazon Linux 2023 | Distribution PHP 8.2–8.5 | Vendored 1.5.6 | amd64, arm64 |
+| Amazon Linux 2027 preview | Distribution PHP 8.5 | Vendored 1.5.6 | amd64, arm64 |
 | openSUSE Tumbleweed | Distribution PHP | Vendored 1.5.6 | amd64, arm64 |
 | macOS tarballs | PHP 8.2–8.5 | Vendored 1.5.6 | x86_64, arm64 |
 | Windows ZIPs | PHP 8.2–8.5, TS and NTS | Vendored 1.5.6 | x64 |
 | Docker | PHP 8.2–8.5 | Pinned 1.5.6 | amd64, arm64 |
+
+Amazon Linux packaging uses the shared patched SDK. The 2027 target is an
+[evaluation preview](https://docs.aws.amazon.com/linux/al2027/ug/container-base.html),
+with [PHP 8.5](https://docs.aws.amazon.com/linux/al2027/ug/language-runtimes-php.html).
+The Debian sid and Ubuntu devel private-engine packages passed native x86_64
+builds, installation, loader/provenance checks and the installed-package smoke
+test, with the system DuckDB package installed alongside them. Debian PHP
+8.4.26 and Ubuntu PHP 8.5.9 each passed 92 PHPTs and all 21 examples against
+the installed package with FFI enabled. Their native package builds each
+passed 87 PHPTs, skipping five FFI tests subsequently covered by the installed
+checks. Four optional runtime integrations were unavailable in each environment.
+
+Amazon Linux native x86_64 validation passed for all five configurations:
+AL2023 with PHP 8.2.33, 8.3.33, 8.4.25 and 8.5.10, and AL2027 preview with
+PHP 8.5.10. Each passed 92 PHPTs and all 21 examples, with four optional
+runtime skips. All five installed packages passed the patched-engine smoke
+and private-library loader checks. Their aarch64 CI jobs have not been run
+locally. Architectures and release targets not covered above still require
+their own native validation.
 
 Windows packaging uses `windows-2022` with the matching official PHP
 toolchains: VS16 for PHP 8.2/8.3 and VS17 for PHP 8.4/8.5. Each of these eight
@@ -65,15 +106,16 @@ Valgrind coverage is claimed.
 | Engine | Status |
 | ------------------------------ | ---------------------------------------------------------------------------------------------------- |
 | 1.5.6 | Current pinned target; matching headers and library required |
-| 1.5.5 | Supported distribution baseline; typed binding, examples and stress tests pass |
-| Distribution library | Version follows the package repository; its configured build/test job must validate that combination |
+| 1.5.5 | Supported distribution baseline; earlier typed binding, examples and stress checks passed; Arrow not revalidated locally |
+| External library (manual source builds) | Validate the actual library separately; packaging recipes use the shared patched SDK |
 | Other older or future versions | Unverified; build and run the suite before deployment |
 
 The build checks for the required C API functions. It does not require the
 version macros introduced in DuckDB 1.5.6: DuckDB 1.5.5 already provides the
 expression folding, scalar bind and geometry CRS APIs used by typed binding.
-Debian system-library packaging requires `libduckdb-dev >= 1.5.5`; older
-versions are unverified.
+All packaging recipes use the pinned patched SDK; manual external-library
+builds must provide the required APIs and validate Arrow transaction/CRS
+behavior.
 
 ## C API audit: 1.5.5 → 1.5.6
 
@@ -88,27 +130,30 @@ formerly unstable functions as stable**. Twelve were already used by this
 driver: instance caching, table-name discovery, prepared column metadata, and
 structured appender/error reporting.
 
-| Newly stable family | PHP binding status in 1.3.1 |
+| Newly stable family | Current PHP binding status |
 | ------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------- |
 | Instance cache, table-name discovery, prepared metadata, error data | Already used internally or exposed through existing methods |
 | Appender clear | Exposed through `Appender::clear()` for explicit discard and recovery |
 | Query appenders, appender default-to-chunk | Additional capability requiring explicit binding work |
 | Client context, catalog, configuration options, file-system handles | Additional capability requiring explicit binding work |
-| Arrow schema/chunk conversion | No Arrow PHP binding |
+| Arrow schema/chunk conversion | Exposed through `ArrowSchema`, `ArrowChunk` and `DataChunk`, with C Data Interface import/export and batch appending |
 | Typed values and value constructors | Full typed input through native PHP value classes; C value handles remain internal |
 | Geometry CRS | Typed geometry preserves CRS metadata; additional CRS APIs are not public |
 | Scalar bind callbacks and expressions | Used internally for typed conversion; no public PHP callback or expression-handle API |
 | COPY functions, scalar init callbacks, table-function metadata, custom logging | No corresponding PHP callback/handle surface |
-| Standalone vectors, selection vectors, value string rendering, UTF-8 checks | Additional capability requiring explicit binding work |
+| Value string rendering | Exposed through `Value::toString(Connection)` for connection-aware display text |
+| Standalone vectors, selection vectors, UTF-8 checks | Additional capability requiring explicit binding work |
 
 [Native typed value classes](value.md) provide complete typed input for
 prepared statements, execution parameter arrays and Appender, including
 geometry with CRS metadata. Their internal conversion path uses a private
 native scalar bind callback and expression folding; it does not expose PHP UDF
 callbacks or expression handles. Stabilization alone does not make every C
-handle a PHP API. General value string rendering and the other planned public
-APIs remain in the [roadmap](roadmap.md). The PHP surface is specified in
-[the stub](../duckdb.stub.php) and [API reference](api.md).
+handle a PHP API. Connection-aware [value string rendering](value.md#display-text)
+is available through `Value::toString(Connection)`. [Arrow conversion](arrow.md)
+provides schema and batch handles with native address exchange. The remaining planned
+public APIs are listed in the [roadmap](roadmap.md). The PHP surface is
+specified in [the stub](../duckdb.stub.php) and [API reference](api.md).
 
 The
 [DuckDB 2.0 API spellings backport](https://github.com/duckdb/duckdb/pull/24852)
@@ -144,12 +189,12 @@ check layout and payload bounds and retain DuckDB's MIT attribution.
 
 ## Memcheck and nullable integer persistence
 
-The full PHP 8.4 harness passes with the patched DuckDB 1.5.6 SDK: 81 PHPTs
-pass with three optional-runtime skips, all 79 Memcheck tests pass without
-warnings or errors, and all 14 examples and both stress scripts pass. Five
-tests retain their existing Memcheck exclusions. This run uses the final SDK
-with all five built-in extensions, including autocomplete, in a two-CPU local
-container. The native persistence matrix also passes under Memcheck.
+The current full PHP 8.4.26 harness passes with the patched DuckDB 1.5.6 SDK:
+92 PHPTs pass with four optional-runtime skips, all 91 Memcheck tests pass,
+and all 21 example scripts and both stress scripts pass. Five existing Memcheck
+exclusions remain. See the platform coverage above for the container and
+host Valgrind limitations. Earlier native persistence validation also passed
+under Memcheck.
 
 DuckDB 1.5.6 writes uninitialized bitpacking bytes while persisting nullable
 integers. The [standalone C reproducer](../tests/native/nullable_bitpacking.c)
@@ -186,8 +231,8 @@ Memcheck errors with the original SDK and zero with the patched SDK, with no
 lost allocations. Both persistence benchmarks retain their original file
 sizes with the patch.
 
-Vendored packages and Docker builds use this patched SDK. System-library
-packages and manually supplied engines need an equivalent upstream or
-distribution backport. The PHP extension continues to use only the C API.
+All packaging recipes and Docker builds use this patched SDK. Manually
+supplied external engines need an equivalent upstream or distribution
+backport. The PHP extension continues to use only the C API.
 See the [patch inventory](../packaging/duckdb/patches/README.md) for the exact
 source baseline, upstream tracking and criteria for removing the local fix.

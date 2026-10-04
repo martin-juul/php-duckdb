@@ -27,6 +27,8 @@ extern "C" {
 #include "php_streams.h"
 #include "php_duckdb.h"
 #include "src/type_classes.h"
+#include "src/arrow.h"
+#include "src/data_chunk.h"
 #include "duckdb_arginfo.h"
 #include <unordered_map>
 
@@ -275,6 +277,12 @@ PHP_METHOD(DuckDB_Database, __construct) {
         RETURN_THROWS();
     }
 
+    /* Preserve Arrow values by default; explicit database options still win. */
+    if (duckdb_set_config(cfg.get(), "arrow_lossless_conversion", "true") == DuckDBError) {
+        duckdb_throw_msg("Failed to enable lossless Arrow conversion");
+        RETURN_THROWS();
+    }
+
     if (config) {
         zend_string *key;
         zend_long num_key;
@@ -436,7 +444,7 @@ PHP_METHOD(DuckDB_Connection, query) {
         }
     }
 
-    duckdb_result_instantiate(return_value, &res, /*streaming=*/false, nullptr);
+    duckdb_result_instantiate(return_value, &res, /*streaming=*/false, nullptr, intern->inner);
 }
 
 PHP_METHOD(DuckDB_Connection, queryStreaming) {
@@ -500,7 +508,7 @@ PHP_METHOD(DuckDB_Connection, queryStreaming) {
         intern->inner->execution_epoch.fetch_add(1, std::memory_order_relaxed);
     }
 
-    duckdb_result_instantiate(return_value, &res, /*streaming=*/true, stmt);
+    duckdb_result_instantiate(return_value, &res, /*streaming=*/true, stmt, intern->inner);
 }
 
 PHP_METHOD(DuckDB_Connection, queryAsync) {
@@ -668,7 +676,7 @@ PHP_METHOD(DuckDB_Connection, execute) {
         duckdb_destroy_prepare(&ps);
     }
 
-    duckdb_result_instantiate(return_value, &res, /*streaming=*/false, nullptr);
+    duckdb_result_instantiate(return_value, &res, /*streaming=*/false, nullptr, intern->inner);
 }
 
 PHP_METHOD(DuckDB_Connection, prepare) {
@@ -1002,6 +1010,8 @@ PHP_MINIT_FUNCTION(duckdb) {
     DUCKDB_REGISTER_CLASS(connection, register_class_DuckDB_Connection);
     DUCKDB_REGISTER_CLASS(statement, register_class_DuckDB_Statement);
     duckdb_statement_handlers.get_gc = duckdb_statement_get_gc;
+    duckdb_register_arrow_classes(register_class_DuckDB_ArrowSchema(), register_class_DuckDB_ArrowChunk());
+    duckdb_register_data_chunk_class(register_class_DuckDB_DataChunk());
     DUCKDB_REGISTER_CLASS(result, register_class_DuckDB_Result, zend_ce_aggregate);
     DUCKDB_REGISTER_CLASS(result_iterator, register_class_DuckDB_ResultIterator, zend_ce_iterator);
     DUCKDB_REGISTER_CLASS(pending, register_class_DuckDB_PendingQuery);

@@ -55,8 +55,9 @@ repository and the `.p5p` archive remain there. Redirect the build's output
 to a file when a persistent compilation log is needed.
 
 `build-sdk.sh` uses the shared [source pin](../duckdb/source.json) and
-[nullable-bitpacking patch](../duckdb/patches/nullable-bitpacking.patch).
-It verifies the archive SHA-256 and applies the patch without fuzz. Set
+[nullable-bitpacking patch](../duckdb/patches/nullable-bitpacking.patch), plus
+the [Arrow conversion/geometry patch](../duckdb/patches/arrow-geometry.patch).
+It verifies the archive SHA-256 and applies both patches without fuzz. Set
 `DUCKDB_SOURCE_ARCHIVE` to a local copy of that exact archive for an offline
 engine build. Dependency resolution still needs the installed IPS image
 and its publishers. The shared Linux/macOS SDK builder rejects SunOS, so
@@ -106,7 +107,7 @@ The extension has a runtime search path to its private library under
 `/opt/php-duckdb/php-<minor>/lib`; it does not replace a system DuckDB.
 Enable the same absolute extension path in your PHP configuration after
 the smoke test, and validate the intended CLI/FPM/web runtime separately.
-The package carries both MIT licenses, the source pin, engine patch, build
+The package carries both MIT licenses, the source pin, both engine patches, build
 metadata and SDK artifact hashes.
 IPS uses the `i386` architecture variant for this amd64 package; the native
 kernel and PHP checks require 64-bit execution.
