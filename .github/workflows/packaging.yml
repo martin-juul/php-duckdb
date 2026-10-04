@@ -33,6 +33,9 @@ on:
       - 'src/**'
       - 'tests/**'
       - '.github/workflows/packaging.yml'
+      - '.github/actions/duckdb-sdk-cache/**'
+      - '.github/scripts/sdk-cache-key.py'
+      - '.github/tests/test_sdk_cache_key.py'
   pull_request:
     paths:
       - 'packaging/**'
@@ -45,11 +48,24 @@ on:
       - 'src/**'
       - 'tests/**'
       - '.github/workflows/packaging.yml'
+      - '.github/actions/duckdb-sdk-cache/**'
+      - '.github/scripts/sdk-cache-key.py'
+      - '.github/tests/test_sdk_cache_key.py'
   release:
     types: [published]
 
 jobs:
+  sdk-cache-tests:
+    name: SDK cache contracts
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 .github/tests/test_sdk_cache_key.py
+      - run: python3 -m unittest discover -s packaging/duckdb/tests -p 'test_*.py'
+      - run: pwsh -NoProfile -File packaging/duckdb/tests/test_cache.ps1
+
   opensuse-rpm:
+    needs: sdk-cache-tests
     name: openSUSE Tumbleweed RPM (${{ matrix.arch }})
     runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
     strategy:
@@ -111,8 +127,21 @@ jobs:
       # -ba builds the binary RPMs AND the SRPM; the spec's %check runs
       # the full .phpt suite (Swoole/AMPHP/ReactPHP/True-Async tests skip
       # — those extensions are not installed here).
+      - name: Restore verified DuckDB SDK artifacts
+        id: sdk-cache
+        uses: ./.github/actions/duckdb-sdk-cache
+        with:
+          target: opensuse
+
       - name: Build RPM (with test suite)
         run: rpmbuild --define '_topdir /root/rpmbuild' -ba /root/rpmbuild/SPECS/php-duckdb.spec
+
+      - name: Save completed DuckDB SDK artifacts
+        if: ${{ !cancelled() && steps.sdk-cache.outputs.key != '' && steps.sdk-cache.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ steps.sdk-cache.outputs.path }}
+          key: ${{ steps.sdk-cache.outputs.key }}
 
       - name: Install RPM and smoke test with system PHP
         run: |
@@ -131,6 +160,7 @@ jobs:
           if-no-files-found: error
 
   fedora-rpm:
+    needs: sdk-cache-tests
     name: Fedora 44 RPM (${{ matrix.arch }})
     runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
     strategy:
@@ -165,8 +195,21 @@ jobs:
       # -ba builds the binary RPMs AND the SRPM; the spec's %check runs
       # the full .phpt suite (Swoole/AMPHP/ReactPHP/True-Async tests skip
       # — those extensions are not installed here).
+      - name: Restore verified DuckDB SDK artifacts
+        id: sdk-cache
+        uses: ./.github/actions/duckdb-sdk-cache
+        with:
+          target: fedora
+
       - name: Build RPM (with test suite)
         run: rpmbuild --define '_topdir /root/rpmbuild' -ba /root/rpmbuild/SPECS/php-pecl-duckdb.spec
+
+      - name: Save completed DuckDB SDK artifacts
+        if: ${{ !cancelled() && steps.sdk-cache.outputs.key != '' && steps.sdk-cache.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ steps.sdk-cache.outputs.path }}
+          key: ${{ steps.sdk-cache.outputs.key }}
 
       - name: Install RPM and smoke test with system PHP
         run: |
@@ -185,6 +228,7 @@ jobs:
           if-no-files-found: error
 
   almalinux-rpm:
+    needs: sdk-cache-tests
     name: AlmaLinux ${{ matrix.os }} RPM — Remi PHP ${{ matrix.php }} (${{ matrix.arch }})
     runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
     strategy:
@@ -240,8 +284,21 @@ jobs:
       # The spec's %check runs the full .phpt suite (Swoole/AMPHP/
       # ReactPHP/True-Async tests skip — those extensions are not
       # installed here).
+      - name: Restore verified DuckDB SDK artifacts
+        id: sdk-cache
+        uses: ./.github/actions/duckdb-sdk-cache
+        with:
+          target: almalinux
+
       - name: Build RPM (with test suite)
         run: rpmbuild --define '_topdir /root/rpmbuild' -bb /root/rpmbuild/SPECS/php-pecl-duckdb.spec
+
+      - name: Save completed DuckDB SDK artifacts
+        if: ${{ !cancelled() && steps.sdk-cache.outputs.key != '' && steps.sdk-cache.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ steps.sdk-cache.outputs.path }}
+          key: ${{ steps.sdk-cache.outputs.key }}
 
       - name: Install RPM and smoke test with Remi PHP
         run: |
@@ -322,6 +379,7 @@ jobs:
           if-no-files-found: error
 
   debian-trixie-deb:
+    needs: sdk-cache-tests
     name: Debian 13 trixie deb (${{ matrix.arch }})
     runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
     strategy:
@@ -372,8 +430,21 @@ jobs:
       # LD_LIBRARY_PATH pointed at the staged duckdb-sdk/lib
       # (Swoole/AMPHP/ReactPHP/True-Async tests skip — those extensions
       # are not installed here).
+      - name: Restore verified DuckDB SDK artifacts
+        id: sdk-cache
+        uses: ./.github/actions/duckdb-sdk-cache
+        with:
+          target: debian-trixie
+
       - name: Build deb (with test suite)
         run: cd /root/src && dpkg-buildpackage -us -uc -b
+
+      - name: Save completed DuckDB SDK artifacts
+        if: ${{ !cancelled() && steps.sdk-cache.outputs.key != '' && steps.sdk-cache.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ steps.sdk-cache.outputs.path }}
+          key: ${{ steps.sdk-cache.outputs.key }}
 
       - name: Install deb and smoke test with system PHP
         run: |
@@ -390,6 +461,7 @@ jobs:
           if-no-files-found: error
 
   ubuntu-lts-deb:
+    needs: sdk-cache-tests
     name: Ubuntu ${{ matrix.release }} LTS deb (${{ matrix.arch }})
     runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
     strategy:
@@ -440,8 +512,21 @@ jobs:
       # LD_LIBRARY_PATH pointed at the staged duckdb-sdk/lib
       # (Swoole/AMPHP/ReactPHP/True-Async tests skip — those extensions
       # are not installed here).
+      - name: Restore verified DuckDB SDK artifacts
+        id: sdk-cache
+        uses: ./.github/actions/duckdb-sdk-cache
+        with:
+          target: ubuntu
+
       - name: Build deb (with test suite)
         run: cd /root/src && dpkg-buildpackage -us -uc -b
+
+      - name: Save completed DuckDB SDK artifacts
+        if: ${{ !cancelled() && steps.sdk-cache.outputs.key != '' && steps.sdk-cache.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ steps.sdk-cache.outputs.path }}
+          key: ${{ steps.sdk-cache.outputs.key }}
 
       - name: Install deb and smoke test with system PHP
         run: |
@@ -520,6 +605,7 @@ jobs:
   # macOS 12+. Both engine and extension are compiled for baseline CPUs;
   # no native CPU optimization is enabled in the source SDK builder.
   macos-tarball:
+    needs: sdk-cache-tests
     name: macOS 12+ ${{ matrix.arch }} tarball — PHP ${{ matrix.php }}
     runs-on: ${{ matrix.arch == 'x86_64' && 'macos-15-intel' || 'macos-15' }}
     strategy:
@@ -549,10 +635,25 @@ jobs:
       - name: Install SDK build tools
         run: brew install cmake python
 
+      - name: Restore verified DuckDB SDK artifacts
+        id: sdk-cache
+        uses: ./.github/actions/duckdb-sdk-cache
+        env:
+          MACOSX_DEPLOYMENT_TARGET: '12.0'
+        with:
+          target: macos
+
       - name: Build, test and package
         env:
           MACOSX_DEPLOYMENT_TARGET: '12.0'
         run: sh packaging/macos/build.sh
+
+      - name: Save completed DuckDB SDK artifacts
+        if: ${{ !cancelled() && steps.sdk-cache.outputs.key != '' && steps.sdk-cache.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ steps.sdk-cache.outputs.path }}
+          key: ${{ steps.sdk-cache.outputs.key }}
 
       # Install the packaged tarball into the runner's PHP exactly like
       # a user would (sh install.sh, not the distro ini mechanism), then
@@ -573,6 +674,7 @@ jobs:
           if-no-files-found: error
 
   windows-zip:
+    needs: sdk-cache-tests
     name: Windows x64 ZIP — PHP ${{ matrix.php }} ${{ matrix.ts }}
     runs-on: windows-2022
     strategy:
@@ -601,10 +703,23 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Builder checkout failed' }
           if ((git -C $builder rev-parse HEAD) -ne $env:BUILDER_SHA) { throw 'Builder revision mismatch' }
 
+      - name: Restore verified DuckDB SDK artifacts
+        id: sdk-cache
+        uses: ./.github/actions/duckdb-sdk-cache
+        with:
+          target: windows
+
       - name: Build, test, package and smoke-test extracted ZIP
         run: |
           ./packaging/windows/build.ps1 -PhpVersion '${{ matrix.php }}' -ThreadSafety '${{ matrix.ts }}' `
             -BuilderPath "$env:RUNNER_TEMP/php-windows-builder" -BuildRoot "$env:RUNNER_TEMP/duckdb-windows"
+
+      - name: Save completed DuckDB SDK artifacts
+        if: ${{ !cancelled() && steps.sdk-cache.outputs.key != '' && steps.sdk-cache.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ steps.sdk-cache.outputs.path }}
+          key: ${{ steps.sdk-cache.outputs.key }}
 
       - name: Upload Windows package
         uses: actions/upload-artifact@v4

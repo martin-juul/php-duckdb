@@ -8,6 +8,7 @@ prefix=${DUCKDB_SDK_PREFIX:-/opt/duckdb}
 work_dir=${DUCKDB_BUILD_DIR:-/tmp/php-duckdb-sdk-build}
 jobs=${DUCKDB_BUILD_JOBS:-}
 disable_unity=${DUCKDB_DISABLE_UNITY:-OFF}
+fingerprint_only=false
 
 case "$disable_unity" in
     ON|OFF)
@@ -40,8 +41,12 @@ while [ "$#" -gt 0 ]; do
 
             shift 2
             ;;
+        --fingerprint)
+            fingerprint_only=true
+            shift
+            ;;
         --help)
-            echo "Usage: $0 [--prefix PATH] [--work-dir PATH] [--jobs N]"
+            echo "Usage: $0 [--prefix PATH] [--work-dir PATH] [--jobs N] [--fingerprint]"
             exit 0
             ;;
         *)
@@ -51,22 +56,15 @@ while [ "$#" -gt 0 ]; do
     esac
 done
 
-if [ -z "$jobs" ]; then
-    jobs=$(python3 "$script_dir/../resources/jobs.py" --profile sdk)
-fi
-
-case "$jobs" in
-    ''|0*|*[!0-9]*)
-        echo "Jobs must be a positive integer" >&2
-        exit 2
-        ;;
-esac
-
 [ -n "$prefix" ] && [ -n "$work_dir" ] && [ "$work_dir" != / ] || {
     echo "Prefix and work directory must be nonempty; work directory cannot be /" >&2
     exit 2
 }
-for tool in python3 curl tar patch cmake make; do
+tools="python3 cmake"
+if [ "$fingerprint_only" = false ]; then
+    tools="$tools curl tar patch make"
+fi
+for tool in $tools; do
     command -v "$tool" >/dev/null || {
         echo "Required tool missing: $tool" >&2
         exit 2
@@ -133,9 +131,15 @@ command -v "$cc" >/dev/null && command -v "$cxx" >/dev/null || {
     exit 2
 }
 
-mkdir -p "$work_dir"
-work_dir=$(CDPATH= cd -- "$work_dir" && pwd)
-metadata=$work_dir/expected-build.txt
+if [ "$fingerprint_only" = true ]; then
+    metadata=$(mktemp "${TMPDIR:-/tmp}/duckdb-sdk-metadata.XXXXXX")
+    trap 'rm -f "$metadata"' 0
+else
+    mkdir -p "$work_dir"
+    work_dir=$(CDPATH= cd -- "$work_dir" && pwd)
+    metadata=$work_dir/expected-build.txt
+fi
+
 {
     echo "version=$version"
     echo "source_sha256=$source_hash"
@@ -163,10 +167,29 @@ metadata=$work_dir/expected-build.txt
     echo "osx_deployment_target=${MACOSX_DEPLOYMENT_TARGET:-11.0}"
 } > "$metadata"
 fingerprint=$(hash "$metadata")
+if [ "$fingerprint_only" = true ]; then
+    printf '%s\n' "$fingerprint"
+    exit 0
+fi
+
+if [ -z "$jobs" ]; then
+    jobs=$(python3 "$script_dir/../resources/jobs.py" --profile sdk)
+fi
+
+case "$jobs" in
+    ''|0*|*[!0-9]*)
+        echo "Jobs must be a positive integer" >&2
+        exit 2
+        ;;
+esac
+
 sdk_metadata=$prefix/share/duckdb-sdk
 
-if [ -f "$sdk_metadata/build.txt" ] && cmp -s "$metadata" "$sdk_metadata/build.txt"; then
-    if python3 - "$prefix" "$library" <<'PY'
+verify_sdk() {
+    [ -f "$1/share/duckdb-sdk/build.txt" ] &&
+        cmp -s "$metadata" "$1/share/duckdb-sdk/build.txt" || return 1
+
+    python3 - "$1" "$library" <<'PY'
 import hashlib
 import json
 import pathlib
@@ -183,15 +206,69 @@ try:
         "share/duckdb-sdk/source.json",
         "share/duckdb-sdk/nullable-bitpacking.patch",
     }
-    assert set(pins) == required
+    if not isinstance(pins, dict) or set(pins) != required:
+        raise ValueError("SDK artifact manifest does not contain the required files")
     for name, expected in pins.items():
-        assert hashlib.sha256((prefix / name).read_bytes()).hexdigest() == expected
-except (OSError, ValueError, AssertionError):
+        if hashlib.sha256((prefix / name).read_bytes()).hexdigest() != expected:
+            raise ValueError("SDK artifact checksum mismatch: " + name)
+except (OSError, ValueError):
     sys.exit(1)
 PY
-    then
-        echo "Reusing verified DuckDB SDK $fingerprint at $prefix"
+}
+
+copy_sdk() {
+    destination_metadata=$2/share/duckdb-sdk
+    mkdir -p "$2/include" "$2/lib" "$destination_metadata"
+    cp "$1/include/duckdb.h" "$2/include/duckdb.h"
+    cp "$1/lib/$library" "$2/lib/$library"
+    for name in LICENSE.duckdb source.json nullable-bitpacking.patch build.txt artifacts.json; do
+        cp "$1/share/duckdb-sdk/$name" "$destination_metadata/$name"
+    done
+}
+
+publish_sdk_cache() (
+    [ -n "${DUCKDB_SDK_CACHE_DIR:-}" ] || exit 0
+    mkdir -p "$DUCKDB_SDK_CACHE_DIR"
+    cache_entry=$DUCKDB_SDK_CACHE_DIR/$fingerprint
+    cache_lock=$DUCKDB_SDK_CACHE_DIR/.lock-$fingerprint
+    if ! mkdir "$cache_lock" 2>/dev/null; then
+        echo "SDK cache publication already in progress for $fingerprint"
         exit 0
+    fi
+
+    cache_stage=
+    trap 'rm -rf "$cache_lock" "${cache_stage:-}"' 0
+    if verify_sdk "$cache_entry"; then
+        exit 0
+    fi
+
+    cache_stage=$(mktemp -d "$DUCKDB_SDK_CACHE_DIR/.sdk-$fingerprint.XXXXXX")
+    copy_sdk "$prefix" "$cache_stage"
+    verify_sdk "$cache_stage" || {
+        echo "SDK cache staging verification failed" >&2
+        exit 1
+    }
+
+    # Only complete, verified SDK trees become visible at the fingerprint path.
+    rm -rf "$cache_entry"
+    mv "$cache_stage" "$cache_entry"
+    cache_stage=
+)
+
+if verify_sdk "$prefix"; then
+    publish_sdk_cache
+    echo "Reusing verified DuckDB SDK $fingerprint at $prefix"
+    exit 0
+fi
+
+if [ -n "${DUCKDB_SDK_CACHE_DIR:-}" ]; then
+    cache_entry=$DUCKDB_SDK_CACHE_DIR/$fingerprint
+    if verify_sdk "$cache_entry"; then
+        copy_sdk "$cache_entry" "$prefix"
+        if verify_sdk "$prefix"; then
+            echo "Restored verified DuckDB SDK $fingerprint at $prefix"
+            exit 0
+        fi
     fi
 fi
 
@@ -260,4 +337,9 @@ names = [
 pins = {name: hashlib.sha256((prefix / name).read_bytes()).hexdigest() for name in names}
 (prefix / "share/duckdb-sdk/artifacts.json").write_text(json.dumps(pins, indent=2) + "\n")
 PY
+verify_sdk "$prefix" || {
+    echo "Installed SDK artifact verification failed" >&2
+    exit 1
+}
+publish_sdk_cache
 echo "Installed patched DuckDB SDK $fingerprint at $prefix"

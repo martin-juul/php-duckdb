@@ -18,10 +18,51 @@ jobs:
       - run: python3 .github/tests/test_docker_tags.py
       - run: python3 .github/tests/test_docker_manifest.py
 
+  duckdb-sdk:
+    name: DuckDB SDK (${{ matrix.arch }})
+    runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
+    needs: docker-tags
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: ['amd64', 'arm64']
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # Persist the compact SDK before any PHP build or smoke test can fail.
+      # The cache key follows the SDK inputs; the scope is shared by PHP versions.
+      - name: Build native DuckDB SDK
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          target: duckdb-sdk
+          platforms: linux/${{ matrix.arch }}
+          outputs: type=local,dest=${{ runner.temp }}/duckdb-sdk
+          cache-from: type=gha,scope=duckdb-sdk-${{ matrix.arch }}
+          cache-to: type=gha,mode=min,scope=duckdb-sdk-${{ matrix.arch }}
+
+      # tar preserves SDK symlinks and permissions through artifact transport.
+      - name: Archive native SDK
+        run: tar -C "$RUNNER_TEMP/duckdb-sdk" -cf "$RUNNER_TEMP/duckdb-sdk.tar" opt
+
+      - name: Upload native SDK
+        uses: actions/upload-artifact@v4
+        with:
+          name: duckdb-sdk-${{ matrix.arch }}
+          path: ${{ runner.temp }}/duckdb-sdk.tar
+          if-no-files-found: error
+          retention-days: 1
+
   docker:
     name: Docker php${{ matrix.php }}${{ matrix.variant && '-frankenphp' || '' }} (${{ matrix.arch }})
     runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
-    needs: docker-tags
+    needs: [docker-tags, duckdb-sdk]
     strategy:
       fail-fast: false
       matrix:
@@ -41,6 +82,17 @@ jobs:
 
       - name: Set up Buildx
         uses: docker/setup-buildx-action@v3
+
+      - name: Download native SDK
+        uses: actions/download-artifact@v4
+        with:
+          name: duckdb-sdk-${{ matrix.arch }}
+          path: ${{ runner.temp }}/duckdb-sdk-artifact
+
+      - name: Extract native SDK
+        run: |
+          mkdir -p "$RUNNER_TEMP/duckdb-sdk"
+          tar -C "$RUNNER_TEMP/duckdb-sdk" -xf "$RUNNER_TEMP/duckdb-sdk-artifact/duckdb-sdk.tar"
 
       - name: Compute image name
         id: image
@@ -69,6 +121,8 @@ jobs:
           file: ${{ matrix.variant == 'frankenphp' && 'Dockerfile.frankenphp' || 'Dockerfile' }}
           platforms: linux/${{ matrix.arch }}
           push: false
+          build-contexts: |
+            duckdb-sdk=${{ runner.temp }}/duckdb-sdk
           build-args: |
             PHP_VERSION=${{ matrix.php }}
           cache-from: type=gha,scope=php-duckdb-${{ matrix.php }}-${{ matrix.variant || 'cli' }}-${{ matrix.arch }}
@@ -85,6 +139,8 @@ jobs:
           file: ${{ matrix.variant == 'frankenphp' && 'Dockerfile.frankenphp' || 'Dockerfile' }}
           platforms: linux/${{ matrix.arch }}
           outputs: type=image,name=${{ steps.image.outputs.name }},push-by-digest=true,name-canonical=true,push=true
+          build-contexts: |
+            duckdb-sdk=${{ runner.temp }}/duckdb-sdk
           build-args: |
             PHP_VERSION=${{ matrix.php }}
           cache-from: type=gha,scope=php-duckdb-${{ matrix.php }}-${{ matrix.variant || 'cli' }}-${{ matrix.arch }}
