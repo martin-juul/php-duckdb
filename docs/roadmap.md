@@ -7,6 +7,10 @@ return typed values without opening a connection. These classes extend
 `DuckDB\Value`, which accepts advanced declarations. Catalog resolution and
 casting happen later, on the consuming connection.
 
+Full typed binding was merged in [PR #7](https://github.com/martin-juul/php-duckdb/pull/7).
+Value string rendering is the current feature: explicit, connection-aware
+display text for logs and debugging, without a round-trip SQL guarantee.
+
 The intended PR sequence is:
 
 1. Full typed binding, including geometry and CRS preservation.

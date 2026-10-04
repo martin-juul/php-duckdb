@@ -170,6 +170,9 @@ class Value
 
     /** Return the canonical declared SQL type. */
     final public function getType(): string {}
+
+    /** Render display text using this connection's type resolution and settings. */
+    final public function toString(Connection $connection): string {}
 }
 
 /** Native typed input classes; every class accepts a typed NULL. */

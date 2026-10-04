@@ -413,6 +413,85 @@ PHP_METHOD(DuckDB_Value, getType) {
     RETURN_STR_COPY(v->type);
 }
 
+PHP_METHOD(DuckDB_Value, toString) {
+    DUCKDB_TSRMLS_CACHE_UPDATE();
+    zval *connection;
+
+    ZEND_PARSE_PARAMETERS_START(1, 1)
+        Z_PARAM_OBJECT_OF_CLASS(connection, duckdb_connection_ce)
+    ZEND_PARSE_PARAMETERS_END();
+
+    if (!obj(Z_OBJ_P(ZEND_THIS))->type) {
+        zend_throw_error(nullptr, "Uninitialized DuckDB\\Value");
+        RETURN_THROWS();
+    }
+
+    auto conn = Z_DUCKDB_CONNECTION_P(connection)->inner;
+    if (!duckdb_connection_guard(conn)) {
+        RETURN_THROWS();
+    }
+
+    try {
+        std::lock_guard<std::mutex> lock(conn->mutex);
+        std::vector<scoped_duckdb_value> values;
+        // Conversion advances the execution epoch for the whole operation.
+        if (!duckdb_convert_values(conn.get(), {ZEND_THIS}, values)) {
+            RETURN_THROWS();
+        }
+
+        if (duckdb_is_null_value(values.front().get())) {
+            RETURN_STRING("NULL");
+        }
+
+        // Use the connection's VARCHAR cast, not the context-free SQL-literal
+        // renderer. Fetching a length-aware string preserves embedded NULs.
+        scoped_duckdb_prepared statement;
+        if (duckdb_prepare(conn->conn, "SELECT CAST(? AS VARCHAR)", statement.out()) == DuckDBError ||
+            duckdb_bind_value(statement.get(), 1, values.front().get()) == DuckDBError) {
+            duckdb_throw_prepare_error(duckdb_prepare_error(statement.get()));
+            RETURN_THROWS();
+        }
+
+        duckdb_result result{};
+        auto destroy_result = [](duckdb_result *value) { duckdb_destroy_result(value); };
+        std::unique_ptr<duckdb_result, decltype(destroy_result)> result_guard(&result, destroy_result);
+        if (duckdb_execute_prepared(statement.get(), &result) == DuckDBError) {
+            duckdb_throw_error(duckdb_result_error_type(&result), duckdb_result_error(&result));
+            RETURN_THROWS();
+        }
+
+        scoped_duckdb_chunk chunk(duckdb_fetch_chunk(result));
+        if (!chunk || duckdb_data_chunk_get_size(chunk.get()) != 1) {
+            const char *error = duckdb_result_error(&result);
+            if (error) {
+                duckdb_throw_error(duckdb_result_error_type(&result), error);
+            } else {
+                duckdb_throw_msg("Value rendering did not return one row");
+            }
+            RETURN_THROWS();
+        }
+
+        duckdb_vector vector = duckdb_data_chunk_get_vector(chunk.get(), 0);
+        uint64_t *validity = duckdb_vector_get_validity(vector);
+        if (validity && !duckdb_validity_row_is_valid(validity, 0)) {
+            RETURN_STRING("NULL");
+        }
+
+        auto *strings = static_cast<duckdb_string_t *>(duckdb_vector_get_data(vector));
+        RETURN_STRINGL(duckdb_string_t_data(&strings[0]), duckdb_string_t_length(strings[0]));
+    } catch (const std::exception &error) {
+        if (!EG(exception)) {
+            duckdb_throw_msg(error.what());
+        }
+        RETURN_THROWS();
+    } catch (...) {
+        if (!EG(exception)) {
+            duckdb_throw_msg("Unexpected native error while rendering a value");
+        }
+        RETURN_THROWS();
+    }
+}
+
 ZEND_BEGIN_ARG_INFO_EX(value_construct_args, 0, 0, 2)
 ZEND_ARG_TYPE_INFO(0, type, IS_STRING, 0)
 ZEND_ARG_TYPE_INFO(0, value, IS_MIXED, 0)
@@ -421,10 +500,15 @@ ZEND_END_ARG_INFO()
 ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(value_type_args, 0, 0, IS_STRING, 0)
 ZEND_END_ARG_INFO()
 
+ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(value_string_args, 0, 1, IS_STRING, 0)
+ZEND_ARG_OBJ_INFO(0, connection, DuckDB\\Connection, 0)
+ZEND_END_ARG_INFO()
+
 void duckdb_register_value_class() {
     static const zend_function_entry methods[] = {
         PHP_ME(DuckDB_Value, __construct, value_construct_args, ZEND_ACC_PUBLIC)
         PHP_ME(DuckDB_Value, getType, value_type_args, ZEND_ACC_PUBLIC | ZEND_ACC_FINAL)
+        PHP_ME(DuckDB_Value, toString, value_string_args, ZEND_ACC_PUBLIC | ZEND_ACC_FINAL)
         PHP_FE_END
     };
     zend_class_entry ce;

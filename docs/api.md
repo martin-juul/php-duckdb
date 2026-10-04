@@ -84,13 +84,15 @@ The driver returns it for `INTERVAL` columns and accepts it through
 | ----------------------------------------- | ------------------------------------------------------------------------ |
 | `__construct(string $type, mixed $value)` | Validate a SQL type declaration and snapshot input without a connection. |
 | `getType(): string` | Canonical declared type. |
+| `toString(Connection $connection): string` | DuckDB display text using the connection's catalog and settings; SQL NULL displays as `NULL`. |
 
 See [typed value input and conversion](value.md). Serialization is denied.
 
 ### Native typed subclasses
 
 The extension registers final subclasses directly under `DuckDB`. Each inherits
-final `getType(): string` and accepts a typed NULL. No autoloader is required.
+final `getType(): string` and `toString(Connection $connection): string`, and
+accepts a typed NULL. No autoloader is required.
 
 | Class | Constructor |
 | ---------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
