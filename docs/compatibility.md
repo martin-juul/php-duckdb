@@ -24,13 +24,15 @@ for this checkout. The job definitions are in [CI](../.github/workflows/ci.yml),
 | 8.3 | Linux and macOS | amd64 and arm64 | Amazon Linux 2023 x86_64, PHP 8.3.33: native package checks passed; 92 PHPTs passed, 4 optional-runtime tests skipped; 21 examples passed |
 | 8.4 | Linux and macOS; PIE install smoke test | amd64 and arm64 | Linux x86_64, PHP 8.4.26 NTS, DuckDB 1.5.6: full harness passed; 92 PHPTs passed, 4 optional-runtime tests skipped; 91 Valgrind tests passed |
 | 8.5 | Linux and macOS | amd64 and arm64 | Linux x86_64, PHP 8.5.11 NTS, DuckDB 1.5.6: build and 93 PHPTs passed, 3 optional-runtime tests skipped; full host Valgrind run blocked by its internal Fiber crash |
+| 8.6-dev | Linux True Async ZTS | CI image only | Exact True Async CI image: build and 93 PHPTs passed, 3 optional-runtime tests skipped; 21 examples passed |
 
 The PHP 8.4 and 8.5 development environments passed all 21 example scripts
 and both stress scripts,
 including repeated Arrow ownership transfers. Optional framework examples
 report a skip when their runtime is absent. The PHP 8.4 full run used an
-isolated container with FFI enabled, 12 CPUs and 40 GiB RAM; four workers were
-allocated while independent package builds ran. Swoole, True Async, AMPHP and
+isolated container with FFI enabled, 12 CPUs and 40 GiB RAM; eight workers
+were allocated while the PHP 8.6 reproduction SDK built independently.
+Swoole, True Async, AMPHP and
 ReactPHP integration tests skipped there; the PHP 8.5 host ran Swoole and
 skipped the other three.
 
@@ -47,9 +49,17 @@ same crash without loading DuckDB. The isolated PHP 8.4 run with Valgrind
 3.19.0 passes the full suite, including that Fiber test. The host full
 Valgrind run is therefore not a pass.
 
-Earlier validation before the Arrow changes also covered DuckDB 1.5.5,
-AMPHP/ReactPHP dependencies and the PHP 8.6 ZTS True Async runtime. Those
-combinations have not been revalidated for Arrow in this checkout.
+The PHP 8.6 reproduction uses `trueasync/php-true-async:0.7.13-php8.6`,
+with its original FFI and True Async extensions, a four-CPU quota and three
+workers. Its freshly built SDK fingerprint matches the failing CI job exactly.
+The Arrow FFI failure-cleanup regression ran without skipping; Swoole, AMPHP
+and ReactPHP were the three unavailable integrations. Arrow cleanup detects
+whether the PHP headers provide the older saved-exception global, preserving
+exception state on both that layout and the PHP 8.6 runtime without the field.
+
+Earlier local validation before the Arrow changes also covered DuckDB 1.5.5
+and AMPHP/ReactPHP dependencies. Those combinations have not been rerun locally
+for Arrow in this checkout.
 
 | Packaging target | PHP selection | DuckDB source | Architectures |
 | -------------------- | ---------------------------- | ---------------------- | ------------- |

@@ -33,17 +33,35 @@ struct ArrowArray {
 };
 #endif
 
+/* PHP 8.6 removed the global saved-exception slot. Detect its presence
+ * from the actual headers, including development and custom runtimes. */
+template <typename Globals>
+auto duckdb_arrow_previous_exception_slot(Globals *globals, int)
+    -> decltype(&globals->prev_exception) {
+    return &globals->prev_exception;
+}
+
+template <typename Globals>
+zend_object **duckdb_arrow_previous_exception_slot(Globals *, long) {
+    return nullptr;
+}
+
 /* Producer callbacks may execute PHP, including nested autoload callbacks.
- * Zend's exception_save/restore pair uses a single global prev_exception
- * slot, so placing our pending exception there would expose it to nested
- * restores. Hold both slots locally, as Zend does for object destructors. */
+ * On runtimes with a global saved-exception slot, detach it as well as the
+ * pending exception so nested restores cannot expose the caller's state.
+ * Hold the exception objects locally, as Zend does for object destructors. */
 class arrow_release_exception_scope {
 public:
     arrow_release_exception_scope()
-        : exception_(EG(exception)), previous_exception_(EG(prev_exception)),
+        : exception_(EG(exception)), previous_exception_(nullptr),
           opline_before_exception_(EG(opline_before_exception)) {
+        zend_object **previous_slot =
+            duckdb_arrow_previous_exception_slot(ZEND_MODULE_GLOBALS_BULK(executor), 0);
+        if (previous_slot) {
+            previous_exception_ = *previous_slot;
+            *previous_slot = nullptr;
+        }
         EG(exception) = nullptr;
-        EG(prev_exception) = nullptr;
     }
 
     arrow_release_exception_scope(const arrow_release_exception_scope &) = delete;
@@ -53,13 +71,15 @@ public:
         /* Finish any callback-local saved exception before restoring the
          * caller's independent saved state. Retain newly raised exceptions
          * and chain the original exception rather than discarding either. */
-        if (EG(prev_exception)) {
+        zend_object **previous_slot =
+            duckdb_arrow_previous_exception_slot(ZEND_MODULE_GLOBALS_BULK(executor), 0);
+        if (previous_slot && *previous_slot) {
             if (EG(exception)) {
-                zend_exception_set_previous(EG(exception), EG(prev_exception));
+                zend_exception_set_previous(EG(exception), *previous_slot);
             } else {
-                EG(exception) = EG(prev_exception);
+                EG(exception) = *previous_slot;
             }
-            EG(prev_exception) = nullptr;
+            *previous_slot = nullptr;
         }
         if (exception_) {
             if (EG(exception)) {
@@ -68,7 +88,9 @@ public:
                 EG(exception) = exception_;
             }
         }
-        EG(prev_exception) = previous_exception_;
+        if (previous_slot) {
+            *previous_slot = previous_exception_;
+        }
         if (exception_ || previous_exception_) {
             EG(opline_before_exception) = opline_before_exception_;
         }
