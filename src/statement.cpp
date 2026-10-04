@@ -537,7 +537,7 @@ static void duckdb_statement_execute_impl(INTERNAL_FUNCTION_PARAMETERS, bool str
     }
 
     duckdb_result_instantiate(return_value, &res, streaming,
-                              streaming ? intern->inner : nullptr);
+                              streaming ? intern->inner : nullptr, intern->inner->conn);
 }
 
 PHP_METHOD(DuckDB_Statement, execute) {

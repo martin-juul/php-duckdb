@@ -9,9 +9,9 @@
 # file, is the same license as for the pristine package itself (MIT).
 #
 
-# libduckdb is not packaged for openSUSE yet; build the pinned, patched
-# source SDK used by the project's Docker images.
-# Switch to a system duckdb-devel package once the distribution ships one.
+# Build the pinned, patched source SDK used by all packaging targets.
+# Keep the engine patch set consistent with the project SDK.
+# Package the patched engine alongside the PHP extension.
 %define duckdb_version 1.5.6
 
 # php8-devel ships rpm macros for php_extdir/php_cfgdir/php_core_api/
@@ -106,7 +106,8 @@ export DUCKDB_EXTENSION_PATH="$PWD/modules/duckdb.so"
 %files
 %license LICENSE duckdb-sdk/share/duckdb-sdk/LICENSE.duckdb
 %doc duckdb-sdk/share/duckdb-sdk/build.txt duckdb-sdk/share/duckdb-sdk/source.json
-%doc duckdb-sdk/share/duckdb-sdk/nullable-bitpacking.patch duckdb-sdk/share/duckdb-sdk/artifacts.json
+%doc duckdb-sdk/share/duckdb-sdk/nullable-bitpacking.patch
+%doc duckdb-sdk/share/duckdb-sdk/arrow-geometry.patch duckdb-sdk/share/duckdb-sdk/artifacts.json
 %doc README.md
 %config(noreplace) %{php_cfgdir}/duckdb.ini
 %{php_extdir}/duckdb.so

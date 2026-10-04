@@ -1,5 +1,10 @@
 #!/usr/bin/make -f
 
+# Stage the pinned source archive before entering the package build. The
+# shared builder verifies its checksum and both engine patches offline.
+DUCKDB_SOURCE_ARCHIVE ?= $(CURDIR)/duckdb-source.tar.gz
+DUCKDB_BUILD_DIR ?= /tmp/php-duckdb-deb-engine
+
 # see FEATURE AREAS in dpkg-buildflags(1)
 export DEB_BUILD_MAINT_OPTIONS = hardening=+all
 export DEB_LDFLAGS_MAINT_APPEND = -Wl,--as-needed
@@ -12,16 +17,57 @@ export PHP_RPATH = no
 export NO_INTERACTION = 1
 export DUCKDB_EXTENSION_PATH = $(CURDIR)/modules/duckdb.so
 
+include /usr/share/dpkg/architecture.mk
+DPKG_EXPORT_BUILDFLAGS = 1
+include /usr/share/dpkg/buildflags.mk
+
+PRIVATE_ENGINE_DIR = /usr/lib/$(DEB_HOST_MULTIARCH)/php-duckdb
+PRIVATE_ENGINE_NAME = libphp-duckdb-engine.so
+PACKAGE_ROOT = $(CURDIR)/debian/php-duckdb
+
 %:
 	dh $@ --with php
 
 override_dh_auto_configure:
+	DUCKDB_SOURCE_ARCHIVE="$(DUCKDB_SOURCE_ARCHIVE)" sh packaging/duckdb/build-sdk.sh \
+		--prefix "$(CURDIR)/duckdb-sdk" --work-dir "$(DUCKDB_BUILD_DIR)"
 	phpize
-	dh_auto_configure -- --with-duckdb=/usr --with-php-config=/usr/bin/php-config
+	dh_auto_configure -- --with-duckdb=$(CURDIR)/duckdb-sdk --with-php-config=/usr/bin/php-config
 
 # PHP's build system installs with INSTALL_ROOT, not DESTDIR.
 override_dh_auto_install:
-	dh_auto_install -- INSTALL_ROOT=$(CURDIR)/debian/php-duckdb
+	dh_auto_install -- INSTALL_ROOT=$(PACKAGE_ROOT)
+	install -D -m 0755 duckdb-sdk/lib/libduckdb.so \
+		$(PACKAGE_ROOT)$(PRIVATE_ENGINE_DIR)/$(PRIVATE_ENGINE_NAME)
+	mkdir -p $(PACKAGE_ROOT)/usr/share/doc/php-duckdb/duckdb-sdk
+	cp -a duckdb-sdk/share/duckdb-sdk/. $(PACKAGE_ROOT)/usr/share/doc/php-duckdb/duckdb-sdk/
+
+# Rewrite ELF layout after dwz and strip have finished reading debug sections.
+# Dependency scanning follows this step and sees the final private linkage.
+override_dh_strip:
+	dh_strip
+	patchelf --set-soname $(PRIVATE_ENGINE_NAME) \
+		$(PACKAGE_ROOT)$(PRIVATE_ENGINE_DIR)/$(PRIVATE_ENGINE_NAME)
+	patchelf --replace-needed libduckdb.so $(PRIVATE_ENGINE_NAME) \
+		$(PACKAGE_ROOT)/usr/lib/php/*/duckdb.so
+	patchelf --set-rpath $(PRIVATE_ENGINE_DIR) $(PACKAGE_ROOT)/usr/lib/php/*/duckdb.so
 
 override_dh_auto_test:
-	REPORT_EXIT_STATUS=1 dh_auto_test
+	LD_LIBRARY_PATH=$(CURDIR)/duckdb-sdk/lib REPORT_EXIT_STATUS=1 dh_auto_test
+
+# The unversioned private engine is used only by this package. Resolve it
+# during dependency scanning without publishing a system shlibs provider.
+override_dh_makeshlibs:
+	dh_makeshlibs -X$(PRIVATE_ENGINE_NAME)
+
+override_dh_shlibdeps:
+	dh_shlibdeps -l$(PACKAGE_ROOT)$(PRIVATE_ENGINE_DIR)
+
+# PHP's make clean removes every *.so below the source tree. Preserve the
+# verified SDK library so a subsequent configure can reuse the build/cache.
+override_dh_auto_clean:
+	[ ! -f duckdb-sdk/lib/libduckdb.so ] || \
+		mv duckdb-sdk/lib/libduckdb.so duckdb-sdk/lib/libduckdb.so.clean-keep
+	dh_auto_clean
+	[ ! -f duckdb-sdk/lib/libduckdb.so.clean-keep ] || \
+		mv duckdb-sdk/lib/libduckdb.so.clean-keep duckdb-sdk/lib/libduckdb.so

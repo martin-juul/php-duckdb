@@ -1,5 +1,5 @@
 /* This is a generated file, edit the .stub.php file instead.
- * Stub hash: a795103ab60c387f9421ba9331cac3f554fde2fb */
+ * Stub hash: c016bb2de75231b0d11f5f760507bf80d183c14f */
 
 ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_DuckDB_version, 0, 0, IS_STRING, 0)
 ZEND_END_ARG_INFO()
@@ -161,6 +161,10 @@ ZEND_END_ARG_INFO()
 ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_class_DuckDB_Database_connect, 0, 0, DuckDB\\Connection, 0)
 ZEND_END_ARG_INFO()
 
+ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_class_DuckDB_Connection_dataChunkFromArrow, 0, 1, DuckDB\\DataChunk, 0)
+	ZEND_ARG_OBJ_INFO(0, chunk, DuckDB\\ArrowChunk, 0)
+ZEND_END_ARG_INFO()
+
 ZEND_BEGIN_ARG_INFO_EX(arginfo_class_DuckDB_Connection___construct, 0, 0, 0)
 ZEND_END_ARG_INFO()
 
@@ -255,7 +259,60 @@ ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_class_DuckDB_Statement_executeAsy
 	ZEND_ARG_TYPE_INFO_WITH_DEFAULT_VALUE(0, params, IS_ARRAY, 0, "[]")
 ZEND_END_ARG_INFO()
 
+#define arginfo_class_DuckDB_ArrowSchema___construct arginfo_class_DuckDB_Connection___construct
+
+ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_class_DuckDB_ArrowSchema_importFromC, 0, 1, DuckDB\\ArrowSchema, 0)
+	ZEND_ARG_TYPE_INFO(0, address, IS_LONG, 0)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_class_DuckDB_ArrowSchema_exportToC, 0, 1, IS_VOID, 0)
+	ZEND_ARG_TYPE_INFO(0, address, IS_LONG, 0)
+ZEND_END_ARG_INFO()
+
+#define arginfo_class_DuckDB_ArrowSchema_toArray arginfo_class_DuckDB_Interval_jsonSerialize
+
+#define arginfo_class_DuckDB_ArrowChunk___construct arginfo_class_DuckDB_Connection___construct
+
+ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_class_DuckDB_ArrowChunk_importFromC, 0, 2, DuckDB\\ArrowChunk, 0)
+	ZEND_ARG_OBJ_INFO(0, schema, DuckDB\\ArrowSchema, 0)
+	ZEND_ARG_TYPE_INFO(0, address, IS_LONG, 0)
+ZEND_END_ARG_INFO()
+
+#define arginfo_class_DuckDB_ArrowChunk_exportToC arginfo_class_DuckDB_ArrowSchema_exportToC
+
+ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_class_DuckDB_ArrowChunk_schema, 0, 0, DuckDB\\ArrowSchema, 0)
+ZEND_END_ARG_INFO()
+
+#define arginfo_class_DuckDB_ArrowChunk_rowCount arginfo_class_DuckDB_Interval_getMonths
+
+#define arginfo_class_DuckDB_ArrowChunk_isConsumed arginfo_class_DuckDB_Connection_isClosed
+
+#define arginfo_class_DuckDB_DataChunk___construct arginfo_class_DuckDB_Connection___construct
+
+#define arginfo_class_DuckDB_DataChunk_rowCount arginfo_class_DuckDB_Interval_getMonths
+
+#define arginfo_class_DuckDB_DataChunk_columnCount arginfo_class_DuckDB_Interval_getMonths
+
+#define arginfo_class_DuckDB_DataChunk_columns arginfo_class_DuckDB_Interval_jsonSerialize
+
+ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_class_DuckDB_DataChunk_toRows, 0, 0, IS_ARRAY, 0)
+	ZEND_ARG_OBJ_INFO_WITH_DEFAULT_VALUE(0, mode, DuckDB\\FetchMode, 0, "DuckDB\\FetchMode::Assoc")
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_class_DuckDB_DataChunk_arrowSchema, 0, 1, DuckDB\\ArrowSchema, 0)
+	ZEND_ARG_OBJ_INFO(0, connection, DuckDB\\Connection, 0)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_class_DuckDB_DataChunk_toArrow, 0, 1, DuckDB\\ArrowChunk, 0)
+	ZEND_ARG_OBJ_INFO(0, connection, DuckDB\\Connection, 0)
+ZEND_END_ARG_INFO()
+
 #define arginfo_class_DuckDB_Result___construct arginfo_class_DuckDB_Connection___construct
+
+#define arginfo_class_DuckDB_Result_arrowSchema arginfo_class_DuckDB_ArrowChunk_schema
+
+ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_class_DuckDB_Result_fetchArrowChunk, 0, 0, DuckDB\\ArrowChunk, 1)
+ZEND_END_ARG_INFO()
 
 #define arginfo_class_DuckDB_Result_columnCount arginfo_class_DuckDB_Interval_getMonths
 
@@ -275,9 +332,7 @@ ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_class_DuckDB_Result_fetchRow, 0,
 	ZEND_ARG_OBJ_INFO_WITH_DEFAULT_VALUE(0, mode, DuckDB\\FetchMode, 0, "DuckDB\\FetchMode::Assoc")
 ZEND_END_ARG_INFO()
 
-ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_class_DuckDB_Result_fetchAll, 0, 0, IS_ARRAY, 0)
-	ZEND_ARG_OBJ_INFO_WITH_DEFAULT_VALUE(0, mode, DuckDB\\FetchMode, 0, "DuckDB\\FetchMode::Assoc")
-ZEND_END_ARG_INFO()
+#define arginfo_class_DuckDB_Result_fetchAll arginfo_class_DuckDB_DataChunk_toRows
 
 ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_class_DuckDB_Result_fetchColumn, 0, 0, IS_MIXED, 0)
 	ZEND_ARG_TYPE_INFO_WITH_DEFAULT_VALUE(0, column, IS_LONG, 0, "0")
@@ -318,6 +373,14 @@ ZEND_END_ARG_INFO()
 
 ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_class_DuckDB_Appender_appendRow, 0, 1, IS_VOID, 0)
 	ZEND_ARG_TYPE_INFO(0, values, IS_ARRAY, 0)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_class_DuckDB_Appender_appendChunk, 0, 1, IS_VOID, 0)
+	ZEND_ARG_OBJ_INFO(0, chunk, DuckDB\\DataChunk, 0)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_class_DuckDB_Appender_appendArrow, 0, 1, IS_VOID, 0)
+	ZEND_ARG_OBJ_INFO(0, chunk, DuckDB\\ArrowChunk, 0)
 ZEND_END_ARG_INFO()
 
 #define arginfo_class_DuckDB_Appender_beginRow arginfo_class_DuckDB_Connection_interrupt
@@ -390,6 +453,7 @@ ZEND_METHOD(DuckDB_Geometry, __construct);
 ZEND_METHOD(DuckDB_CatalogValue, __construct);
 ZEND_METHOD(DuckDB_Database, __construct);
 ZEND_METHOD(DuckDB_Database, connect);
+ZEND_METHOD(DuckDB_Connection, dataChunkFromArrow);
 ZEND_METHOD(DuckDB_Connection, __construct);
 ZEND_METHOD(DuckDB_Connection, query);
 ZEND_METHOD(DuckDB_Connection, queryStreaming);
@@ -420,7 +484,26 @@ ZEND_METHOD(DuckDB_Statement, columnType);
 ZEND_METHOD(DuckDB_Statement, execute);
 ZEND_METHOD(DuckDB_Statement, executeStreaming);
 ZEND_METHOD(DuckDB_Statement, executeAsync);
+ZEND_METHOD(DuckDB_ArrowSchema, __construct);
+ZEND_METHOD(DuckDB_ArrowSchema, importFromC);
+ZEND_METHOD(DuckDB_ArrowSchema, exportToC);
+ZEND_METHOD(DuckDB_ArrowSchema, toArray);
+ZEND_METHOD(DuckDB_ArrowChunk, __construct);
+ZEND_METHOD(DuckDB_ArrowChunk, importFromC);
+ZEND_METHOD(DuckDB_ArrowChunk, exportToC);
+ZEND_METHOD(DuckDB_ArrowChunk, schema);
+ZEND_METHOD(DuckDB_ArrowChunk, rowCount);
+ZEND_METHOD(DuckDB_ArrowChunk, isConsumed);
+ZEND_METHOD(DuckDB_DataChunk, __construct);
+ZEND_METHOD(DuckDB_DataChunk, rowCount);
+ZEND_METHOD(DuckDB_DataChunk, columnCount);
+ZEND_METHOD(DuckDB_DataChunk, columns);
+ZEND_METHOD(DuckDB_DataChunk, toRows);
+ZEND_METHOD(DuckDB_DataChunk, arrowSchema);
+ZEND_METHOD(DuckDB_DataChunk, toArrow);
 ZEND_METHOD(DuckDB_Result, __construct);
+ZEND_METHOD(DuckDB_Result, arrowSchema);
+ZEND_METHOD(DuckDB_Result, fetchArrowChunk);
 ZEND_METHOD(DuckDB_Result, columnCount);
 ZEND_METHOD(DuckDB_Result, columnName);
 ZEND_METHOD(DuckDB_Result, columnType);
@@ -447,6 +530,8 @@ ZEND_METHOD(DuckDB_PendingQuery, getFd);
 ZEND_METHOD(DuckDB_PendingQuery, getStream);
 ZEND_METHOD(DuckDB_Appender, __construct);
 ZEND_METHOD(DuckDB_Appender, appendRow);
+ZEND_METHOD(DuckDB_Appender, appendChunk);
+ZEND_METHOD(DuckDB_Appender, appendArrow);
 ZEND_METHOD(DuckDB_Appender, beginRow);
 ZEND_METHOD(DuckDB_Appender, append);
 ZEND_METHOD(DuckDB_Appender, appendDefault);
@@ -790,6 +875,7 @@ static const zend_function_entry class_DuckDB_Database_methods[] = {
 
 
 static const zend_function_entry class_DuckDB_Connection_methods[] = {
+	ZEND_ME(DuckDB_Connection, dataChunkFromArrow, arginfo_class_DuckDB_Connection_dataChunkFromArrow, ZEND_ACC_PUBLIC)
 	ZEND_ME(DuckDB_Connection, __construct, arginfo_class_DuckDB_Connection___construct, ZEND_ACC_PRIVATE)
 	ZEND_ME(DuckDB_Connection, query, arginfo_class_DuckDB_Connection_query, ZEND_ACC_PUBLIC)
 	ZEND_ME(DuckDB_Connection, queryStreaming, arginfo_class_DuckDB_Connection_queryStreaming, ZEND_ACC_PUBLIC)
@@ -829,8 +915,42 @@ static const zend_function_entry class_DuckDB_Statement_methods[] = {
 };
 
 
+static const zend_function_entry class_DuckDB_ArrowSchema_methods[] = {
+	ZEND_ME(DuckDB_ArrowSchema, __construct, arginfo_class_DuckDB_ArrowSchema___construct, ZEND_ACC_PRIVATE)
+	ZEND_ME(DuckDB_ArrowSchema, importFromC, arginfo_class_DuckDB_ArrowSchema_importFromC, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+	ZEND_ME(DuckDB_ArrowSchema, exportToC, arginfo_class_DuckDB_ArrowSchema_exportToC, ZEND_ACC_PUBLIC)
+	ZEND_ME(DuckDB_ArrowSchema, toArray, arginfo_class_DuckDB_ArrowSchema_toArray, ZEND_ACC_PUBLIC)
+	ZEND_FE_END
+};
+
+
+static const zend_function_entry class_DuckDB_ArrowChunk_methods[] = {
+	ZEND_ME(DuckDB_ArrowChunk, __construct, arginfo_class_DuckDB_ArrowChunk___construct, ZEND_ACC_PRIVATE)
+	ZEND_ME(DuckDB_ArrowChunk, importFromC, arginfo_class_DuckDB_ArrowChunk_importFromC, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+	ZEND_ME(DuckDB_ArrowChunk, exportToC, arginfo_class_DuckDB_ArrowChunk_exportToC, ZEND_ACC_PUBLIC)
+	ZEND_ME(DuckDB_ArrowChunk, schema, arginfo_class_DuckDB_ArrowChunk_schema, ZEND_ACC_PUBLIC)
+	ZEND_ME(DuckDB_ArrowChunk, rowCount, arginfo_class_DuckDB_ArrowChunk_rowCount, ZEND_ACC_PUBLIC)
+	ZEND_ME(DuckDB_ArrowChunk, isConsumed, arginfo_class_DuckDB_ArrowChunk_isConsumed, ZEND_ACC_PUBLIC)
+	ZEND_FE_END
+};
+
+
+static const zend_function_entry class_DuckDB_DataChunk_methods[] = {
+	ZEND_ME(DuckDB_DataChunk, __construct, arginfo_class_DuckDB_DataChunk___construct, ZEND_ACC_PRIVATE)
+	ZEND_ME(DuckDB_DataChunk, rowCount, arginfo_class_DuckDB_DataChunk_rowCount, ZEND_ACC_PUBLIC)
+	ZEND_ME(DuckDB_DataChunk, columnCount, arginfo_class_DuckDB_DataChunk_columnCount, ZEND_ACC_PUBLIC)
+	ZEND_ME(DuckDB_DataChunk, columns, arginfo_class_DuckDB_DataChunk_columns, ZEND_ACC_PUBLIC)
+	ZEND_ME(DuckDB_DataChunk, toRows, arginfo_class_DuckDB_DataChunk_toRows, ZEND_ACC_PUBLIC)
+	ZEND_ME(DuckDB_DataChunk, arrowSchema, arginfo_class_DuckDB_DataChunk_arrowSchema, ZEND_ACC_PUBLIC)
+	ZEND_ME(DuckDB_DataChunk, toArrow, arginfo_class_DuckDB_DataChunk_toArrow, ZEND_ACC_PUBLIC)
+	ZEND_FE_END
+};
+
+
 static const zend_function_entry class_DuckDB_Result_methods[] = {
 	ZEND_ME(DuckDB_Result, __construct, arginfo_class_DuckDB_Result___construct, ZEND_ACC_PRIVATE)
+	ZEND_ME(DuckDB_Result, arrowSchema, arginfo_class_DuckDB_Result_arrowSchema, ZEND_ACC_PUBLIC)
+	ZEND_ME(DuckDB_Result, fetchArrowChunk, arginfo_class_DuckDB_Result_fetchArrowChunk, ZEND_ACC_PUBLIC)
 	ZEND_ME(DuckDB_Result, columnCount, arginfo_class_DuckDB_Result_columnCount, ZEND_ACC_PUBLIC)
 	ZEND_ME(DuckDB_Result, columnName, arginfo_class_DuckDB_Result_columnName, ZEND_ACC_PUBLIC)
 	ZEND_ME(DuckDB_Result, columnType, arginfo_class_DuckDB_Result_columnType, ZEND_ACC_PUBLIC)
@@ -872,6 +992,8 @@ static const zend_function_entry class_DuckDB_PendingQuery_methods[] = {
 static const zend_function_entry class_DuckDB_Appender_methods[] = {
 	ZEND_ME(DuckDB_Appender, __construct, arginfo_class_DuckDB_Appender___construct, ZEND_ACC_PRIVATE)
 	ZEND_ME(DuckDB_Appender, appendRow, arginfo_class_DuckDB_Appender_appendRow, ZEND_ACC_PUBLIC)
+	ZEND_ME(DuckDB_Appender, appendChunk, arginfo_class_DuckDB_Appender_appendChunk, ZEND_ACC_PUBLIC)
+	ZEND_ME(DuckDB_Appender, appendArrow, arginfo_class_DuckDB_Appender_appendArrow, ZEND_ACC_PUBLIC)
 	ZEND_ME(DuckDB_Appender, beginRow, arginfo_class_DuckDB_Appender_beginRow, ZEND_ACC_PUBLIC)
 	ZEND_ME(DuckDB_Appender, append, arginfo_class_DuckDB_Appender_append, ZEND_ACC_PUBLIC)
 	ZEND_ME(DuckDB_Appender, appendDefault, arginfo_class_DuckDB_Appender_appendDefault, ZEND_ACC_PUBLIC)
@@ -1662,6 +1784,39 @@ static zend_class_entry *register_class_DuckDB_Statement(void)
 	zend_class_entry ce, *class_entry;
 
 	INIT_NS_CLASS_ENTRY(ce, "DuckDB", "Statement", class_DuckDB_Statement_methods);
+	class_entry = zend_register_internal_class_ex(&ce, NULL);
+	class_entry->ce_flags |= ZEND_ACC_FINAL;
+
+	return class_entry;
+}
+
+static zend_class_entry *register_class_DuckDB_ArrowSchema(void)
+{
+	zend_class_entry ce, *class_entry;
+
+	INIT_NS_CLASS_ENTRY(ce, "DuckDB", "ArrowSchema", class_DuckDB_ArrowSchema_methods);
+	class_entry = zend_register_internal_class_ex(&ce, NULL);
+	class_entry->ce_flags |= ZEND_ACC_FINAL;
+
+	return class_entry;
+}
+
+static zend_class_entry *register_class_DuckDB_ArrowChunk(void)
+{
+	zend_class_entry ce, *class_entry;
+
+	INIT_NS_CLASS_ENTRY(ce, "DuckDB", "ArrowChunk", class_DuckDB_ArrowChunk_methods);
+	class_entry = zend_register_internal_class_ex(&ce, NULL);
+	class_entry->ce_flags |= ZEND_ACC_FINAL;
+
+	return class_entry;
+}
+
+static zend_class_entry *register_class_DuckDB_DataChunk(void)
+{
+	zend_class_entry ce, *class_entry;
+
+	INIT_NS_CLASS_ENTRY(ce, "DuckDB", "DataChunk", class_DuckDB_DataChunk_methods);
 	class_entry = zend_register_internal_class_ex(&ce, NULL);
 	class_entry->ce_flags |= ZEND_ACC_FINAL;
 

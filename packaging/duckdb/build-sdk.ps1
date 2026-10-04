@@ -61,8 +61,11 @@ if ($manifest.sha256 -notmatch '^[0-9a-f]{64}$' -or $manifest.commit -notmatch '
 }
 
 $patchPath = Join-Path $PSScriptRoot $manifest.patch
-if (!(Test-Path -LiteralPath $patchPath -PathType Leaf)) {
-    throw "Missing DuckDB patch: $patchPath"
+$arrowPatchPath = Join-Path $PSScriptRoot 'patches/arrow-geometry.patch'
+foreach ($requiredPatch in $patchPath, $arrowPatchPath) {
+    if (!(Test-Path -LiteralPath $requiredPatch -PathType Leaf)) {
+        throw "Missing DuckDB patch: $requiredPatch"
+    }
 }
 foreach ($tool in 'cmake', 'git', 'tar.exe') {
     if (!(Get-Command $tool -ErrorAction SilentlyContinue)) {
@@ -113,6 +116,7 @@ $metadata = [ordered]@{
     source_commit = $manifest.commit
     manifest_sha256 = (Get-FileHash $manifestPath -Algorithm SHA256).Hash.ToLowerInvariant()
     patch_sha256 = (Get-FileHash $patchPath -Algorithm SHA256).Hash.ToLowerInvariant()
+    arrow_patch_sha256 = (Get-FileHash $arrowPatchPath -Algorithm SHA256).Hash.ToLowerInvariant()
     builder_sha256 = (Get-FileHash $PSCommandPath -Algorithm SHA256).Hash.ToLowerInvariant()
     platform = 'Windows/x64'
     visual_studio = $vs.installationVersion
@@ -133,7 +137,7 @@ $sdkMetadata = Join-Path $Prefix 'share/duckdb-sdk'
 $buildMetadata = Join-Path $sdkMetadata 'build.txt'
 $artifactNames = @('include/duckdb.h', 'lib/duckdb.lib', 'bin/duckdb.dll',
     'share/duckdb-sdk/LICENSE.duckdb', 'share/duckdb-sdk/source.json',
-    'share/duckdb-sdk/nullable-bitpacking.patch')
+    'share/duckdb-sdk/nullable-bitpacking.patch', 'share/duckdb-sdk/arrow-geometry.patch')
 
 function Test-DuckDBSdk {
     param([string]$Directory)
@@ -257,13 +261,15 @@ if ($LASTEXITCODE -ne 0) {
     throw "DuckDB source extraction failed: $LASTEXITCODE"
 }
 # git apply works on an extracted source tree and checks exact context.
-& git -C $sourceDirectory apply --check --whitespace=error $patchPath
-if ($LASTEXITCODE -ne 0) {
-    throw 'Pinned DuckDB patch does not apply cleanly'
-}
-& git -C $sourceDirectory apply --whitespace=error $patchPath
-if ($LASTEXITCODE -ne 0) {
-    throw 'DuckDB patch application failed'
+foreach ($requiredPatch in $patchPath, $arrowPatchPath) {
+    & git -C $sourceDirectory apply --check --whitespace=error $requiredPatch
+    if ($LASTEXITCODE -ne 0) {
+        throw "Pinned DuckDB patch does not apply cleanly: $requiredPatch"
+    }
+    & git -C $sourceDirectory apply --whitespace=error $requiredPatch
+    if ($LASTEXITCODE -ne 0) {
+        throw "DuckDB patch application failed: $requiredPatch"
+    }
 }
 
 $arguments = @('-S', $sourceDirectory, '-B', $buildDirectory,
@@ -298,6 +304,7 @@ Copy-Item $dll "$Prefix/bin/duckdb.dll" -Force
 Copy-Item "$sourceDirectory/LICENSE" "$sdkMetadata/LICENSE.duckdb" -Force
 Copy-Item $manifestPath "$sdkMetadata/source.json" -Force
 Copy-Item $patchPath "$sdkMetadata/nullable-bitpacking.patch" -Force
+Copy-Item $arrowPatchPath "$sdkMetadata/arrow-geometry.patch" -Force
 $metadata | Set-Content -LiteralPath $buildMetadata -Encoding utf8
 $hashes = [ordered]@{}
 foreach ($name in $artifactNames) {

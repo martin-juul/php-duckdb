@@ -72,6 +72,7 @@ cp duckdb-sdk/share/duckdb-sdk/LICENSE.duckdb "$name/"
 cp duckdb-sdk/share/duckdb-sdk/build.txt "$name/duckdb-build.txt"
 cp duckdb-sdk/share/duckdb-sdk/source.json "$name/duckdb-source.json"
 cp duckdb-sdk/share/duckdb-sdk/nullable-bitpacking.patch "$name/"
+cp duckdb-sdk/share/duckdb-sdk/arrow-geometry.patch "$name/"
 cp duckdb-sdk/share/duckdb-sdk/artifacts.json "$name/duckdb-sdk-artifacts.json"
 
 # Give the vendored dylib an rpath-relative install name; duckdb.so will

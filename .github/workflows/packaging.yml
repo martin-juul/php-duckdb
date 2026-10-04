@@ -3,7 +3,8 @@ name: Packaging
 # Keeps the distribution packaging in packaging/ buildable. Each job
 # builds the native package in a real distro container (openSUSE
 # Tumbleweed, Fedora 44, AlmaLinux 9/10 against the Remi repository's
-# PHP, Debian sid, Debian 13 trixie, Ubuntu LTS, Ubuntu devel), runs the
+# PHP, Amazon Linux 2023/2027 preview, Debian sid, Debian 13 trixie,
+# Ubuntu LTS and Ubuntu devel), runs the
 # full test suite at build time, then installs the resulting package and
 # smoke-tests the system PHP loading it through the distro's own ini
 # mechanism. macOS has no such mechanism, so its job ships tarballs
@@ -227,6 +228,95 @@ jobs:
             /root/rpmbuild/SRPMS/*.rpm
           if-no-files-found: error
 
+  amazonlinux-rpm:
+    needs: sdk-cache-tests
+    name: Amazon Linux ${{ matrix.os }} PHP ${{ matrix.php }} RPM (${{ matrix.arch }})
+    runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: ['2023', '2027']
+        php: ['8.2', '8.3', '8.4', '8.5']
+        arch: [amd64, arm64]
+        exclude:
+          # AL2027 is a public preview and currently supplies only PHP 8.5.
+          - os: '2027'
+            php: '8.2'
+          - os: '2027'
+            php: '8.3'
+          - os: '2027'
+            php: '8.4'
+    container: public.ecr.aws/amazonlinux/amazonlinux:${{ matrix.os }}
+    steps:
+      - name: Install checkout prerequisites
+        run: dnf install -y --setopt=install_weak_deps=False tar gzip git
+
+      - uses: actions/checkout@v4
+
+      - name: Install build tooling
+        run: |
+          dnf install -y --setopt=install_weak_deps=False \
+            rpm-build php${{ matrix.php }}-devel php${{ matrix.php }}-cli \
+            php${{ matrix.php }}-ffi gcc gcc-c++ make libtool autoconf \
+            cmake python3 patch tar gzip gawk patchelf findutils
+          php -v
+
+      # curl-minimal from the base image satisfies downloads without a full-curl conflict.
+      # Stage source archives for the offline engine and extension build.
+      - name: Stage rpmbuild sources
+        run: |
+          set -eu
+          ver=$(awk '/^%global upstream_version/ {print $3}' packaging/amazonlinux/php-pecl-duckdb.spec)
+          dver=$(python3 -c 'import json; print(json.load(open("packaging/duckdb/source.json"))["version"])')
+          source_url=$(python3 -c 'import json; print(json.load(open("packaging/duckdb/source.json"))["url"])')
+          mkdir -p /root/rpmbuild/SOURCES /root/rpmbuild/SPECS /root/rpmbuild/BUILD /root/rpmbuild/RPMS /root/rpmbuild/SRPMS
+          tar --exclude='./.git' --transform "s,^\.,php-duckdb-${ver}," \
+            -czf "/root/rpmbuild/SOURCES/php-duckdb-${ver}.tar.gz" .
+          curl -fsSL --retry 4 --retry-all-errors --retry-max-time 300 \
+            --connect-timeout 20 --max-time 180 -o "/root/rpmbuild/SOURCES/duckdb-${dver}.tar.gz" \
+            "$source_url"
+          cp packaging/amazonlinux/php-pecl-duckdb.spec /root/rpmbuild/SPECS/
+
+      # -ba builds the binary RPMs AND the SRPM; the spec's %check runs
+      # the full .phpt suite (Swoole/AMPHP/ReactPHP/True-Async tests skip
+      # — those extensions are not installed here).
+      - name: Restore verified DuckDB SDK artifacts
+        id: sdk-cache
+        uses: ./.github/actions/duckdb-sdk-cache
+        with:
+          target: amazonlinux
+
+      - name: Build RPM (with test suite)
+        run: rpmbuild --define '_topdir /root/rpmbuild' --define 'php_slot ${{ matrix.php }}' -ba /root/rpmbuild/SPECS/php-pecl-duckdb.spec
+
+      - name: Save completed DuckDB SDK artifacts
+        if: ${{ !cancelled() && steps.sdk-cache.outputs.key != '' && steps.sdk-cache.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ steps.sdk-cache.outputs.path }}
+          key: ${{ steps.sdk-cache.outputs.key }}
+
+      - name: Install RPM and smoke test with system PHP
+        run: |
+          set -eu
+          rpm -ivh /root/rpmbuild/RPMS/$(uname -m)/php-pecl-duckdb-*.rpm
+          module="$(php-config --extension-dir)/duckdb.so"
+          readelf -d "$module" | grep -F 'libphp-duckdb-engine.so'
+          ldd "$module" | grep -F '/php-duckdb/libphp-duckdb-engine.so'
+          php -m | grep -i duckdb
+          # RPM 6 cleans BUILD after success; the CI checkout remains available.
+          php packaging/smoke.php
+
+      - name: Upload RPM artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: amazonlinux-${{ matrix.os }}-php${{ matrix.php }}-rpm-${{ matrix.arch }}
+          path: |
+            /root/rpmbuild/RPMS/*/*.rpm
+            /root/rpmbuild/SRPMS/*.rpm
+          if-no-files-found: error
+
+
   almalinux-rpm:
     needs: sdk-cache-tests
     name: AlmaLinux ${{ matrix.os }} RPM — Remi PHP ${{ matrix.php }} (${{ matrix.arch }})
@@ -315,6 +405,7 @@ jobs:
           if-no-files-found: error
 
   debian-deb:
+    needs: sdk-cache-tests
     name: Debian sid deb (${{ matrix.arch }})
     runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
     strategy:
@@ -325,14 +416,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # Debian is the one target using the system libduckdb strategy:
-      # sid ships libduckdb-dev (amd64 + arm64), so no engine is vendored.
-      # A distribution backport is required to fix nullable bitpacking.
+      # Build the pinned patched SDK independently of distribution DuckDB.
       - name: Install build tooling
         run: |
           apt-get update
           apt-get install -y --no-install-recommends \
-            build-essential debhelper dh-php php-dev php-cli libduckdb-dev
+            build-essential debhelper dh-php php-dev php-cli \
+            curl cmake python3 patch patchelf ca-certificates
 
       # Same guard as the Fedora spec's %prep check: the changelog
       # version and PHP_DUCKDB_VERSION must not drift apart.
@@ -349,27 +439,47 @@ jobs:
 
       # dpkg insists on ./debian at the source root; copy it out of
       # packaging/ and restore the execute bit on debian/rules.
-      - name: Stage debian packaging
+      - name: Stage debian packaging and engine source
         run: |
           set -eu
           cp -a "$GITHUB_WORKSPACE" /root/src
           cp -r /root/src/packaging/debian /root/src/debian
           chmod +x /root/src/debian/rules
+          source_url=$(python3 -c 'import json; print(json.load(open("/root/src/packaging/duckdb/source.json"))["url"])')
+          curl -fsSL --retry 4 --retry-all-errors --retry-max-time 300 \
+            --connect-timeout 20 --max-time 180 -o /root/src/duckdb-source.tar.gz \
+            "$source_url"
 
       # dpkg-buildpackage -b builds the binary debs (landing next to the
       # source tree); dh_auto_test runs the full .phpt suite with
       # NO_INTERACTION=1 / REPORT_EXIT_STATUS=1 from debian/rules
       # (Swoole/AMPHP/ReactPHP/True-Async tests skip — those extensions
       # are not installed here).
+      - name: Restore verified DuckDB SDK artifacts
+        id: sdk-cache
+        uses: ./.github/actions/duckdb-sdk-cache
+        with:
+          target: debian
+
       - name: Build deb (with test suite)
         run: cd /root/src && dpkg-buildpackage -us -uc -b
+
+      - name: Save completed DuckDB SDK artifacts
+        if: ${{ !cancelled() && steps.sdk-cache.outputs.key != '' && steps.sdk-cache.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ steps.sdk-cache.outputs.path }}
+          key: ${{ steps.sdk-cache.outputs.key }}
 
       - name: Install deb and smoke test with system PHP
         run: |
           set -eu
           dpkg -i /root/php-duckdb_*.deb
+          module="$(php-config --extension-dir)/duckdb.so"
+          readelf -d "$module" | grep -F 'libphp-duckdb-engine.so'
+          ldd "$module" | grep -F '/php-duckdb/libphp-duckdb-engine.so'
           php -m | grep -i duckdb
-          php -r '$c = (new DuckDB\Database())->connect(); $r = $c->query("SELECT 42 AS x")->fetchRow(); if ($r["x"] !== 42) { exit(1); } printf("smoke OK: duckdb ext %s, libduckdb %s, PHP %s\n", phpversion("duckdb"), DuckDB\version(), PHP_VERSION);'
+          php /root/src/packaging/smoke.php
 
       - name: Upload deb artifacts
         uses: actions/upload-artifact@v4
@@ -377,6 +487,7 @@ jobs:
           name: debian-sid-deb-${{ matrix.arch }}
           path: /root/php-duckdb*.deb
           if-no-files-found: error
+
 
   debian-trixie-deb:
     needs: sdk-cache-tests
@@ -392,7 +503,7 @@ jobs:
 
       # trixie has no libduckdb package (DuckDB entered Debian after the
       # freeze), so this job builds and vendors the patched source SDK.
-      # The sid job retains its distribution-provided library.
+      # sid and Ubuntu jobs also build the pinned patched source SDK.
       - name: Install build tooling
         run: |
           apt-get update
@@ -467,8 +578,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # noble: PHP 8.3, resolute: PHP 8.5 — neither has a libduckdb
-        # package, so both use the vendored strategy (packaging/ubuntu).
+        # noble: PHP 8.3, resolute: PHP 8.5; both build the patched SDK.
         release: ['24.04', '26.04']
         arch: [amd64, arm64]
     container: ubuntu:${{ matrix.release }}
@@ -543,6 +653,7 @@ jobs:
           if-no-files-found: error
 
   ubuntu-devel-deb:
+    needs: sdk-cache-tests
     name: Ubuntu devel deb (${{ matrix.arch }})
     runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
     strategy:
@@ -553,14 +664,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # Ubuntu devel (26.10+) keeps the system library strategy; a distribution
-      # backport is required for nullable bitpacking. It ships libduckdb-dev
-      # in universe; reuse the Debian sid packaging unchanged.
+      # Build the pinned patched SDK independently of distribution DuckDB.
       - name: Install build tooling
         run: |
           apt-get update
           apt-get install -y --no-install-recommends \
-            build-essential debhelper dh-php php-dev php-cli libduckdb-dev
+            build-essential debhelper dh-php php-dev php-cli \
+            curl cmake python3 patch patchelf ca-certificates
 
       - name: Guard version drift
         run: |
@@ -573,22 +683,42 @@ jobs:
             exit 1
           fi
 
-      - name: Stage debian packaging
+      - name: Stage debian packaging and engine source
         run: |
           set -eu
           cp -a "$GITHUB_WORKSPACE" /root/src
           cp -r /root/src/packaging/debian /root/src/debian
           chmod +x /root/src/debian/rules
+          source_url=$(python3 -c 'import json; print(json.load(open("/root/src/packaging/duckdb/source.json"))["url"])')
+          curl -fsSL --retry 4 --retry-all-errors --retry-max-time 300 \
+            --connect-timeout 20 --max-time 180 -o /root/src/duckdb-source.tar.gz \
+            "$source_url"
+
+      - name: Restore verified DuckDB SDK artifacts
+        id: sdk-cache
+        uses: ./.github/actions/duckdb-sdk-cache
+        with:
+          target: debian
 
       - name: Build deb (with test suite)
         run: cd /root/src && dpkg-buildpackage -us -uc -b
+
+      - name: Save completed DuckDB SDK artifacts
+        if: ${{ !cancelled() && steps.sdk-cache.outputs.key != '' && steps.sdk-cache.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ steps.sdk-cache.outputs.path }}
+          key: ${{ steps.sdk-cache.outputs.key }}
 
       - name: Install deb and smoke test with system PHP
         run: |
           set -eu
           dpkg -i /root/php-duckdb_*.deb
+          module="$(php-config --extension-dir)/duckdb.so"
+          readelf -d "$module" | grep -F 'libphp-duckdb-engine.so'
+          ldd "$module" | grep -F '/php-duckdb/libphp-duckdb-engine.so'
           php -m | grep -i duckdb
-          php -r '$c = (new DuckDB\Database())->connect(); $r = $c->query("SELECT 42 AS x")->fetchRow(); if ($r["x"] !== 42) { exit(1); } printf("smoke OK: duckdb ext %s, libduckdb %s, PHP %s\n", phpversion("duckdb"), DuckDB\version(), PHP_VERSION);'
+          php /root/src/packaging/smoke.php
 
       - name: Upload deb artifacts
         uses: actions/upload-artifact@v4
@@ -604,6 +734,7 @@ jobs:
   # August 2027) for x86_64 and macos-15 for arm64, both targeting
   # macOS 12+. Both engine and extension are compiled for baseline CPUs;
   # no native CPU optimization is enabled in the source SDK builder.
+
   macos-tarball:
     needs: sdk-cache-tests
     name: macOS 12+ ${{ matrix.arch }} tarball — PHP ${{ matrix.php }}
@@ -754,6 +885,7 @@ jobs:
     needs:
       - opensuse-rpm
       - fedora-rpm
+      - amazonlinux-rpm
       - almalinux-rpm
       - macos-tarball
       - windows-zip

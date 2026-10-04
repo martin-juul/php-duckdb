@@ -414,6 +414,9 @@ final class Database
  */
 final class Connection
 {
+    /** Convert an Arrow record batch using this connection's settings; consumes its array. */
+    public function dataChunkFromArrow(ArrowChunk $chunk): DataChunk {}
+
     private function __construct() {}
 
     /**
@@ -622,6 +625,55 @@ final class Statement
     public function executeAsync(array $params = []): PendingQuery {}
 }
 
+/** An owning Arrow C Data Interface schema. Native addresses must refer to valid ABI structs. */
+final class ArrowSchema
+{
+    private function __construct() {}
+
+    /** Move a live ArrowSchema from native memory; clears the source release callback. */
+    public static function importFromC(int $address): ArrowSchema {}
+
+    /** Copy into an empty native ArrowSchema. The caller must invoke its release callback. */
+    public function exportToC(int $address): void {}
+
+    /** Recursive schema with name, format, flags, metadata pairs, children and dictionary. */
+    public function toArray(): array {}
+}
+
+/** An owning Arrow record batch. Import, native conversion and export use move semantics. */
+final class ArrowChunk
+{
+    private function __construct() {}
+
+    /** Move a live record-batch ArrowArray from native memory. */
+    public static function importFromC(ArrowSchema $schema, int $address): ArrowChunk {}
+
+    /** Move into an empty native ArrowArray; consumes this chunk. */
+    public function exportToC(int $address): void {}
+
+    public function schema(): ArrowSchema {}
+    public function rowCount(): int {}
+    public function isConsumed(): bool {}
+}
+
+/** A native DuckDB chunk imported from Arrow. Independent of its source connection. */
+final class DataChunk
+{
+    private function __construct() {}
+
+    public function rowCount(): int {}
+    public function columnCount(): int {}
+
+    /** @return list<array{name: string, type: string}> */
+    public function columns(): array {}
+
+    /** Decode all rows without consuming the chunk. */
+    public function toRows(FetchMode $mode = FetchMode::Assoc): array {}
+
+    public function arrowSchema(Connection $connection): ArrowSchema {}
+    public function toArrow(Connection $connection): ArrowChunk {}
+}
+
 /**
  * The result of a query. Iterates row by row.
  *
@@ -661,6 +713,12 @@ final class Statement
 final class Result implements \IteratorAggregate
 {
     private function __construct() {}
+
+    /** Export the result schema without consuming rows. */
+    public function arrowSchema(): ArrowSchema {}
+
+    /** Fetch one Arrow record batch; rejects a partially consumed row chunk. */
+    public function fetchArrowChunk(): ?ArrowChunk {}
 
     public function columnCount(): int {}
 
@@ -858,6 +916,12 @@ final class Appender
      * submission failures require clear() before reuse.
      */
     public function appendRow(array $values): void {}
+
+    /** Append a reusable native chunk in column order. */
+    public function appendChunk(DataChunk $chunk): void {}
+
+    /** Convert and consume an Arrow batch, then append it in column order. */
+    public function appendArrow(ArrowChunk $chunk): void {}
 
     /**
      * Begin a new row for piecemeal appending.

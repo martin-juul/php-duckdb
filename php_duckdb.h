@@ -230,6 +230,9 @@ struct async_task {
     std::mutex m;
     std::condition_variable cv;
     bool done = false;
+    bool cancel_requested = false;
+    bool worker_running = false;
+    std::thread cancellation_worker;
     bool error = false;
     bool consumed = false;
     duckdb_error_type error_type = DUCKDB_ERROR_INVALID;
@@ -249,6 +252,10 @@ struct async_task {
     void discard_pending();
 
     ~async_task() {
+        if (cancellation_worker.joinable()) {
+            cancellation_worker.join();
+        }
+
         /* The destroy calls below touch connection state; serialize them
          * with any in-flight execution on this connection. The connection
          * outlives the task via conn, and no code path destroys a task
@@ -276,6 +283,9 @@ struct async_task {
 
 struct result_data {
     duckdb_result result = {};
+    /* Arrow export consults the source ClientContext even for materialized
+     * results. Logical close remains immediate; defer physical disconnect. */
+    std::shared_ptr<conn_inner> conn_keepalive;
     bool streaming = false;
     idx_t column_count = 0;
     /* Owned logical types, one per column (nullptr for statement types
@@ -522,7 +532,8 @@ bool duckdb_initialize_typed_registry(db_inner *database);
 /* Instantiate a DuckDB\Result object wrapping `res`. Takes ownership of
  * `res`. `keepalive` keeps a prepared statement alive for streaming
  * results (pass nullptr otherwise). */
-void duckdb_result_instantiate(zval *return_value, duckdb_result *res, bool streaming, std::shared_ptr<stmt_inner> keepalive);
+void duckdb_result_instantiate(zval *return_value, duckdb_result *res, bool streaming,
+                               std::shared_ptr<stmt_inner> keepalive, std::shared_ptr<conn_inner> connection);
 
 /* pending.cpp */
 /* Worker thread entry point for THREAD_* modes. */

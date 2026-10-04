@@ -1,3 +1,12 @@
+php-duckdb (1.3.1-2) unstable; urgency=medium
+
+  * Build the pinned DuckDB engine with nullable storage and Arrow fixes.
+  * Install the engine privately with a distinct SONAME and loader path,
+    allowing Debian and Ubuntu system DuckDB packages to coexist.
+  * Stage engine sources offline and reuse verified shared SDK caches.
+
+ -- Martin Juul Christiansen <code@juul.xyz>  Sun, 04 Oct 2026 12:00:00 +0200
+
 php-duckdb (1.3.1-1) unstable; urgency=medium
 
   * Add Windows x64 packages and selectable async notifications.

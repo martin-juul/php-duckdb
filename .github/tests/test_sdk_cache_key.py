@@ -27,12 +27,13 @@ class SdkCacheKeyTests(unittest.TestCase):
         self.flags = "CXXFLAGS='-O2'"
         self.rpm_version = "RPM version 4.20"
         self.commands = []
-        for target in ("opensuse", "fedora", "almalinux", "debian-trixie", "ubuntu", "macos", "windows"):
+        self.sdk_jobs = "2"
+        for target in ("opensuse", "fedora", "almalinux", "amazonlinux", "debian", "debian-trixie", "ubuntu", "macos", "windows"):
             recipe = Path("packaging") / target
             recipe.mkdir(parents=True)
-            if target in {"opensuse", "fedora", "almalinux"}:
+            if target in {"opensuse", "fedora", "almalinux", "amazonlinux"}:
                 name = "php-duckdb.spec"
-            elif target in {"debian-trixie", "ubuntu"}:
+            elif target in {"debian", "debian-trixie", "ubuntu"}:
                 name = "rules"
             elif target == "windows":
                 name = "build.ps1"
@@ -45,6 +46,8 @@ class SdkCacheKeyTests(unittest.TestCase):
 
     def command(self, *arguments):
         self.commands.append(arguments)
+        if arguments == ("python3", "packaging/resources/jobs.py", "--profile", "sdk"):
+            return self.sdk_jobs
         if arguments[0] in {"pwsh", "sh"}:
             return "SDK workers: 2\n" + self.fingerprint
         if arguments[:2] == ("rpm", "--version"):
@@ -57,7 +60,7 @@ class SdkCacheKeyTests(unittest.TestCase):
         return SDK_CACHE.cache_key(target, self.cache_path)
 
     def test_keys_ignore_php_jobs_and_commit(self):
-        for target in ("opensuse", "fedora", "almalinux", "debian-trixie", "ubuntu", "macos", "windows"):
+        for target in ("opensuse", "fedora", "almalinux", "amazonlinux", "debian", "debian-trixie", "ubuntu", "macos", "windows"):
             with self.subTest(target=target):
                 initial = self.key(target)
                 with patch.dict(os.environ, {
@@ -67,8 +70,37 @@ class SdkCacheKeyTests(unittest.TestCase):
                     self.assertEqual(initial, self.key(target))
                 self.assertRegex(initial, rf"^duckdb-package-sdk-v1-{target}-[a-f0-9]{{64}}$")
 
+    def test_amazon_auto_lto_uses_resource_budget(self):
+        self.flags = "CFLAGS='-O2 -flto=auto'; CXXFLAGS='-O2 -flto=auto'; LDFLAGS='-flto=auto'"
+        with patch.dict(os.environ, {"DUCKDB_BUILD_JOBS": ""}):
+            initial = self.key("amazonlinux")
+            self.sdk_jobs = "4"
+            self.assertNotEqual(initial, self.key("amazonlinux"))
+            with patch.dict(os.environ, {"DUCKDB_BUILD_JOBS": "2", "DUCKDB_JOBS": "16"}):
+                self.assertEqual(initial, self.key("amazonlinux"))
+
+    def test_amazon_normalizes_all_auto_flags_and_preserves_other_flags(self):
+        flags = "CFLAGS='-O2 -flto=auto'; CXXFLAGS='-g -flto=auto'; LDFLAGS='-Wl,-z,now -flto=auto'"
+        with patch.dict(os.environ, {"DUCKDB_BUILD_JOBS": "4"}):
+            self.assertEqual(SDK_CACHE.amazon_build_flags(flags), flags.replace("-flto=auto", "-flto=4"))
+            self.assertEqual(SDK_CACHE.amazon_build_flags("-O2 -flto=8"), "-O2 -flto=8")
+
+    def test_amazon_rejects_invalid_worker_overrides(self):
+        for jobs in ("0", "04", "-1", "4.0", "many"):
+            with self.subTest(jobs=jobs), patch.dict(os.environ, {"DUCKDB_BUILD_JOBS": jobs}):
+                with self.assertRaisesRegex(ValueError, "positive integer"):
+                    self.key("amazonlinux")
+
+    def test_other_rpm_targets_keep_auto_lto_independent_of_sdk_jobs(self):
+        self.flags = "CXXFLAGS='-O2 -flto=auto'"
+        for target in ("fedora", "almalinux", "opensuse"):
+            with self.subTest(target=target):
+                initial = self.key(target)
+                with patch.dict(os.environ, {"DUCKDB_BUILD_JOBS": "4"}):
+                    self.assertEqual(initial, self.key(target))
+
     def test_toolchain_fingerprint_invalidates_every_target(self):
-        for target in ("opensuse", "fedora", "almalinux", "debian-trixie", "ubuntu", "macos", "windows"):
+        for target in ("opensuse", "fedora", "almalinux", "amazonlinux", "debian", "debian-trixie", "ubuntu", "macos", "windows"):
             with self.subTest(target=target):
                 self.fingerprint = "a" * 64
                 initial = self.key(target)
@@ -76,7 +108,7 @@ class SdkCacheKeyTests(unittest.TestCase):
                 self.assertNotEqual(initial, self.key(target))
 
     def test_package_flags_invalidate_rpm_and_deb_keys(self):
-        for target in ("opensuse", "fedora", "almalinux", "debian-trixie", "ubuntu"):
+        for target in ("opensuse", "fedora", "almalinux", "amazonlinux", "debian", "debian-trixie", "ubuntu"):
             with self.subTest(target=target):
                 self.flags = "CXXFLAGS='-O2'"
                 initial = self.key(target)
@@ -89,7 +121,7 @@ class SdkCacheKeyTests(unittest.TestCase):
         self.assertNotEqual(initial, self.key("fedora"))
 
     def test_recipe_changes_invalidate_every_target(self):
-        for target in ("opensuse", "fedora", "almalinux", "debian-trixie", "ubuntu", "macos", "windows"):
+        for target in ("opensuse", "fedora", "almalinux", "amazonlinux", "debian", "debian-trixie", "ubuntu", "macos", "windows"):
             with self.subTest(target=target):
                 initial = self.key(target)
                 recipe = next((Path("packaging") / target).iterdir())
@@ -110,7 +142,7 @@ class SdkCacheKeyTests(unittest.TestCase):
                 self.assertEqual(self.key(target), SDK_CACHE.cache_key(target, Path("another-cache")))
 
     def test_unknown_target_fails_before_commands(self):
-        for target in ("debian", "../fedora", "", "solaris"):
+        for target in ("../fedora", "", "solaris"):
             with self.subTest(target=target):
                 with self.assertRaisesRegex(ValueError, "Unknown SDK packaging target"):
                     self.key(target)

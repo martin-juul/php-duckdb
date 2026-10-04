@@ -1,0 +1,307 @@
+--- a/src/main/capi/arrow-c.cpp
++++ b/src/main/capi/arrow-c.cpp
+@@ -2,6 +2,9 @@
+ #include "duckdb/common/arrow/arrow_converter.hpp"
+ #include "duckdb/function/table/arrow.hpp"
+ #include "duckdb/main/capi/capi_internal.hpp"
++#include "duckdb/main/client_context.hpp"
++#include "duckdb/common/error_data.hpp"
++#include <exception>
+ #include "duckdb/main/prepared_statement_data.hpp"
+ #include "fmt/format.h"
+ 
+@@ -16,27 +19,60 @@
+ using duckdb::QueryResult;
+ using duckdb::QueryResultType;
+ 
++
++namespace {
++// Schema/type validation is a recoverable C API error, not a failed SQL
++// statement. Defer only expected validation failures past the transaction
++// guard so an existing caller transaction stays usable. Severe engine errors
++// and allocation failures retain DuckDB's normal invalidation semantics.
++void RunArrowConversion(duckdb::ClientContext &context, const std::function<void(void)> &conversion) {
++	std::exception_ptr validation_error;
++	context.RunFunctionInTransaction([&]() {
++		try {
++			conversion();
++		} catch (const duckdb::Exception &ex) {
++			duckdb::ErrorData error(ex);
++			switch (error.Type()) {
++			case duckdb::ExceptionType::INVALID_INPUT:
++			case duckdb::ExceptionType::SERIALIZATION:
++			case duckdb::ExceptionType::NOT_IMPLEMENTED:
++			case duckdb::ExceptionType::CONVERSION:
++			case duckdb::ExceptionType::OUT_OF_RANGE:
++			case duckdb::ExceptionType::BINDER:
++			case duckdb::ExceptionType::CATALOG:
++			case duckdb::ExceptionType::PARSER:
++				validation_error = std::current_exception();
++				break;
++			default:
++				throw;
++			}
++		}
++	});
++	if (validation_error) {
++		std::rethrow_exception(validation_error);
++	}
++}
++} // namespace
++
+ duckdb_error_data duckdb_to_arrow_schema(duckdb_arrow_options arrow_options, duckdb_logical_type *types,
+                                          const char **names, idx_t column_count, struct ArrowSchema *out_schema) {
+-	if (!arrow_options || !out_schema) {
++	if (!arrow_options || !out_schema || (column_count > 0 && (!types || !names))) {
+ 		return duckdb_create_error_data(DUCKDB_ERROR_INVALID_INPUT, "Invalid argument(s) to duckdb_to_arrow_schema");
+ 	}
+-	// types and names can be nullptr when column_count is 0
+-	if (column_count > 0 && (!types || !names)) {
+-		return duckdb_create_error_data(DUCKDB_ERROR_INVALID_INPUT, "Invalid argument(s) to duckdb_to_arrow_schema");
+-	}
+-
+-	duckdb::vector<LogicalType> schema_types;
+-	duckdb::vector<std::string> schema_names;
+-	for (idx_t i = 0; i < column_count; i++) {
+-		schema_names.emplace_back(names[i]);
+-		schema_types.emplace_back(*reinterpret_cast<duckdb::LogicalType *>(types[i]));
+-	}
+-	const auto arrow_options_wrapper = reinterpret_cast<CClientArrowOptionsWrapper *>(arrow_options);
+-	try {
+-		ArrowConverter::ToArrowSchema(out_schema, schema_types, schema_names, arrow_options_wrapper->properties);
+-	} catch (const duckdb::Exception &ex) {
+-		return duckdb_create_error_data(DUCKDB_ERROR_INVALID_INPUT, ex.what());
++	try {
++		duckdb::vector<LogicalType> schema_types;
++		duckdb::vector<std::string> schema_names;
++		for (idx_t i = 0; i < column_count; i++) {
++			if (!types[i] || !names[i]) {
++				throw duckdb::InvalidInputException("Invalid type or name in duckdb_to_arrow_schema");
++			}
++			schema_names.emplace_back(names[i]);
++			schema_types.emplace_back(*reinterpret_cast<duckdb::LogicalType *>(types[i]));
++		}
++		const auto wrapper = reinterpret_cast<CClientArrowOptionsWrapper *>(arrow_options);
++		RunArrowConversion(*wrapper->properties.client_context, [&]() {
++			ArrowConverter::ToArrowSchema(out_schema, schema_types, schema_names, wrapper->properties);
++		});
+ 	} catch (const std::exception &ex) {
+ 		return duckdb_create_error_data(DUCKDB_ERROR_INVALID_INPUT, ex.what());
+ 	} catch (...) {
+@@ -51,15 +87,14 @@
+ 		return duckdb_create_error_data(DUCKDB_ERROR_INVALID_INPUT,
+ 		                                "Invalid argument(s) to duckdb_data_chunk_to_arrow");
+ 	}
+-	auto dchunk = reinterpret_cast<duckdb::DataChunk *>(chunk);
+-	auto arrow_options_wrapper = reinterpret_cast<CClientArrowOptionsWrapper *>(arrow_options);
+-	auto extension_type_cast = duckdb::ArrowTypeExtensionData::GetExtensionTypes(
+-	    *arrow_options_wrapper->properties.client_context, dchunk->GetTypes());
+-
+-	try {
+-		ArrowConverter::ToArrowArray(*dchunk, out_arrow_array, arrow_options_wrapper->properties, extension_type_cast);
+-	} catch (const duckdb::Exception &ex) {
+-		return duckdb_create_error_data(DUCKDB_ERROR_INVALID_INPUT, ex.what());
++	try {
++		auto dchunk = reinterpret_cast<duckdb::DataChunk *>(chunk);
++		auto wrapper = reinterpret_cast<CClientArrowOptionsWrapper *>(arrow_options);
++		RunArrowConversion(*wrapper->properties.client_context, [&]() {
++			auto extension_type_cast = duckdb::ArrowTypeExtensionData::GetExtensionTypes(
++			    *wrapper->properties.client_context, dchunk->GetTypes());
++			ArrowConverter::ToArrowArray(*dchunk, out_arrow_array, wrapper->properties, extension_type_cast);
++		});
+ 	} catch (const std::exception &ex) {
+ 		return duckdb_create_error_data(DUCKDB_ERROR_INVALID_INPUT, ex.what());
+ 	} catch (...) {
+@@ -72,22 +107,20 @@
+                                            duckdb_arrow_converted_schema *out_types) {
+ 	if (!connection || !out_types || !schema) {
+ 		return duckdb_create_error_data(DUCKDB_ERROR_INVALID_INPUT,
+-		                                "Invalid argument(s) to duckdb_data_chunk_to_arrow");
+-	}
+-	duckdb::vector<std::string> names;
+-	const auto conn = reinterpret_cast<Connection *>(connection);
+-	auto arrow_table = duckdb::make_uniq<duckdb::ArrowTableSchema>();
+-	try {
+-		duckdb::vector<LogicalType> return_types;
+-		duckdb::ArrowTableFunction::PopulateArrowTableSchema(*conn->context, *arrow_table, *schema);
+-	} catch (const duckdb::Exception &ex) {
+-		return duckdb_create_error_data(DUCKDB_ERROR_INVALID_INPUT, ex.what());
++		                                "Invalid argument(s) to duckdb_schema_from_arrow");
++	}
++	try {
++		const auto conn = reinterpret_cast<Connection *>(connection);
++		auto arrow_table = duckdb::make_uniq<duckdb::ArrowTableSchema>();
++		RunArrowConversion(*conn->context, [&]() {
++			duckdb::ArrowTableFunction::PopulateArrowTableSchema(*conn->context, *arrow_table, *schema);
++		});
++		*out_types = reinterpret_cast<duckdb_arrow_converted_schema>(arrow_table.release());
+ 	} catch (const std::exception &ex) {
+ 		return duckdb_create_error_data(DUCKDB_ERROR_INVALID_INPUT, ex.what());
+ 	} catch (...) {
+ 		return duckdb_create_error_data(DUCKDB_ERROR_INVALID_INPUT, "Unknown error occurred during conversion");
+ 	}
+-	*out_types = reinterpret_cast<duckdb_arrow_converted_schema>(arrow_table.release());
+ 	return nullptr;
+ }
+ 
+@@ -96,58 +129,52 @@
+                                                duckdb_data_chunk *out_chunk) {
+ 	if (!connection || !converted_schema || !out_chunk || !arrow_array) {
+ 		return duckdb_create_error_data(DUCKDB_ERROR_INVALID_INPUT,
+-		                                "Invalid argument(s) to duckdb_data_chunk_to_arrow");
+-	}
+-	auto arrow_table = reinterpret_cast<duckdb::ArrowTableSchema *>(converted_schema);
+-	auto conn = reinterpret_cast<Connection *>(connection);
+-	auto &types = arrow_table->GetTypes();
+-
+-	auto dchunk = duckdb::make_uniq<duckdb::DataChunk>();
+-	dchunk->Initialize(duckdb::Allocator::DefaultAllocator(), types, duckdb::NumericCast<idx_t>(arrow_array->length));
+-
+-	auto &arrow_types = arrow_table->GetColumns();
+-	dchunk->SetCardinality(duckdb::NumericCast<idx_t>(arrow_array->length));
+-	for (idx_t i = 0; i < dchunk->ColumnCount(); i++) {
+-		auto &parent_array = *arrow_array;
+-		auto &array = parent_array.children[i];
+-		auto arrow_type = arrow_types.at(i);
+-		auto array_physical_type = arrow_type->GetPhysicalType();
+-		auto array_state = duckdb::make_uniq<duckdb::ArrowArrayScanState>(*conn->context);
+-		// We need to make sure that our chunk will hold the ownership
+-		array_state->owned_data = duckdb::make_shared_ptr<duckdb::ArrowArrayWrapper>();
+-		array_state->owned_data->arrow_array = *arrow_array;
+-		// We set it to nullptr to effectively transfer the ownership
+-		arrow_array->release = nullptr;
+-		try {
+-			switch (array_physical_type) {
+-			case duckdb::ArrowArrayPhysicalType::DICTIONARY_ENCODED:
+-				duckdb::ArrowToDuckDBConversion::ColumnArrowToDuckDBDictionary(dchunk->data[i], *array, 0, *array_state,
+-				                                                               dchunk->size(), *arrow_type);
+-				break;
+-			case duckdb::ArrowArrayPhysicalType::RUN_END_ENCODED:
+-				duckdb::ArrowToDuckDBConversion::ColumnArrowToDuckDBRunEndEncoded(
+-				    dchunk->data[i], *array, 0, *array_state, dchunk->size(), *arrow_type);
+-				break;
+-			case duckdb::ArrowArrayPhysicalType::DEFAULT:
+-				duckdb::ArrowToDuckDBConversion::SetValidityMask(dchunk->data[i], *array, 0, dchunk->size(),
+-				                                                 parent_array.offset, -1);
+-
+-				duckdb::ArrowToDuckDBConversion::ColumnArrowToDuckDB(dchunk->data[i], *array, 0, *array_state,
+-				                                                     dchunk->size(), *arrow_type);
+-				break;
+-			default:
+-				return duckdb_create_error_data(DUCKDB_ERROR_NOT_IMPLEMENTED,
+-				                                "Only Default Physical Types are currently supported");
++		                                "Invalid argument(s) to duckdb_data_chunk_from_arrow");
++	}
++	try {
++		auto arrow_table = reinterpret_cast<duckdb::ArrowTableSchema *>(converted_schema);
++		auto conn = reinterpret_cast<Connection *>(connection);
++		auto dchunk = duckdb::make_uniq<duckdb::DataChunk>();
++		RunArrowConversion(*conn->context, [&]() {
++			dchunk->Initialize(duckdb::Allocator::DefaultAllocator(), arrow_table->GetTypes(),
++			                   duckdb::NumericCast<idx_t>(arrow_array->length));
++			auto &arrow_types = arrow_table->GetColumns();
++			dchunk->SetCardinality(duckdb::NumericCast<idx_t>(arrow_array->length));
++			for (idx_t i = 0; i < dchunk->ColumnCount(); i++) {
++				auto &parent_array = *arrow_array;
++				auto &array = parent_array.children[i];
++				auto arrow_type = arrow_types.at(i);
++				auto array_physical_type = arrow_type->GetPhysicalType();
++				auto array_state = duckdb::make_uniq<duckdb::ArrowArrayScanState>(*conn->context);
++				array_state->owned_data = duckdb::make_shared_ptr<duckdb::ArrowArrayWrapper>();
++				array_state->owned_data->arrow_array = *arrow_array;
++				arrow_array->release = nullptr;
++				switch (array_physical_type) {
++				case duckdb::ArrowArrayPhysicalType::DICTIONARY_ENCODED:
++					duckdb::ArrowToDuckDBConversion::ColumnArrowToDuckDBDictionary(
++					    dchunk->data[i], *array, 0, *array_state, dchunk->size(), *arrow_type);
++					break;
++				case duckdb::ArrowArrayPhysicalType::RUN_END_ENCODED:
++					duckdb::ArrowToDuckDBConversion::ColumnArrowToDuckDBRunEndEncoded(
++					    dchunk->data[i], *array, 0, *array_state, dchunk->size(), *arrow_type);
++					break;
++				case duckdb::ArrowArrayPhysicalType::DEFAULT:
++					duckdb::ArrowToDuckDBConversion::SetValidityMask(dchunk->data[i], *array, 0, dchunk->size(),
++					                                                 parent_array.offset, -1);
++					duckdb::ArrowToDuckDBConversion::ColumnArrowToDuckDB(dchunk->data[i], *array, 0, *array_state,
++					                                                     dchunk->size(), *arrow_type);
++					break;
++				default:
++					throw duckdb::NotImplementedException("Only Default Physical Types are currently supported");
++				}
+ 			}
+-		} catch (const duckdb::Exception &ex) {
+-			return duckdb_create_error_data(DUCKDB_ERROR_INVALID_INPUT, ex.what());
+-		} catch (const std::exception &ex) {
+-			return duckdb_create_error_data(DUCKDB_ERROR_INVALID_INPUT, ex.what());
+-		} catch (...) {
+-			return duckdb_create_error_data(DUCKDB_ERROR_INVALID_INPUT, "Unknown error occurred during conversion");
+-		}
+-	}
+-	*out_chunk = reinterpret_cast<duckdb_data_chunk>(dchunk.release());
++		});
++		*out_chunk = reinterpret_cast<duckdb_data_chunk>(dchunk.release());
++	} catch (const std::exception &ex) {
++		return duckdb_create_error_data(DUCKDB_ERROR_INVALID_INPUT, ex.what());
++	} catch (...) {
++		return duckdb_create_error_data(DUCKDB_ERROR_INVALID_INPUT, "Unknown error occurred during conversion");
++	}
+ 	return nullptr;
+ }
+ 
+--- a/src/common/arrow/arrow_type_extension.cpp
++++ b/src/common/arrow/arrow_type_extension.cpp
+@@ -394,11 +394,29 @@
+ struct ArrowGeometry {
+ 	static unique_ptr<ArrowType> GetType(ClientContext &context, const ArrowSchema &schema,
+ 	                                     const ArrowSchemaMetadata &schema_metadata) {
+-		// Validate extension metadata. This metadata also contains a CRS, which we drop
+-		// because the GEOMETRY type does not implement a CRS at the type level (yet).
++		// Preserve the declared CRS even when its identifier is not installed
++		// in the coordinate-system catalog. Arrow conversion must not silently
++		// erase a valid type annotation.
+ 		const auto extension_metadata = schema_metadata.GetOption(ArrowSchemaMetadata::ARROW_METADATA_KEY);
+ 
+ 		unique_ptr<CoordinateReferenceSystem> duckdb_crs;
++		auto parse_crs = [&context](const string &definition, bool require_projjson = false) {
++			auto result = make_uniq<CoordinateReferenceSystem>(definition);
++			if (result->GetType() == CoordinateReferenceSystemType::INVALID) {
++				throw SerializationException("Invalid CRS in GeoArrow metadata");
++			}
++			if (require_projjson && result->GetType() != CoordinateReferenceSystemType::PROJJSON) {
++				throw SerializationException("Invalid PROJJSON CRS object in GeoArrow metadata");
++			}
++			// Keep catalog-resolved identities canonical so matching geometry
++			// declarations compare equal, but retain foreign identifiers that
++			// have no catalog entry instead of dropping their CRS annotation.
++			auto identified = CoordinateReferenceSystem::TryIdentify(context, definition);
++			if (identified) {
++				return identified;
++			}
++			return result;
++		};
+ 
+ 		if (!extension_metadata.empty()) {
+ 			unique_ptr<duckdb_yyjson::yyjson_doc, void (*)(duckdb_yyjson::yyjson_doc *)> doc(
+@@ -425,7 +443,7 @@
+ 			if (crs) {
+ 				if (duckdb_yyjson::yyjson_is_str(crs)) {
+ 					const char *crs_str = duckdb_yyjson::yyjson_get_str(crs);
+-					duckdb_crs = CoordinateReferenceSystem::TryIdentify(context, crs_str);
++					duckdb_crs = parse_crs(crs_str);
+ 				} else if (duckdb_yyjson::yyjson_is_obj(crs)) {
+ 					// Stringify the object
+ 					duckdb_yyjson::yyjson_write_flag write_flags = duckdb_yyjson::YYJSON_WRITE_NOFLAG;
+@@ -434,10 +452,12 @@
+ 					if (crs_str) {
+ 						const auto str = string(crs_str, len);
+ 						free(crs_str);
+-						duckdb_crs = CoordinateReferenceSystem::TryIdentify(context, str);
++						duckdb_crs = parse_crs(str, true);
+ 					} else {
+ 						throw SerializationException("Could not serialize CRS object from GeoArrow metadata");
+ 					}
++				} else if (!duckdb_yyjson::yyjson_is_null(crs)) {
++					throw SerializationException("Invalid CRS value in GeoArrow metadata");
+ 				}
+ 			}
+ 		}

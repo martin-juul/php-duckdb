@@ -27,5 +27,5 @@ Description: DuckDB in-process analytical database bindings for PHP
  .
  This build targets Ubuntu LTS releases (24.04 noble, 26.04 resolute),
  which have no libduckdb package; the patched source-built DuckDB library is
- vendored into this package. Ubuntu devel (26.10+) ships libduckdb-dev —
- use packaging/debian/ there instead.
+ vendored into this package. For Ubuntu devel (26.10+), use
+ packaging/debian/, which builds a private patched DuckDB engine.

@@ -11,6 +11,8 @@ packaging/
     php-pecl-duckdb.spec   # RPM spec — Fedora 43+, EPEL-compatible
   almalinux/
     php-pecl-duckdb.spec   # RPM spec — AlmaLinux 9/10, Remi PHP 8.2–8.5
+  amazonlinux/
+    php-pecl-duckdb.spec   # RPM spec — Amazon Linux 2023 and 2027 preview
   gentoo/
     dev-php/php-duckdb/    # local overlay — live ebuild, private patched engine
   solaris/
@@ -20,7 +22,7 @@ packaging/
   windows/
     build.ps1, README.md   # ZIP — x64, PHP 8.2–8.5, TS and NTS
   debian/
-    control, rules, ...    # debhelper — Debian sid/forky, Ubuntu (system libduckdb)
+    control, rules, ...    # debhelper — Debian sid/forky, Ubuntu devel (patched SDK)
   debian-trixie/
     control, rules, ...    # debhelper — Debian 13 trixie (vendored libduckdb)
   ubuntu/
@@ -41,34 +43,31 @@ Build scripts select parallel workers from
 
 ## libduckdb strategy
 
-The extension links against the DuckDB C API library (`libduckdb`). Most
-distributions do **not** package it yet, so each packaging target chooses one
-of the following sources:
+All packaging targets build and ship this repository's pinned, patched DuckDB
+SDK through [the shared SDK builders](duckdb/README.md). They do not depend on
+a distribution DuckDB runtime or development package. The source version,
+commit and archive hash are shared in [source.json](duckdb/source.json).
 
-1. **System package** (preferred when available) — e.g. Debian sid ships
-   [`libduckdb-dev`](https://packages.debian.org/sid/libdevel/libduckdb-dev),
-   Arch Linux ships [`duckdb`](https://archlinux.org/packages/extra/x86_64/duckdb/)
-   in Extra.
-2. **Vendored source build** — build the pinned DuckDB source with the
-   nullable bitpacking patch through [the SDK builder](duckdb/README.md),
-   then ship its shared library inside the package. RPMs, vendored DEBs,
-   macOS tarballs and Docker images use this path. The source version,
-   commit and archive hash are shared in [source.json](duckdb/source.json).
+Both [engine patches](duckdb/patches/README.md) are built into the shipped
+library. The nullable bitpacking patch initializes unused NULL slots; the
+Arrow patch supplies conversion transactions and preserves declared geometry
+CRS metadata. Patches, source pins, build metadata and DuckDB's license
+accompany the SDK under `share/duckdb-sdk/`. Cache verification requires both
+patch artifacts and their checksums. Existing release assets are not replaced;
+the release workflow builds from its release commit.
 
-The engine patch is built into the shipped library; it is not limited to a
-Valgrind job. System-library builds remain distribution-provided and require
-the corresponding upstream fix or a distribution backport. Do not treat an
-unpatched system library as fixed merely because the PHP extension was rebuilt.
-SDK metadata and DuckDB's license accompany vendored packages. Existing release
-assets are not replaced; the release workflow builds from its release commit.
+Source builds outside these packaging recipes can still link to an external
+SDK. Those libraries do not receive this patch set from compiling the PHP
+extension and require separate validation.
 
 ## Gentoo (Portage overlay)
 
 The [Gentoo overlay](gentoo/README.md) provides a live `dev-php/php-duckdb`
 ebuild using Gentoo's PHP extension eclass. It builds the pinned, patched
 engine and installs it privately, with tests for each selected PHP slot.
-Follow the overlay instructions to select a source revision containing these
-changes; released extension archives do not yet include the SDK builder.
+The live ebuild follows the default branch, which includes the SDK builder
+and patch. Released extension archives through 1.3.1 do not include the SDK
+builder; see the overlay instructions before creating a versioned ebuild.
 
 ## Oracle Solaris (experimental IPS recipe)
 
@@ -110,9 +109,8 @@ The spec follows `server:php:extensions` conventions: php8 macros from
 `php8-devel` and ABI pinning through `php(api)`/`php(zend-abi)`. It can
 therefore be used unchanged in an OBS home project. Upload the spec and the
 two source archives with `osc add`; the same pinned DuckDB source builds on
-both `x86_64` and `aarch64`. When DuckDB lands in Factory with the engine fix,
-replace the vendored SDK with `BuildRequires: duckdb-devel` and a runtime
-`Requires: libduckdb`.
+both `x86_64` and `aarch64`. The package retains the shared patched SDK
+regardless of distribution DuckDB availability.
 
 ## Fedora (RPM)
 
@@ -173,8 +171,8 @@ The spec follows Fedora/Remi extension conventions: `php-pecl-*` naming,
 version-drift guard. Its `php(api)`/`php(zend-abi)` Requires pin the
 package to the exact PHP ABI used to build it. An RPM built against Remi
 8.4 can therefore install on any other PHP 8.4 build providing that ABI,
-such as AppStream php 8.4 where available. libduckdb is vendored because
-AlmaLinux/EPEL has no DuckDB package.
+such as AppStream php 8.4 where available. The bundled SDK keeps the engine
+source and both patches consistent across distribution targets.
 
 CI builds every combination of AlmaLinux 9/10 × Remi PHP
 8.2/8.3/8.4/8.5 × amd64/arm64.
@@ -212,6 +210,24 @@ php -m | grep duckdb
 ```
 
 Build with `--without tests` to skip the `%check` test suite.
+
+## Amazon Linux (RPM)
+
+[The Amazon Linux recipe](amazonlinux/README.md) builds `php-pecl-duckdb`
+against namespaced distribution PHP packages. CI configures Amazon Linux
+2023 with PHP 8.2–8.5 and Amazon Linux 2027 with PHP 8.5, on amd64 and arm64.
+The 2027 target is a
+[public evaluation preview](https://docs.aws.amazon.com/linux/al2027/ug/container-base.html),
+using its official `public.ecr.aws/amazonlinux/amazonlinux:2027` image and
+[PHP 8.5 runtime](https://docs.aws.amazon.com/linux/al2027/ug/language-runtimes-php.html).
+It is not a production support claim.
+
+The RPM uses the shared pinned source SDK, including both engine patches,
+and packages a private engine with its own SONAME. The PHP module has a
+RUNPATH to that engine, so a distribution DuckDB package can coexist with it.
+Builds stage both source archives, run the harness, install the resulting RPM
+and check that the system PHP loads the private engine. See the recipe for
+local build commands, runtime selection and current native validation status.
 
 ## macOS (tarball)
 
@@ -265,22 +281,15 @@ license and build metadata alongside the binaries.
 
 ## Debian (deb)
 
-`debian/` builds `php-duckdb` on Debian sid/forky and Ubuntu derivatives
-that provide a `libduckdb-dev` package. This is the one target that can use
-the **system libduckdb strategy**: it build-depends on the distribution's
-[`libduckdb-dev`](https://packages.debian.org/sid/libdevel/libduckdb-dev)
-and needs no vendored archive. This library requires the nullable bitpacking
-fix or its distribution backport. `${shlibs:Depends}` automatically adds
-the versioned runtime dependency on `libduckdb1.5`.
+`debian/` builds `php-duckdb` on Debian sid/forky and Ubuntu devel with the
+shared patched SDK. Stage the pinned engine archive before building; there is
+no `libduckdb-dev` build dependency or system DuckDB runtime dependency.
 
-For a distribution backport, rebuild the distribution's DuckDB source package
-with the engine patch and install its matching development and runtime
-packages through the normal APT repository. The extension continues linking
-against `/usr`; do not substitute a bundled library. Raise the minimum package
-revision only after a validated backport exists. At the 2026-10-03 audit,
-[Debian sid](https://packages.debian.org/sid/libduckdb-dev) and
-[Ubuntu stonking](https://packages.ubuntu.com/stonking/libduckdb-dev) both list
-`1.5.5-3`; that version alone does not establish that the engine fix is present.
+The recipe installs the engine privately at
+`/usr/lib/<multiarch>/php-duckdb/libphp-duckdb-engine.so`. The engine has a
+separate SONAME, and the PHP module records that dependency with a RUNPATH to
+its private directory. Distribution DuckDB packages can coexist with it;
+the package does not replace or conflict with them.
 
 The packaging uses `dh --with php` (`dh-php`): the ini drop-in is
 registered through `debian/php-duckdb.php` into
@@ -294,7 +303,10 @@ For Debian 13 (trixie), which has no `libduckdb` package at all, use the
 ### Local build
 
 ```bash
-sudo apt-get install build-essential debhelper dh-php php-dev php-cli libduckdb-dev
+sudo apt-get install build-essential debhelper dh-php php-dev php-cli curl cmake python3 patch patchelf
+
+url=$(python3 -c 'import json; print(json.load(open("packaging/duckdb/source.json"))["url"])')
+curl -fL -o duckdb-source.tar.gz "$url"
 
 # dpkg insists on ./debian at the source root; copy it out of packaging/:
 cp -r packaging/debian debian
@@ -312,10 +324,8 @@ The test suite runs in `dh_auto_test` with `NO_INTERACTION=1` /
 
 - `debian/rules` needs the execute bit; git checkouts keep it, but a
   plain copy may not — `chmod +x debian/rules` before building.
-- `debian/rules` exports `PHP_RPATH=no`. PHP's `build/php.m4` responds
-  by emptying `ld_runpath_switch`, so the built `duckdb.so` carries no
-  RPATH and resolves `libduckdb.so.1.5` via ldconfig. The `chrpath -d`
-  fix-up used in the RPM specs is therefore unnecessary.
+- `debian/rules` removes the temporary build SDK path and uses `patchelf`
+  to set the private engine SONAME, module dependency and installed RUNPATH.
 - The install step must pass `INSTALL_ROOT`, not `DESTDIR` — PHP's
   `Makefile.global` only honours the former.
 - The `unresolvable reference to symbol add_assoc_*` warnings from
@@ -329,7 +339,8 @@ The test suite runs in `dh_auto_test` with `NO_INTERACTION=1` /
 
 DuckDB entered Debian after the trixie freeze, so stable has no
 `libduckdb-dev`. The `debian-trixie/` target builds and vendors the patched SDK,
-just as the RPM specs do. It differs from the sid packaging as follows:
+just as the other packaging targets do. This recipe currently installs the
+vendored runtime at the distribution library path:
 
 - Stage the pinned source archive as `duckdb-source.tar.gz` before the
   build. `debian/rules` builds the patched SDK offline with the distribution's
@@ -337,8 +348,7 @@ just as the RPM specs do. It differs from the sid packaging as follows:
 - The source-built library's SONAME is the *unversioned* `libduckdb.so`
   (Debian's own build versions it `libduckdb.so.1.5`), so the package
   ships `/usr/lib/<multiarch>/libduckdb.so` and declares
-  `Conflicts: libduckdb1.5` to avoid a file clash with a future system
-  package.
+  `Conflicts: libduckdb1.5` to keep that global library path exclusive.
 - `Architecture: amd64 arm64` — the native build architectures covered by CI.
 - The vendored lib is not on the loader path until the package is
   installed. The build-time test suite therefore sets `LD_LIBRARY_PATH`
@@ -361,16 +371,16 @@ php -m | grep duckdb
 
 ## Ubuntu (deb)
 
-Choose the packaging target according to whether the Ubuntu release
-provides DuckDB:
+All Ubuntu targets build the shared patched SDK. Choose the recipe for the
+release:
 
 - **LTS (24.04 noble, 26.04 resolute) — `ubuntu/`**: no libduckdb
   package exists (DuckDB first entered Ubuntu 26.10), so the patched SDK
   is built and vendored, identical to the trixie variant. Stage the same
   `duckdb-source.tar.gz` archive before building.
-- **Devel (26.10 stonking and later)**: `libduckdb-dev` is in universe,
-  so use the Debian sid packaging (`debian/`) unchanged — the system
-  strategy, with `${shlibs:Depends}` picking up `libduckdb1.5`.
+- **Devel (26.10 stonking and later) — `debian/`**: use the Debian sid
+  recipe and its private patched engine. Stage `duckdb-source.tar.gz` before
+  building, just as for the LTS recipes.
 
 All Ubuntu targets use `dh --with php`, `phpenmod` activation and
 `${php:Depends}` (`phpapi-*` pinning) exactly like the Debian ones.
@@ -386,7 +396,7 @@ All Ubuntu targets use `dh --with php`, `phpenmod` activation and
   < 8.4; nothing distro-specific is needed in the packaging.
 - PHP's `make clean` deletes **every** `*.so` in the tree
   (`build/Makefile.global`), including a staged vendored libduckdb.
-  Both vendored variants (`debian-trixie/`, `ubuntu/`) preserve that
+  The vendored recipes (`debian/`, `debian-trixie/`, `ubuntu/`) preserve that
   library across `dh_auto_clean`, allowing consecutive builds in the
   same tree.
 
@@ -467,7 +477,7 @@ Copy the closest existing target and adjust the distro-specific knobs:
 | Extension dir | `%{php_extdir}` macro | `php-config --extension-dir` works everywhere as fallback |
 | Ini drop-in | `/etc/php8/conf.d/*.ini` | Debian: per-SAPI `conf.d` + `phpenmod`, Fedora: `/etc/php.d`, Alpine: `/etc/php8X/conf.d` |
 | ABI runtime deps | `php(api)`/`php(zend-abi)` provides | Debian uses `phpapi-*` virtual packages |
-| libduckdb | patched source SDK | prefer a system package containing the engine fix when available |
+| libduckdb | patched source SDK | use the shared builders and carry both patches and SDK provenance |
 | libc | glibc | Alpine (musl): DuckDB ships no official musl binaries and musl builds are notably slower — build libduckdb from source there |
 
 Non-negotiables whatever the distro:

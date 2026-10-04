@@ -2,7 +2,9 @@
 
 This reference lists every class, method, enum and function exported by the
 extension. [`duckdb.stub.php`](../duckdb.stub.php) is the canonical source and
-also serves as the stub for IDEs and static analysis.
+also serves as the stub for IDEs and static analysis. This reference follows
+the current checkout; Arrow APIs are under development and are not included
+in the released 1.3.1 archive.
 
 Namespace: `DuckDB`.
 
@@ -126,6 +128,9 @@ A DuckDB database instance.
 Opens the database with the DuckDB configuration options in `$config`, an
 `array<string, string|int|float|bool>`. For example:
 `new Database('db.duckdb', ['access_mode' => 'read_only', 'threads' => 4])`.
+`arrow_lossless_conversion` defaults to `true`; explicitly supplying `false`
+is honored. See [Arrow conversion settings](arrow.md#type-conversion-settings)
+for extension metadata and rejected lossy representations.
 
 Open failures throw the exception matching DuckDB's error category, such as
 `IOException` for file-lock conflicts. Unclassified open failures throw
@@ -152,7 +157,8 @@ Created via `Database::connect()`. Not constructible directly.
 | `execute(string $sql, array $params = []): Result` | Prepare + bind + execute in one call. List keys bind positionally (`?`/`$1`), string keys bind named parameters (`$name`/`:name`) |
 | `prepare(string $sql): Statement` | Prepare a statement with positional or named parameters |
 | `appender(string $table, ?string $schema = null, ?string $catalog = null): Appender` | Bulk inserter. Throws `CatalogException` when the table does not exist |
-| `interrupt(): void` | Interrupt all running queries on this connection (they fail with `InterruptedException`) |
+| `dataChunkFromArrow(ArrowChunk $chunk): DataChunk` | Convert an Arrow batch to a reusable native chunk, consuming its input |
+| `interrupt(): void` | Interrupt the currently running query on this connection; does not cancel queued work |
 | `getTableNames(string $sql): array` | `list<string>` of tables referenced by the query |
 | `close(): void` | Mark the connection closed (idempotent); further use throws `ConnectionException` |
 | `isClosed(): bool` | Whether `close()` has been called |
@@ -200,10 +206,56 @@ A query result is consumed as you iterate over it.
 | `statementType(): string` | e.g. `SELECT`, `INSERT` |
 | `fetchRow(FetchMode $mode = FetchMode::Assoc): ?array` | Next row or `null` when exhausted |
 | `fetchAll(FetchMode $mode = FetchMode::Assoc): array` | All remaining rows |
+| `arrowSchema(): ArrowSchema` | Inspect the result schema without consuming rows |
+| `fetchArrowChunk(): ?ArrowChunk` | Fetch the next complete batch; rejects a partially read row batch without discarding rows |
 | `fetchColumn(int $column = 0): mixed` | Single column of the next row, `null` when exhausted |
 | `getIterator(): \Iterator` | Forward-only `ResultIterator` (`foreach` fetches associatively) |
 
 See [types.md](types.md) for the full DuckDB→PHP value mapping.
+
+## `final class ArrowSchema`
+
+An owning C Data Interface schema with a private constructor. Arrow APIs are
+under development in this checkout and are not in the released 1.3.1 archive.
+
+| Method | Description |
+| --- | --- |
+| `importFromC(int $address): ArrowSchema` (static) | Move a live native schema; clear its source release callback |
+| `exportToC(int $address): void` | Copy into an empty native schema; caller owns its release |
+| `toArray(): array` | Recursive name, format, flags, metadata pairs, children and dictionary |
+
+## `final class ArrowChunk`
+
+An owning Arrow record batch with a private constructor.
+
+| Method | Description |
+| --- | --- |
+| `importFromC(ArrowSchema $schema, int $address): ArrowChunk` (static) | Move a live native array with its matching struct-root schema |
+| `exportToC(int $address): void` | Move into an empty native array; consume this chunk |
+| `schema(): ArrowSchema` | Schema, available after consumption |
+| `rowCount(): int` | Batch length, available after consumption |
+| `isConsumed(): bool` | Whether the array has been moved or converted |
+
+## `final class DataChunk`
+
+A native chunk created by Arrow conversion, with a private constructor. It
+retains its buffers independently of the source result and connection.
+
+| Method | Description |
+| --- | --- |
+| `rowCount(): int` | Number of rows |
+| `columnCount(): int` | Number of columns |
+| `columns(): array` | `list<array{name: string, type: string}>` |
+| `toRows(FetchMode $mode = FetchMode::Assoc): array` | Decode all rows without consuming them |
+| `arrowSchema(Connection $connection): ArrowSchema` | Export a schema using the connection's conversion settings |
+| `toArrow(Connection $connection): ArrowChunk` | Export a new Arrow batch without consuming this chunk |
+
+See [Arrow conversion](arrow.md) for ownership, native address requirements,
+FFI examples, mixed row fetching and type conversion semantics. Result and
+DataChunk export reject lossy representations of HUGEINT, UHUGEINT, BIT and
+TIMETZ, including nested values; enable `arrow_lossless_conversion` on the
+exporting connection. The bundled SDK also includes engine fixes for Arrow
+conversion transactions and geometry CRS preservation.
 
 ## `final class ResultIterator implements \Iterator`
 
@@ -221,7 +273,7 @@ exactly once.
 | `isReady(): bool` | Non-blocking completion check. For `queryPending()` handles this also executes one task slice on the calling thread |
 | `await(): Result` | Block until completion; throws on query failure |
 | `suspend(): Result` | Suspend the current fiber/coroutine until completion (Swoole 6+, True Async, AMPHP v3, react/async v4+, or generic fibers) |
-| `cancel(): void` | Cancel the query; it fails with `InterruptedException` |
+| `cancel(): void` | Idempotently cancel this pending query, including queued/startup worker work; observe `InterruptedException` when awaiting completion. Other queries are unaffected |
 | `getFd(): int` | Caller-owned duplicate completion handle; Unix fd or Windows Winsock SOCKET; -1 if unavailable. See [ownership](async.md#event-loops-completion-descriptor) |
 | `getStream(): mixed` | Readable PHP stream that fires on completion (`stream_select()`-able). Can be taken only once |
 
@@ -234,6 +286,8 @@ Created via `Connection::appender()`. Fast row-by-row bulk inserts.
 | Method | Description |
 | -------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `appendRow(array $values): void` | Append one complete row (`list<mixed>` in column order, same type mapping as `bindValue()`). All values are converted before the row starts, so a PHP-side failure leaves the appender usable |
+| `appendChunk(DataChunk $chunk): void` | Append a reusable native chunk; no piecemeal row may be open |
+| `appendArrow(ArrowChunk $chunk): void` | Convert and append an Arrow batch, consuming it |
 | `beginRow(): void` | Begin a piecemeal row (throws `\Error` if a row is open) |
 | `append(mixed $value): void` | Append one value at the next column of the open row |
 | `appendDefault(): void` | Append the column default at the next position |

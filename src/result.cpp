@@ -25,6 +25,8 @@ extern "C" {
 }
 
 #include "php_duckdb.h"
+#include "data_chunk.h"
+#include <algorithm>
 #include "bignum_decode.h"
 #include "variant_decode.h"
 
@@ -813,12 +815,136 @@ static int duckdb_parse_fetch_mode(zend_object *mode_obj) {
     return FETCH_MODE_ASSOC;
 }
 
+void duckdb_data_chunk_rows(data_chunk_data *data, zend_object *mode_obj, zval *return_value) {
+    int mode = mode_obj ? duckdb_parse_fetch_mode(mode_obj) : FETCH_MODE_ASSOC;
+    std::vector<scoped_duckdb_logical_type> owned_types;
+    std::vector<duckdb_logical_type> types;
+    for (idx_t col = 0; col < data->names.size(); col++) {
+        owned_types.emplace_back(duckdb_vector_get_column_type(duckdb_data_chunk_get_vector(data->chunk, col)));
+        types.push_back(owned_types.back().get());
+    }
+
+    /* Arrow dictionaries can import as dictionary-encoded DuckDB vectors.
+     * The PHP decoder reads flat buffers, so materialize bounded windows via
+     * DuckDB's vector copier, which understands all native vector layouts. */
+    scoped_duckdb_chunk batch(duckdb_create_data_chunk(types.data(), types.size()));
+    scoped_duckdb_selection selection(duckdb_create_selection_vector(duckdb_vector_size()));
+    sel_t *indices = duckdb_selection_vector_get_data_ptr(selection.get());
+    idx_t size = duckdb_data_chunk_get_size(data->chunk);
+    array_init(return_value);
+    for (idx_t offset = 0; offset < size; offset += duckdb_vector_size()) {
+        idx_t count = std::min<idx_t>(duckdb_vector_size(), size - offset);
+        duckdb_data_chunk_reset(batch.get());
+        for (idx_t row = 0; row < count; row++) {
+            indices[row] = static_cast<sel_t>(offset + row);
+        }
+        for (idx_t col = 0; col < types.size(); col++) {
+            duckdb_vector_copy_sel(duckdb_data_chunk_get_vector(data->chunk, col),
+                                  duckdb_data_chunk_get_vector(batch.get(), col), selection.get(), count, 0, 0);
+        }
+        duckdb_data_chunk_set_size(batch.get(), count);
+        for (idx_t pos = 0; pos < count; pos++) {
+            zval row;
+            array_init(&row);
+            decode_ctx ctx = {nullptr, 0, offset + pos, 0};
+            for (idx_t col = 0; col < data->names.size(); col++) {
+                ctx.column_index = col;
+                zval value;
+                if (!duckdb_decode_value(&ctx, duckdb_data_chunk_get_vector(batch.get(), col), types[col], pos, &value)) {
+                    zval_ptr_dtor(&row);
+                    zval_ptr_dtor(return_value);
+                    ZVAL_UNDEF(return_value);
+                    return;
+                }
+                if (mode == FETCH_MODE_ASSOC || mode == FETCH_MODE_BOTH) {
+                    add_assoc_zval_ex(&row, data->names[col].data(), data->names[col].size(), &value);
+                }
+                if (mode == FETCH_MODE_NUM) {
+                    add_next_index_zval(&row, &value);
+                } else if (mode == FETCH_MODE_BOTH) {
+                    zval copy;
+                    ZVAL_COPY(&copy, &value);
+                    add_next_index_zval(&row, &copy);
+                }
+            }
+            add_next_index_zval(return_value, &row);
+        }
+    }
+}
+
+static std::shared_ptr<arrow_schema_data> duckdb_result_arrow_schema(result_data *data, duckdb_arrow_options options) {
+    std::vector<const char *> names;
+    for (idx_t col = 0; col < data->column_count; col++) {
+        names.push_back(duckdb_column_name(&data->result, col));
+    }
+    auto schema = std::make_shared<arrow_schema_data>();
+    if (!duckdb_arrow_check_error(duckdb_to_arrow_schema(options, data->column_types, names.data(),
+                                                      data->column_count, &schema->schema))) {
+        return nullptr;
+    }
+    for (idx_t i = 0; i < data->column_count; i++) {
+        if (!duckdb_arrow_require_lossless(data->column_types[i], *schema->schema.children[i])) {
+            return nullptr;
+        }
+    }
+    return schema;
+}
+
+PHP_METHOD(DuckDB_Result, arrowSchema) {
+    DUCKDB_TSRMLS_CACHE_UPDATE();
+    ZEND_PARSE_PARAMETERS_NONE();
+    auto data = Z_DUCKDB_RESULT_P(ZEND_THIS)->data;
+    if (!duckdb_initialized_guard(static_cast<bool>(data), "DuckDB\\Result")) {
+        RETURN_THROWS();
+    }
+    std::lock_guard<std::mutex> lock(data->conn_keepalive->mutex);
+    duckdb_scoped<duckdb_arrow_options, duckdb_destroy_arrow_options> options(duckdb_result_get_arrow_options(&data->result));
+    auto schema = duckdb_result_arrow_schema(data.get(), options.get());
+    if (!schema) {
+        RETURN_THROWS();
+    }
+    duckdb_arrow_schema_wrap(return_value, schema);
+}
+
+PHP_METHOD(DuckDB_Result, fetchArrowChunk) {
+    DUCKDB_TSRMLS_CACHE_UPDATE();
+    ZEND_PARSE_PARAMETERS_NONE();
+    auto data = Z_DUCKDB_RESULT_P(ZEND_THIS)->data;
+    if (!duckdb_initialized_guard(static_cast<bool>(data), "DuckDB\\Result")) {
+        RETURN_THROWS();
+    }
+    if (data->chunk && data->chunk_pos > 0 && data->chunk_pos < data->chunk_size) {
+        duckdb_throw_msg("Cannot fetch an Arrow chunk after partially reading its rows; finish the current chunk first");
+        RETURN_THROWS();
+    }
+    if (data->exhausted || !duckdb_result_fetch_chunk(data.get())) {
+        if (EG(exception)) {
+            RETURN_THROWS();
+        }
+        RETURN_NULL();
+    }
+    std::lock_guard<std::mutex> lock(data->conn_keepalive->mutex);
+    duckdb_scoped<duckdb_arrow_options, duckdb_destroy_arrow_options> options(duckdb_result_get_arrow_options(&data->result));
+    auto arrow = std::make_shared<arrow_chunk_data>();
+    arrow->schema = duckdb_result_arrow_schema(data.get(), options.get());
+    if (!arrow->schema) {
+        RETURN_THROWS();
+    }
+    if (!duckdb_arrow_check_error(duckdb_data_chunk_to_arrow(options.get(), data->chunk, &arrow->array))) {
+        RETURN_THROWS();
+    }
+    arrow->row_count = data->chunk_size;
+    data->row_index += data->chunk_size;
+    data->chunk_pos = data->chunk_size;
+    duckdb_arrow_chunk_wrap(return_value, arrow);
+}
+
 /* ================================================================== */
 /* DuckDB\Result                                                      */
 /* ================================================================== */
 
 void duckdb_result_instantiate(zval *return_value, duckdb_result *res, bool streaming,
-                               std::shared_ptr<stmt_inner> keepalive) {
+                               std::shared_ptr<stmt_inner> keepalive, std::shared_ptr<conn_inner> connection) {
     object_init_ex(return_value, duckdb_result_ce);
     php_duckdb_result_object *intern = Z_DUCKDB_RESULT_P(return_value);
 
@@ -826,6 +952,7 @@ void duckdb_result_instantiate(zval *return_value, duckdb_result *res, bool stre
     data->result = *res; /* take ownership */
     memset(res, 0, sizeof(*res));
     data->streaming = streaming;
+    data->conn_keepalive = std::move(connection);
     data->stmt_keepalive = keepalive;
     /* Record the connection's execution epoch so a stale stream can be
      * detected (see conn_inner::execution_epoch). */

@@ -20,6 +20,24 @@ $appender->close();   // flush + finish (also happens automatically on destructi
 
 `appender()` throws `CatalogException` when the table does not exist.
 
+## Arrow and native batches
+
+The current Arrow feature adds `appendArrow(ArrowChunk $chunk)` and
+`appendChunk(DataChunk $chunk)` for compatible columnar batches. These APIs
+are under development in this checkout and are not in released 1.3.1.
+
+`appendArrow()` converts the batch using the appender connection and consumes
+its Arrow input. `appendChunk()` leaves the native chunk reusable, including
+for another append. Neither method accepts an open piecemeal row; finish or
+clear that row first. Use a separate source connection when copying an active
+stream. See [Arrow conversion](arrow.md) and the
+[batch copy example](../examples/arrow.php).
+
+Batch submission and flush failures use the same failed state and `clear()`
+recovery as row appending. A native chunk remains reusable on failure. Arrow
+conversion can already have consumed its input when a later step fails; check
+`isConsumed()` before retrying it. Recovery does not undo already-flushed rows.
+
 ## Piecemeal rows
 
 To build a row column by column, begin the row, append its values, then end it:
@@ -93,5 +111,5 @@ These C appender functions have no PHP wrapper:
 | ------------------------------------------------------------------ | ---------------------------------------------------------------- |
 | `duckdb_appender_column_count()` / `duckdb_appender_column_type()` | Column metadata is available via `DESCRIBE` / `query()` |
 | `duckdb_appender_add_column()` / `duckdb_appender_clear_columns()` | Column subsetting for `append_default_to_chunk` workflows |
-| `duckdb_append_default_to_chunk()` / `duckdb_append_data_chunk()` | Data chunks are not exposed (see [data_chunk.md](data_chunk.md)) |
+| `duckdb_append_default_to_chunk()` | Direct chunk mutation/default filling has no PHP wrapper |
 | `duckdb_appender_create_query()` | Appending through a custom query requires an additional PHP interface |

@@ -12,10 +12,21 @@ def command(*args):
     return subprocess.check_output(args, text=True).strip()
 
 
+def amazon_build_flags(flags):
+    # Match the recipe: GCC's -flto=auto ignores resource limits, so the
+    # effective compiler/linker flags depend on the SDK worker budget.
+    jobs = os.environ.get("DUCKDB_BUILD_JOBS") or command(
+        "python3", "packaging/resources/jobs.py", "--profile", "sdk"
+    )
+    if not re.fullmatch(r"[1-9][0-9]*", jobs):
+        raise ValueError("DUCKDB_BUILD_JOBS must be a positive integer")
+    return flags.replace("-flto=auto", f"-flto={jobs}")
+
+
 def cache_key(target, cache_path):
     recipe = Path("packaging") / target
     if target not in {
-        "opensuse", "fedora", "almalinux", "debian-trixie", "ubuntu", "macos", "windows"
+        "opensuse", "fedora", "almalinux", "amazonlinux", "debian", "debian-trixie", "ubuntu", "macos", "windows"
     }:
         raise ValueError(f"Unknown SDK packaging target: {target}")
 
@@ -37,13 +48,13 @@ def cache_key(target, cache_path):
     # Package tools supply flags inside rpmbuild/debhelper. Include their
     # expanded defaults and recipes in the outer key; the builder checks the
     # actual flags again when restoring a content-addressed SDK entry.
-    if target in {"opensuse", "fedora", "almalinux"}:
-        identity.extend([
-            command("rpm", "--version"),
-            command("rpm", "--eval", "%{?set_build_flags}"),
-        ])
+    if target in {"opensuse", "fedora", "almalinux", "amazonlinux"}:
+        flags = command("rpm", "--eval", "%{?set_build_flags}")
+        if target == "amazonlinux":
+            flags = amazon_build_flags(flags)
+        identity.extend([command("rpm", "--version"), flags])
         recipes = sorted(recipe.glob("*.spec"))
-    elif target in {"debian-trixie", "ubuntu"}:
+    elif target in {"debian", "debian-trixie", "ubuntu"}:
         identity.append(command("dpkg-buildflags", "--export=sh"))
         recipes = [recipe / "rules"]
     else:

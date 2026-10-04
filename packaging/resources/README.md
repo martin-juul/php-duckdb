@@ -1,9 +1,9 @@
 # Resource-aware worker counts
 
 The build scripts and test harness choose parallel workers from the CPU and
-memory available to their process at the start of each stage. Explicit settings take
-precedence; the calculation does not change CPU affinity, container limits or
-system settings.
+memory available to their process at the start of each stage. Explicit settings
+take precedence; the calculation does not change CPU affinity, container limits
+or system settings.
 
 ```sh
 python3 packaging/resources/jobs.py --profile sdk
@@ -31,6 +31,12 @@ are set. SDK builders accept `DUCKDB_BUILD_JOBS` and their existing `--jobs`
 or `-Jobs` option. Docker builds accept the `DUCKDB_BUILD_JOBS` build argument
 for engine and extension compilation. macOS and Solaris extension builds use
 `DUCKDB_JOBS`; their engine builds use `DUCKDB_BUILD_JOBS`.
+
+Amazon Linux replaces native `-flto=auto` flags with the selected SDK worker
+count in its compiler and linker flags. GCC's automatic LTO parallelism can
+ignore both cgroup quotas and CPU affinity. Because the resulting flags contain
+the worker count, changing that budget also changes the Amazon SDK cache
+identity. Preserve the original `DUCKDB_BUILD_JOBS` when reproducing its build.
 
 Python 3 is required by the SDK builders. The PHP test harness falls back to
 one worker, with a diagnostic, if Python or the helper is unavailable.

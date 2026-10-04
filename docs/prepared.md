@@ -74,6 +74,32 @@ Invalid parameter indexes or unsupported values throw `\ValueError`. When
 DuckDB rejects a binding, the driver throws a typed exception, usually
 `BinderException` / `ConversionException`.
 
+## Native query-shape limitation
+
+With the pinned DuckDB 1.5.6 engine, this prepared query raises
+`InternalException` (`Invalid PhysicalType for GetTypeIdSize`) when `$value`
+is bound to a VARCHAR, including a plain PHP string on its first execution:
+
+```sql
+SELECT typeof($value), COALESCE($value::VARCHAR, 'NULL')
+```
+
+The same failure reproduces through the native C API. It is not limited to
+switching parameter types or to typed PHP wrappers. Removing either
+`typeof` or `COALESCE` avoids the failing combination. When both outputs are
+needed, introduce the parameter once in a derived table:
+
+```sql
+SELECT typeof(v), COALESCE(v::VARCHAR, 'NULL')
+FROM (SELECT $value AS v)
+```
+
+[The typed dictionary example](../examples/typed_values.php) uses this rewrite
+and prepares each declared input type separately. For a reusable application
+statement, explicit casts or a target table's schema make the intended
+parameter types clear. Report native internal failures with a reproducer;
+do not retry them automatically.
+
 ## Introspection
 
 ```php

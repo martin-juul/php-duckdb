@@ -2,7 +2,7 @@ name: Packaging DuckDB SDK cache
 description: Restore verified engine artifacts independently of package build trees
 inputs:
   target:
-    description: Packaging recipe (opensuse, fedora, almalinux, debian-trixie, ubuntu, macos or windows)
+    description: Packaging recipe (opensuse, fedora, almalinux, amazonlinux, debian, debian-trixie, ubuntu, macos or windows)
     required: true
 outputs:
   key:

@@ -22,6 +22,7 @@ capabilities that are deliberately _not_ exposed and explains why.
 | [Types](https://duckdb.org/docs/current/clients/c/types)                         | [types.md](types.md)                         |
 | [Value](https://duckdb.org/docs/current/clients/c/value)                         | [value.md](value.md)                         |
 | [Data Chunk](https://duckdb.org/docs/current/clients/c/data_chunk)               | [data_chunk.md](data_chunk.md)               |
+| [Arrow conversion](https://duckdb.org/docs/current/clients/c/api)                | [arrow.md](arrow.md)                         |
 | [Vector](https://duckdb.org/docs/current/clients/c/vector)                       | [vector.md](vector.md)                       |
 | [Table Functions](https://duckdb.org/docs/current/clients/c/table_functions)     | [table_functions.md](table_functions.md)     |
 | [Replacement Scans](https://duckdb.org/docs/current/clients/c/replacement_scans) | [replacement_scans.md](replacement_scans.md) |
@@ -31,6 +32,7 @@ capabilities that are deliberately _not_ exposed and explains why.
 These pages cover driver-specific idioms with no corresponding C API page:
 
 - [PHP application developer guide](php-developer-guide.md)
+- [Runnable examples and public API map](../examples/README.md)
 - [Error handling & the exception hierarchy](errors.md)
 - [Asynchronous queries, fibers & event-loop integration](async.md)
 - [FrankenPHP (classic & worker mode)](frankenphp.md)
