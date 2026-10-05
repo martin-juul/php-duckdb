@@ -9,6 +9,10 @@
  *
  *     php /path/to/php-src/build/gen_stub.php duckdb.stub.php
  *
+ * Use the generator from the oldest supported PHP branch (PHP-8.2). Newer
+ * generators emit APIs such as zend_register_internal_class_with_flags()
+ * that PHP 8.2 and 8.3 lack.
+ *
  * The generated header is committed to the repository so that end users
  * building via phpize/PECL do not need a php-src checkout. Never edit
  * `duckdb_arginfo.h` by hand; regenerate it after changing this file.
@@ -672,7 +676,7 @@ final class DataChunk
      * Copy the first $rowCount rows of each vector into a new chunk.
      * At most {@see vectorSize()} rows.
      *
-     * @param array<string, Vector> $vectors Column name => vector.
+     * @param array $vectors Column name => Vector.
      */
     public static function fromVectors(array $vectors, int $rowCount): DataChunk {}
 

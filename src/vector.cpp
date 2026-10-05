@@ -23,7 +23,7 @@ zend_class_entry *duckdb_vector_ce;
 static zend_object_handlers vector_handlers;
 
 /* Selection vectors index rows with 32-bit entries. */
-static constexpr idx_t max_vector_capacity = std::numeric_limits<uint32_t>::max();
+static constexpr idx_t max_vector_capacity = (std::numeric_limits<uint32_t>::max)();
 
 /* Bound the size of one generated conversion statement. */
 static constexpr size_t conversion_batch = 1024;
@@ -242,10 +242,10 @@ static bool fits(zend_long value) {
         return false;
     }
     if (std::numeric_limits<T>::is_signed) {
-        return value >= static_cast<zend_long>(std::numeric_limits<T>::min()) &&
-            value <= static_cast<zend_long>(std::numeric_limits<T>::max());
+        return value >= static_cast<zend_long>((std::numeric_limits<T>::min)()) &&
+            value <= static_cast<zend_long>((std::numeric_limits<T>::max)());
     }
-    return static_cast<uint64_t>(value) <= static_cast<uint64_t>(std::numeric_limits<T>::max());
+    return static_cast<uint64_t>(value) <= static_cast<uint64_t>((std::numeric_limits<T>::max)());
 }
 
 static bool valid_utf8(const char *value, size_t length) {
@@ -345,7 +345,7 @@ static void write_fast(vector_data *data, idx_t row, zval *input) {
 static bool convert_inputs(conn_inner *conn, vector_data *data, const std::vector<zval *> &inputs,
                            std::vector<scoped_duckdb_value> &out) {
     for (size_t start = 0; start < inputs.size(); start += conversion_batch) {
-        size_t end = std::min(inputs.size(), start + conversion_batch);
+        size_t end = (std::min)(inputs.size(), start + conversion_batch);
         std::vector<zval> wrappers(end - start);
         std::vector<zval *> pointers;
         bool initialized = true;
