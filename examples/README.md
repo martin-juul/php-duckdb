@@ -29,6 +29,7 @@ application example. See the [API reference](../docs/api.md) and
 | [typed_adapter.php](typed_adapter.php) | A DBAL-style adapter contract for money and LIST parameters | Extension; no Doctrine dependency |
 | [value_rendering.php](value_rendering.php) | Explicit display text, catalog types, timezone settings and binary strings | Extension |
 | [arrow.php](arrow.php) | Streaming Arrow batches copied between connections | Extension; no FFI required |
+| [vectors.php](vectors.php) | Typed column vectors built from PHP, split into native chunks and appended | Extension |
 | [arrow_c_data.php](arrow_c_data.php) | External buffer access and schema/array ownership across the C Data Interface | Enabled PHP FFI |
 | [errors.php](errors.php) | Typed errors and machine-readable error categories | Extension |
 | [async_jobs.php](async_jobs.php) | Reporting deadlines, progress, cancellation, polling and a minimal Fiber scheduler | Extension |
@@ -41,8 +42,9 @@ application example. See the [API reference](../docs/api.md) and
 
 ## Public API audit
 
-The stub currently declares 62 classes and 129 public methods, plus
-`DuckDB\version()` and the compatibility alias `duckdb_version()`. It also
+The stub currently declares 63 classes and 141 public methods, plus
+`DuckDB\version()`, `DuckDB\vectorSize()` and the compatibility alias
+`duckdb_version()`. It also
 exposes the three `FetchMode` cases and 43 `ErrorType` cases. The inventory
 below maps each explicitly declared public method to an executable example.
 Comments and `Class::class` type specifications do not count as constructor
@@ -58,6 +60,7 @@ optional FFI and framework paths run only when their requirements are met.
 | `Connection`: metadata and lifecycle | `getTableNames`, `close`, `isClosed` | [api_reference.php](api_reference.php) |
 | `Connection`: background queries | `queryAsync`, `queryPending`, `interrupt`, `queryProgress` | [async_jobs.php](async_jobs.php) |
 | `Connection`: Arrow ingestion | `dataChunkFromArrow` | [arrow.php](arrow.php) |
+| `Connection`: vectors | `createVector` | [vectors.php](vectors.php) |
 | `Statement`: binding and execution | `bindValue`, `bindBlob`, `clearBindings`, `execute`, `executeStreaming` | [api_reference.php](api_reference.php) |
 | `Statement`: introspection | `parameterCount`, `parameterName`, `parameterType`, `statementType`, `columnCount`, `columnName`, `columnType` | [api_reference.php](api_reference.php) |
 | `Statement`: background execution | `executeAsync` | [async_jobs.php](async_jobs.php) |
@@ -72,6 +75,8 @@ optional FFI and framework paths run only when their requirements are met.
 | `ArrowSchema` | `toArray`, `importFromC`, `exportToC` | [arrow.php](arrow.php), [arrow_c_data.php](arrow_c_data.php) |
 | `ArrowChunk` | `importFromC`, `exportToC`, `schema`, `rowCount`, `isConsumed` | [arrow_c_data.php](arrow_c_data.php), [arrow.php](arrow.php) |
 | `DataChunk` | `rowCount`, `columnCount`, `columns`, `toRows`, `arrowSchema`, `toArrow` | [arrow.php](arrow.php) |
+| `DataChunk`: vectors | `fromVectors`, `vector` | [vectors.php](vectors.php) |
+| `Vector` | `type`, `capacity`, `get`, `isNull`, `toArray`, `set`, `setValues`, `setNull`, `copyFrom` | [vectors.php](vectors.php) |
 | `Value` and all 39 subclasses | Every public `__construct`; inherited `getType`, `toString` | [typed_values.php](typed_values.php), dictionary below |
 | `Interval` | `__construct`, `getMonths`, `getDays`, `getMicros`, `__toString` through a string cast, `jsonSerialize`, `fromSeconds` | [typed_values.php](typed_values.php) |
 | `Exception` | `getErrorType` | [errors.php](errors.php), [async_jobs.php](async_jobs.php) |

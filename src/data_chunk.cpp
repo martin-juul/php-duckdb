@@ -8,6 +8,7 @@ extern "C" {
 }
 #include "php_duckdb.h"
 #include "data_chunk.h"
+#include "vector.h"
 
 #include <exception>
 
@@ -330,7 +331,116 @@ PHP_METHOD(DuckDB_Connection, dataChunkFromArrow) {
 PHP_METHOD(DuckDB_DataChunk, __construct) {
     DUCKDB_TSRMLS_CACHE_UPDATE();
     ZEND_PARSE_PARAMETERS_NONE();
-    zend_throw_error(nullptr, "DuckDB\\DataChunk objects must be created via Connection::dataChunkFromArrow()");
+    zend_throw_error(nullptr, "DuckDB\\DataChunk objects must be created via "
+                              "Connection::dataChunkFromArrow() or DataChunk::fromVectors()");
+}
+
+PHP_METHOD(DuckDB_DataChunk, fromVectors) {
+    DUCKDB_TSRMLS_CACHE_UPDATE();
+    HashTable *columns;
+    zend_long row_count;
+    ZEND_PARSE_PARAMETERS_START(2, 2)
+        Z_PARAM_ARRAY_HT(columns)
+        Z_PARAM_LONG(row_count)
+    ZEND_PARSE_PARAMETERS_END();
+
+    if (zend_hash_num_elements(columns) == 0) {
+        zend_argument_value_error(1, "must contain at least one vector");
+        RETURN_THROWS();
+    }
+    if (row_count < 0 || static_cast<idx_t>(row_count) > duckdb_vector_size()) {
+        zend_argument_value_error(2, "must be between 0 and " ZEND_ULONG_FMT,
+                                  static_cast<zend_ulong>(duckdb_vector_size()));
+        RETURN_THROWS();
+    }
+
+    auto data = std::make_shared<data_chunk_data>();
+    std::vector<std::shared_ptr<vector_data>> vectors;
+    std::vector<duckdb_logical_type> types;
+    zend_string *name;
+    zval *column;
+    ZEND_HASH_FOREACH_STR_KEY_VAL(columns, name, column) {
+        if (!name) {
+            zend_argument_value_error(1, "must use column names as keys");
+            RETURN_THROWS();
+        }
+        ZVAL_DEREF(column);
+        if (Z_TYPE_P(column) != IS_OBJECT || !instanceof_function(Z_OBJCE_P(column), duckdb_vector_ce)) {
+            zend_argument_type_error(1, "must contain only DuckDB\\Vector values");
+            RETURN_THROWS();
+        }
+        auto vector = duckdb_vector_from_zval(column);
+        if (!vector) {
+            RETURN_THROWS();
+        }
+        if (vector->capacity < static_cast<idx_t>(row_count)) {
+            zend_argument_value_error(1, "must contain vectors with a capacity of at least " ZEND_LONG_FMT
+                                      ", column \"%s\" has " ZEND_ULONG_FMT,
+                                      row_count, ZSTR_VAL(name), static_cast<zend_ulong>(vector->capacity));
+            RETURN_THROWS();
+        }
+        data->names.emplace_back(ZSTR_VAL(name), ZSTR_LEN(name));
+        types.push_back(vector->type.get());
+        vectors.push_back(std::move(vector));
+    }
+    ZEND_HASH_FOREACH_END();
+
+    try {
+        data->chunk = duckdb_create_data_chunk(types.data(), types.size());
+        if (!data->chunk) {
+            duckdb_throw_msg("DuckDB could not allocate the data chunk");
+            RETURN_THROWS();
+        }
+        /* Copy rather than reference: later vector writes must not change
+         * a chunk that may already have been appended or exported. */
+        for (idx_t i = 0; i < vectors.size(); i++) {
+            duckdb_vector_copy_rows(vectors[i]->vector, duckdb_data_chunk_get_vector(data->chunk, i), 0,
+                                    static_cast<idx_t>(row_count), 0);
+        }
+        duckdb_data_chunk_set_size(data->chunk, static_cast<idx_t>(row_count));
+    } catch (const std::exception &error) {
+        duckdb_throw_msg(error.what());
+        RETURN_THROWS();
+    } catch (...) {
+        duckdb_throw_msg("Unknown error while building a data chunk");
+        RETURN_THROWS();
+    }
+    object_init_ex(return_value, duckdb_data_chunk_ce);
+    data_chunk_object(Z_OBJ_P(return_value))->data = std::move(data);
+}
+
+PHP_METHOD(DuckDB_DataChunk, vector) {
+    DUCKDB_TSRMLS_CACHE_UPDATE();
+    zend_long index;
+    ZEND_PARSE_PARAMETERS_START(1, 1)
+        Z_PARAM_LONG(index)
+    ZEND_PARSE_PARAMETERS_END();
+    auto data = duckdb_data_chunk_from_zval(ZEND_THIS);
+    if (!data) {
+        RETURN_THROWS();
+    }
+    if (index < 0 || static_cast<idx_t>(index) >= data->names.size()) {
+        zend_argument_value_error(1, "must be between 0 and %d", static_cast<int>(data->names.size()) - 1);
+        RETURN_THROWS();
+    }
+
+    try {
+        duckdb_vector column = duckdb_data_chunk_get_vector(data->chunk, static_cast<idx_t>(index));
+        scoped_duckdb_logical_type type(duckdb_vector_get_column_type(column));
+        idx_t size = duckdb_data_chunk_get_size(data->chunk);
+        auto vector = duckdb_vector_allocate(type.get(), size);
+        if (!vector) {
+            RETURN_THROWS();
+        }
+        duckdb_vector_copy_rows(column, vector->vector, 0, size, 0);
+        duckdb_vector_wrap(return_value, std::move(vector));
+    } catch (const std::exception &error) {
+        duckdb_throw_msg(error.what());
+        RETURN_THROWS();
+    } catch (...) {
+        duckdb_throw_msg("Unknown error while copying a chunk column");
+        RETURN_THROWS();
+    }
 }
 
 PHP_METHOD(DuckDB_DataChunk, rowCount) {

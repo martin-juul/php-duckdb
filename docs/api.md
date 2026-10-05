@@ -3,17 +3,23 @@
 This reference lists every class, method, enum and function exported by the
 extension. [`duckdb.stub.php`](../duckdb.stub.php) is the canonical source and
 also serves as the stub for IDEs and static analysis. This reference follows
-the current checkout; Arrow APIs are under development and are not included
-in the released 1.3.1 archive.
+the current checkout; Arrow and vector APIs are under development and are not
+included in the released 1.3.1 archive.
 
 Namespace: `DuckDB`.
 
-## Function
+## Functions
 
 ### `DuckDB\version(): string`
 
 Returns the version of the linked DuckDB library, e.g. `"v1.5.6"`. The global
 `duckdb_version()` provides the same information for backwards compatibility.
+
+### `DuckDB\vectorSize(): int`
+
+Returns the number of rows in a standard DuckDB vector, 2048 for the pinned
+engine. It is the default vector capacity and the maximum row count of
+`DataChunk::fromVectors()`.
 
 ## Enums
 
@@ -158,6 +164,7 @@ Created via `Database::connect()`. Not constructible directly.
 | `prepare(string $sql): Statement` | Prepare a statement with positional or named parameters |
 | `appender(string $table, ?string $schema = null, ?string $catalog = null): Appender` | Bulk inserter. Throws `CatalogException` when the table does not exist |
 | `dataChunkFromArrow(ArrowChunk $chunk): DataChunk` | Convert an Arrow batch to a reusable native chunk, consuming its input |
+| `createVector(string\|Value $type, ?int $capacity = null): Vector` | Create an owned, NULL-initialized vector of a type resolved on this connection |
 | `interrupt(): void` | Interrupt the currently running query on this connection; does not cancel queued work |
 | `getTableNames(string $sql): array` | `list<string>` of tables referenced by the query |
 | `close(): void` | Mark the connection closed (idempotent); further use throws `ConnectionException` |
@@ -238,11 +245,14 @@ An owning Arrow record batch with a private constructor.
 
 ## `final class DataChunk`
 
-A native chunk created by Arrow conversion, with a private constructor. It
-retains its buffers independently of the source result and connection.
+A native chunk created by Arrow conversion or from vectors, with a private
+constructor. It retains its buffers independently of the source result,
+vectors and connection.
 
 | Method | Description |
 | --- | --- |
+| `static fromVectors(array $vectors, int $rowCount): DataChunk` | Copy the first rows of named vectors into a chunk of at most `vectorSize()` rows |
+| `vector(int $index): Vector` | Copy a column into a new vector whose capacity is the row count |
 | `rowCount(): int` | Number of rows |
 | `columnCount(): int` | Number of columns |
 | `columns(): array` | `list<array{name: string, type: string}>` |
@@ -256,6 +266,29 @@ DataChunk export reject lossy representations of HUGEINT, UHUGEINT, BIT and
 TIMETZ, including nested values; enable `arrow_lossless_conversion` on the
 exporting connection. The bundled SDK also includes engine fixes for Arrow
 conversion transactions and geometry CRS preservation.
+
+## `final class Vector`
+
+An owned, fixed-capacity native vector, created by `Connection::createVector()`
+or `DataChunk::vector()`. Every row of a new vector is NULL. Vectors remain
+usable after their connection and database close.
+
+| Method | Description |
+| --- | --- |
+| `type(): string` | Rendered type, as `DataChunk::columns()` reports it |
+| `capacity(): int` | Number of rows |
+| `get(int $index): mixed` | Decode one row with the result type mappings |
+| `isNull(int $index): bool` | Whether one row is NULL |
+| `toArray(int $offset = 0, ?int $length = null): array` | Decode a range of rows; by default, through the capacity |
+| `set(Connection $connection, int $index, mixed $value): void` | Convert a value as typed binding does and write it |
+| `setValues(Connection $connection, array $values, int $offset = 0): void` | Write a list to consecutive rows; a rejected value leaves the vector unchanged |
+| `setNull(int $index): void` | Mark one row NULL |
+| `copyFrom(Vector $source, int $sourceOffset = 0, ?int $count = null, int $targetOffset = 0): void` | Copy rows from a vector of the same type |
+
+Indices outside the capacity throw `ValueError`. Converting input other than
+plain scalars of the vector's type executes on the supplied connection and
+invalidates its streaming result. See [vectors](vector.md) for conversion,
+ownership and chunk semantics.
 
 ## `final class ResultIterator implements \Iterator`
 

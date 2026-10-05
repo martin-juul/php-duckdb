@@ -17,6 +17,14 @@ if ($native->toRows() !== $expected) {
     throw new RuntimeException('Installed package lost values during Arrow conversion');
 }
 
+// Vector APIs resolve lazily; call them so an engine without them fails here.
+$clock = $conn->createVector('TIMETZ[]', 1);
+$clock->set($conn, 0, ['12:34:56+02']);
+$vectorRows = DuckDB\DataChunk::fromVectors(['clock' => $clock], 1)->toRows();
+if ($vectorRows !== [['clock' => [$expected[0]['clock']]]]) {
+    throw new RuntimeException('Installed package lost values in a native vector');
+}
+
 $sql = "SELECT 'POINT (1 2)'::GEOMETRY('OGC:CRS84') AS point";
 $native = $conn->dataChunkFromArrow($conn->query($sql)->fetchArrowChunk());
 $field = $native->arrowSchema($conn)->toArray()['children'][0];

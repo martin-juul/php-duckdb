@@ -329,3 +329,7 @@ PHP_METHOD(DuckDB_CatalogValue, __construct) {
         RETURN_THROWS();
     }
 }
+
+bool duckdb_type_spec(zval *spec, std::string &type) {
+    return type_spec(spec, type);
+}

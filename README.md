@@ -25,6 +25,8 @@ Feature highlights:
 - **Bulk inserts** via the Appender API
 - **Arrow batches** through the [C Data Interface](docs/arrow.md), with native
   chunk conversion, schema inspection and batch appending
+- **Standalone vectors**: typed native columns built from PHP and
+  [assembled into chunks](docs/vector.md) for appending or Arrow export
 - **Asynchronous execution** on background worker threads, with cancellation,
   progress reporting, Fiber suspension, coroutine-native **Swoole 6+**, **True
   Async**, **AMPHP v3** and **ReactPHP** integration, and event-loop support
@@ -341,6 +343,26 @@ callers own release of native exports. These APIs work without PHP FFI;
 FFI is optional for native address exchange. See [Arrow conversion](docs/arrow.md)
 for ownership, mixed row fetching and supported conversion semantics, and the
 [runnable example](examples/arrow.php).
+
+## Vectors
+
+These APIs are under development in this checkout and are not included in the
+released 1.3.1 archive.
+
+Build typed native columns from PHP values and assemble them into chunks.
+Writes convert input like typed binding, and a rejected batch leaves the vector
+unchanged.
+
+```php
+$ids = $conn->createVector('BIGINT', 3);
+$tags = $conn->createVector('VARCHAR[]', 3);
+$ids->setValues($conn, [1, 2, 3]);
+$tags->setValues($conn, [['new'], [], null]);
+$appender->appendChunk(DuckDB\DataChunk::fromVectors(['id' => $ids, 'tags' => $tags], 3));
+```
+
+A chunk holds at most `DuckDB\vectorSize()` rows and copies its vectors. See
+[vectors](docs/vector.md) and the [runnable example](examples/vectors.php).
 
 ## Prepared statements
 

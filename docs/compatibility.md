@@ -152,7 +152,8 @@ structured appender/error reporting.
 | Scalar bind callbacks and expressions | Used internally for typed conversion; no public PHP callback or expression-handle API |
 | COPY functions, scalar init callbacks, table-function metadata, custom logging | No corresponding PHP callback/handle surface |
 | Value string rendering | Exposed through `Value::toString(Connection)` for connection-aware display text |
-| Standalone vectors, selection vectors, UTF-8 checks | Additional capability requiring explicit binding work |
+| Standalone vectors | Exposed through `Vector`, `Connection::createVector()` and `DataChunk::fromVectors()`/`vector()` |
+| Selection vectors, UTF-8 checks | Used internally for vector copies and string writes; no public PHP API |
 
 [Native typed value classes](value.md) provide complete typed input for
 prepared statements, execution parameter arrays and Appender, including
@@ -161,9 +162,11 @@ native scalar bind callback and expression folding; it does not expose PHP UDF
 callbacks or expression handles. Stabilization alone does not make every C
 handle a PHP API. Connection-aware [value string rendering](value.md#display-text)
 is available through `Value::toString(Connection)`. [Arrow conversion](arrow.md)
-provides schema and batch handles with native address exchange. The remaining planned
-public APIs are listed in the [roadmap](roadmap.md). The PHP surface is
-specified in [the stub](../duckdb.stub.php) and [API reference](api.md).
+provides schema and batch handles with native address exchange.
+[Standalone vectors](vector.md) are owned, typed columns that build native
+chunks; they do not expose raw buffers. The remaining planned public APIs
+are listed in the [roadmap](roadmap.md). The PHP surface is specified in
+[the stub](../duckdb.stub.php) and [API reference](api.md).
 
 The
 [DuckDB 2.0 API spellings backport](https://github.com/duckdb/duckdb/pull/24852)

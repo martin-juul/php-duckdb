@@ -10,11 +10,12 @@ Ordinary query batches have up to **2048 rows** (`duckdb_vector_size()`);
 external Arrow batches can be larger. The C API exposes chunks so that
 extensions can produce/consume data in engine-native batches.
 
-The current Arrow feature exposes owning `DuckDB\DataChunk` objects through
-`Connection::dataChunkFromArrow()`. They decode rows repeatedly, export Arrow
+Owning `DuckDB\DataChunk` objects come from `Connection::dataChunkFromArrow()`
+or `DataChunk::fromVectors()`. They decode rows repeatedly, export Arrow
 batches and append without being consumed. These APIs are under development
 in this checkout and are not in the released 1.3.1 archive. See
-[Arrow conversion](arrow.md) for the API and ownership contract.
+[Arrow conversion](arrow.md) and [vectors](vector.md) for the APIs and
+ownership contracts.
 
 ## Streaming results
 
@@ -51,12 +52,22 @@ Caveats that follow from the chunk-based implementation:
 - Starting a new execution on the same connection invalidates an in-flight
   streaming result (the next fetch throws). See [query.md](query.md).
 
-## Native vector access
+## Building chunks from vectors
 
-PHP can obtain a native chunk by importing Arrow, but cannot construct or
-mutate its vectors directly.
+`DataChunk::fromVectors()` copies the first rows of named
+[`DuckDB\Vector`](vector.md) columns into a new chunk, using
+`duckdb_create_data_chunk()` and `duckdb_data_chunk_set_size()`. A chunk holds
+at most `DuckDB\vectorSize()` rows. `DataChunk::vector()` copies one column
+back out into a new vector. Chunks never share mutable storage with vectors:
+appending or exporting a chunk is unaffected by later vector writes.
 
-`duckdb_create_data_chunk()`, `duckdb_data_chunk_get_vector()`,
-`duckdb_data_chunk_set_size()`, … are tools for writing C table/aggregation
-functions, which this driver does not support from PHP — see
-[table_functions.md](table_functions.md) and [vector.md](vector.md).
+```php
+$ids = $conn->createVector('INTEGER', 2);
+$ids->setValues($conn, [1, 2]);
+$chunk = DuckDB\DataChunk::fromVectors(['id' => $ids], 2);
+$appender->appendChunk($chunk);
+```
+
+A chunk's own vectors are not exposed for in-place mutation. These chunks are
+also not C table or aggregate function callbacks, which this driver does not
+support from PHP; see [table_functions.md](table_functions.md).
