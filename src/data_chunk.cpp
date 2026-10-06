@@ -443,6 +443,64 @@ PHP_METHOD(DuckDB_DataChunk, vector) {
     }
 }
 
+PHP_METHOD(DuckDB_DataChunk, select) {
+    DUCKDB_TSRMLS_CACHE_UPDATE();
+    zval *selection_zval;
+    ZEND_PARSE_PARAMETERS_START(1, 1)
+        Z_PARAM_ZVAL(selection_zval)
+    ZEND_PARSE_PARAMETERS_END();
+    auto source = duckdb_data_chunk_from_zval(ZEND_THIS);
+    if (!source) {
+        RETURN_THROWS();
+    }
+
+    try {
+        auto selection = duckdb_selection_from_arg(selection_zval, 1);
+        if (!selection) {
+            RETURN_THROWS();
+        }
+        if (selection->count > duckdb_vector_size()) {
+            zend_argument_value_error(1, "must contain at most " ZEND_ULONG_FMT " indices",
+                                      static_cast<zend_ulong>(duckdb_vector_size()));
+            RETURN_THROWS();
+        }
+        if (!duckdb_selection_check_source(*selection, duckdb_data_chunk_get_size(source->chunk), 1)) {
+            RETURN_THROWS();
+        }
+
+        std::vector<scoped_duckdb_logical_type> owned_types;
+        std::vector<duckdb_logical_type> types;
+        for (idx_t i = 0; i < source->names.size(); i++) {
+            owned_types.emplace_back(duckdb_vector_get_column_type(duckdb_data_chunk_get_vector(source->chunk, i)));
+            types.push_back(owned_types.back().get());
+        }
+
+        auto data = std::make_shared<data_chunk_data>();
+        data->names = source->names;
+        data->chunk = duckdb_create_data_chunk(types.data(), types.size());
+        if (!data->chunk) {
+            duckdb_throw_msg("DuckDB could not allocate the data chunk");
+            RETURN_THROWS();
+        }
+        /* The copier writes string and list data into the new chunk, so it
+         * needs no reference to an Arrow producer. */
+        for (idx_t i = 0; i < types.size(); i++) {
+            duckdb_selection_gather(duckdb_data_chunk_get_vector(source->chunk, i),
+                                    duckdb_data_chunk_get_vector(data->chunk, i), *selection, 0);
+        }
+        duckdb_data_chunk_set_size(data->chunk, selection->count);
+
+        object_init_ex(return_value, duckdb_data_chunk_ce);
+        data_chunk_object(Z_OBJ_P(return_value))->data = std::move(data);
+    } catch (const std::exception &error) {
+        duckdb_throw_msg(error.what());
+        RETURN_THROWS();
+    } catch (...) {
+        duckdb_throw_msg("Unknown error while selecting chunk rows");
+        RETURN_THROWS();
+    }
+}
+
 PHP_METHOD(DuckDB_DataChunk, rowCount) {
     DUCKDB_TSRMLS_CACHE_UPDATE();
     ZEND_PARSE_PARAMETERS_NONE();

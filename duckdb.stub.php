@@ -683,6 +683,13 @@ final class DataChunk
     /** Copy a column into a new vector whose capacity is the row count. */
     public function vector(int $index): Vector {}
 
+    /**
+     * Copy the rows a selection names into a new chunk, in selection order.
+     * Pass a SelectionVector or a list of at most {@see vectorSize()} row
+     * indices.
+     */
+    public function select(SelectionVector|array $selection): DataChunk {}
+
     public function rowCount(): int {}
     public function columnCount(): int {}
 

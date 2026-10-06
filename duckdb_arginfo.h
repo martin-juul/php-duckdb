@@ -1,5 +1,5 @@
 /* This is a generated file, edit the .stub.php file instead.
- * Stub hash: 335a11c7a2222d00282b96090024b7f69c3dd965 */
+ * Stub hash: 6bd7829a8af5cccd2c04c60f2719da254c54046f */
 
 ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_DuckDB_version, 0, 0, IS_STRING, 0)
 ZEND_END_ARG_INFO()
@@ -305,6 +305,10 @@ ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_class_DuckDB_DataChunk_vector, 0,
 	ZEND_ARG_TYPE_INFO(0, index, IS_LONG, 0)
 ZEND_END_ARG_INFO()
 
+ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_class_DuckDB_DataChunk_select, 0, 1, DuckDB\\DataChunk, 0)
+	ZEND_ARG_OBJ_TYPE_MASK(0, selection, DuckDB\\SelectionVector, MAY_BE_ARRAY, NULL)
+ZEND_END_ARG_INFO()
+
 #define arginfo_class_DuckDB_DataChunk_rowCount arginfo_DuckDB_vectorSize
 
 #define arginfo_class_DuckDB_DataChunk_columnCount arginfo_DuckDB_vectorSize
@@ -579,6 +583,7 @@ ZEND_METHOD(DuckDB_ArrowChunk, isConsumed);
 ZEND_METHOD(DuckDB_DataChunk, __construct);
 ZEND_METHOD(DuckDB_DataChunk, fromVectors);
 ZEND_METHOD(DuckDB_DataChunk, vector);
+ZEND_METHOD(DuckDB_DataChunk, select);
 ZEND_METHOD(DuckDB_DataChunk, rowCount);
 ZEND_METHOD(DuckDB_DataChunk, columnCount);
 ZEND_METHOD(DuckDB_DataChunk, columns);
@@ -1041,6 +1046,7 @@ static const zend_function_entry class_DuckDB_DataChunk_methods[] = {
 	ZEND_ME(DuckDB_DataChunk, __construct, arginfo_class_DuckDB_DataChunk___construct, ZEND_ACC_PRIVATE)
 	ZEND_ME(DuckDB_DataChunk, fromVectors, arginfo_class_DuckDB_DataChunk_fromVectors, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	ZEND_ME(DuckDB_DataChunk, vector, arginfo_class_DuckDB_DataChunk_vector, ZEND_ACC_PUBLIC)
+	ZEND_ME(DuckDB_DataChunk, select, arginfo_class_DuckDB_DataChunk_select, ZEND_ACC_PUBLIC)
 	ZEND_ME(DuckDB_DataChunk, rowCount, arginfo_class_DuckDB_DataChunk_rowCount, ZEND_ACC_PUBLIC)
 	ZEND_ME(DuckDB_DataChunk, columnCount, arginfo_class_DuckDB_DataChunk_columnCount, ZEND_ACC_PUBLIC)
 	ZEND_ME(DuckDB_DataChunk, columns, arginfo_class_DuckDB_DataChunk_columns, ZEND_ACC_PUBLIC)
