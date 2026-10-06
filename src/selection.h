@@ -26,7 +26,8 @@ void duckdb_register_selection_vector_class(zend_class_entry *ce);
 /* Accept a SelectionVector or a list of row indices. Throws and returns
  * nullptr for any other argument; may throw std::bad_alloc. */
 std::shared_ptr<const selection_data> duckdb_selection_from_arg(zval *value, uint32_t arg_num);
-/* Throw a ValueError unless every index is below source_size. */
+/* Raise a ValueError and return false unless every index is below
+ * source_size. */
 bool duckdb_selection_check_source(const selection_data &selection, idx_t source_size, uint32_t arg_num);
 /* Write source[selection[i]] to target[target_offset + i]. The caller has
  * validated bounds and types. A gather into the source itself is staged.
