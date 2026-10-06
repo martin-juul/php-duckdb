@@ -872,6 +872,11 @@ void duckdb_data_chunk_rows(data_chunk_data *data, zend_object *mode_obj, zval *
     }
 }
 
+bool duckdb_decode_vector_value(duckdb_vector vector, duckdb_logical_type type, idx_t row, zval *out) {
+    decode_ctx ctx = {nullptr, 0, row, 0};
+    return duckdb_decode_value(&ctx, vector, type, row, out);
+}
+
 static std::shared_ptr<arrow_schema_data> duckdb_result_arrow_schema(result_data *data, duckdb_arrow_options options) {
     std::vector<const char *> names;
     for (idx_t col = 0; col < data->column_count; col++) {

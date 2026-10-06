@@ -1,7 +1,10 @@
 /* This is a generated file, edit the .stub.php file instead.
- * Stub hash: c016bb2de75231b0d11f5f760507bf80d183c14f */
+ * Stub hash: 37058061dc0aa810a6bdc3391ff65973f46ebb50 */
 
 ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_DuckDB_version, 0, 0, IS_STRING, 0)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_DuckDB_vectorSize, 0, 0, IS_LONG, 0)
 ZEND_END_ARG_INFO()
 
 ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_class_DuckDB_Exception_getErrorType, 0, 0, DuckDB\\ErrorType, 1)
@@ -13,12 +16,11 @@ ZEND_BEGIN_ARG_INFO_EX(arginfo_class_DuckDB_Interval___construct, 0, 0, 0)
 	ZEND_ARG_TYPE_INFO_WITH_DEFAULT_VALUE(0, micros, IS_LONG, 0, "0")
 ZEND_END_ARG_INFO()
 
-ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_class_DuckDB_Interval_getMonths, 0, 0, IS_LONG, 0)
-ZEND_END_ARG_INFO()
+#define arginfo_class_DuckDB_Interval_getMonths arginfo_DuckDB_vectorSize
 
-#define arginfo_class_DuckDB_Interval_getDays arginfo_class_DuckDB_Interval_getMonths
+#define arginfo_class_DuckDB_Interval_getDays arginfo_DuckDB_vectorSize
 
-#define arginfo_class_DuckDB_Interval_getMicros arginfo_class_DuckDB_Interval_getMonths
+#define arginfo_class_DuckDB_Interval_getMicros arginfo_DuckDB_vectorSize
 
 #define arginfo_class_DuckDB_Interval___toString arginfo_DuckDB_version
 
@@ -165,6 +167,11 @@ ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_class_DuckDB_Connection_dataChunk
 	ZEND_ARG_OBJ_INFO(0, chunk, DuckDB\\ArrowChunk, 0)
 ZEND_END_ARG_INFO()
 
+ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_class_DuckDB_Connection_createVector, 0, 1, DuckDB\\Vector, 0)
+	ZEND_ARG_OBJ_TYPE_MASK(0, type, DuckDB\\Value, MAY_BE_STRING, NULL)
+	ZEND_ARG_TYPE_INFO_WITH_DEFAULT_VALUE(0, capacity, IS_LONG, 1, "null")
+ZEND_END_ARG_INFO()
+
 ZEND_BEGIN_ARG_INFO_EX(arginfo_class_DuckDB_Connection___construct, 0, 0, 0)
 ZEND_END_ARG_INFO()
 
@@ -229,7 +236,7 @@ ZEND_END_ARG_INFO()
 
 #define arginfo_class_DuckDB_Statement_clearBindings arginfo_class_DuckDB_Connection_interrupt
 
-#define arginfo_class_DuckDB_Statement_parameterCount arginfo_class_DuckDB_Interval_getMonths
+#define arginfo_class_DuckDB_Statement_parameterCount arginfo_DuckDB_vectorSize
 
 ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_class_DuckDB_Statement_parameterName, 0, 1, IS_STRING, 0)
 	ZEND_ARG_TYPE_INFO(0, param, IS_LONG, 0)
@@ -241,7 +248,7 @@ ZEND_END_ARG_INFO()
 
 #define arginfo_class_DuckDB_Statement_statementType arginfo_DuckDB_version
 
-#define arginfo_class_DuckDB_Statement_columnCount arginfo_class_DuckDB_Interval_getMonths
+#define arginfo_class_DuckDB_Statement_columnCount arginfo_DuckDB_vectorSize
 
 ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_class_DuckDB_Statement_columnName, 0, 1, IS_STRING, 0)
 	ZEND_ARG_TYPE_INFO(0, index, IS_LONG, 0)
@@ -283,15 +290,24 @@ ZEND_END_ARG_INFO()
 ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_class_DuckDB_ArrowChunk_schema, 0, 0, DuckDB\\ArrowSchema, 0)
 ZEND_END_ARG_INFO()
 
-#define arginfo_class_DuckDB_ArrowChunk_rowCount arginfo_class_DuckDB_Interval_getMonths
+#define arginfo_class_DuckDB_ArrowChunk_rowCount arginfo_DuckDB_vectorSize
 
 #define arginfo_class_DuckDB_ArrowChunk_isConsumed arginfo_class_DuckDB_Connection_isClosed
 
 #define arginfo_class_DuckDB_DataChunk___construct arginfo_class_DuckDB_Connection___construct
 
-#define arginfo_class_DuckDB_DataChunk_rowCount arginfo_class_DuckDB_Interval_getMonths
+ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_class_DuckDB_DataChunk_fromVectors, 0, 2, DuckDB\\DataChunk, 0)
+	ZEND_ARG_TYPE_INFO(0, vectors, IS_ARRAY, 0)
+	ZEND_ARG_TYPE_INFO(0, rowCount, IS_LONG, 0)
+ZEND_END_ARG_INFO()
 
-#define arginfo_class_DuckDB_DataChunk_columnCount arginfo_class_DuckDB_Interval_getMonths
+ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_class_DuckDB_DataChunk_vector, 0, 1, DuckDB\\Vector, 0)
+	ZEND_ARG_TYPE_INFO(0, index, IS_LONG, 0)
+ZEND_END_ARG_INFO()
+
+#define arginfo_class_DuckDB_DataChunk_rowCount arginfo_DuckDB_vectorSize
+
+#define arginfo_class_DuckDB_DataChunk_columnCount arginfo_DuckDB_vectorSize
 
 #define arginfo_class_DuckDB_DataChunk_columns arginfo_class_DuckDB_Interval_jsonSerialize
 
@@ -307,6 +323,48 @@ ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_class_DuckDB_DataChunk_toArrow, 0
 	ZEND_ARG_OBJ_INFO(0, connection, DuckDB\\Connection, 0)
 ZEND_END_ARG_INFO()
 
+#define arginfo_class_DuckDB_Vector___construct arginfo_class_DuckDB_Connection___construct
+
+#define arginfo_class_DuckDB_Vector_type arginfo_DuckDB_version
+
+#define arginfo_class_DuckDB_Vector_capacity arginfo_DuckDB_vectorSize
+
+ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_class_DuckDB_Vector_get, 0, 1, IS_MIXED, 0)
+	ZEND_ARG_TYPE_INFO(0, index, IS_LONG, 0)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_class_DuckDB_Vector_isNull, 0, 1, _IS_BOOL, 0)
+	ZEND_ARG_TYPE_INFO(0, index, IS_LONG, 0)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_class_DuckDB_Vector_toArray, 0, 0, IS_ARRAY, 0)
+	ZEND_ARG_TYPE_INFO_WITH_DEFAULT_VALUE(0, offset, IS_LONG, 0, "0")
+	ZEND_ARG_TYPE_INFO_WITH_DEFAULT_VALUE(0, length, IS_LONG, 1, "null")
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_class_DuckDB_Vector_set, 0, 3, IS_VOID, 0)
+	ZEND_ARG_OBJ_INFO(0, connection, DuckDB\\Connection, 0)
+	ZEND_ARG_TYPE_INFO(0, index, IS_LONG, 0)
+	ZEND_ARG_TYPE_INFO(0, value, IS_MIXED, 0)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_class_DuckDB_Vector_setValues, 0, 2, IS_VOID, 0)
+	ZEND_ARG_OBJ_INFO(0, connection, DuckDB\\Connection, 0)
+	ZEND_ARG_TYPE_INFO(0, values, IS_ARRAY, 0)
+	ZEND_ARG_TYPE_INFO_WITH_DEFAULT_VALUE(0, offset, IS_LONG, 0, "0")
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_class_DuckDB_Vector_setNull, 0, 1, IS_VOID, 0)
+	ZEND_ARG_TYPE_INFO(0, index, IS_LONG, 0)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_class_DuckDB_Vector_copyFrom, 0, 1, IS_VOID, 0)
+	ZEND_ARG_OBJ_INFO(0, source, DuckDB\\Vector, 0)
+	ZEND_ARG_TYPE_INFO_WITH_DEFAULT_VALUE(0, sourceOffset, IS_LONG, 0, "0")
+	ZEND_ARG_TYPE_INFO_WITH_DEFAULT_VALUE(0, count, IS_LONG, 1, "null")
+	ZEND_ARG_TYPE_INFO_WITH_DEFAULT_VALUE(0, targetOffset, IS_LONG, 0, "0")
+ZEND_END_ARG_INFO()
+
 #define arginfo_class_DuckDB_Result___construct arginfo_class_DuckDB_Connection___construct
 
 #define arginfo_class_DuckDB_Result_arrowSchema arginfo_class_DuckDB_ArrowChunk_schema
@@ -314,7 +372,7 @@ ZEND_END_ARG_INFO()
 ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_class_DuckDB_Result_fetchArrowChunk, 0, 0, DuckDB\\ArrowChunk, 1)
 ZEND_END_ARG_INFO()
 
-#define arginfo_class_DuckDB_Result_columnCount arginfo_class_DuckDB_Interval_getMonths
+#define arginfo_class_DuckDB_Result_columnCount arginfo_DuckDB_vectorSize
 
 #define arginfo_class_DuckDB_Result_columnName arginfo_class_DuckDB_Statement_columnName
 
@@ -322,9 +380,9 @@ ZEND_END_ARG_INFO()
 
 #define arginfo_class_DuckDB_Result_columns arginfo_class_DuckDB_Interval_jsonSerialize
 
-#define arginfo_class_DuckDB_Result_rowCount arginfo_class_DuckDB_Interval_getMonths
+#define arginfo_class_DuckDB_Result_rowCount arginfo_DuckDB_vectorSize
 
-#define arginfo_class_DuckDB_Result_rowsChanged arginfo_class_DuckDB_Interval_getMonths
+#define arginfo_class_DuckDB_Result_rowsChanged arginfo_DuckDB_vectorSize
 
 #define arginfo_class_DuckDB_Result_statementType arginfo_DuckDB_version
 
@@ -346,7 +404,7 @@ ZEND_END_ARG_INFO()
 ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_class_DuckDB_ResultIterator_current, 0, 0, IS_MIXED, 0)
 ZEND_END_ARG_INFO()
 
-#define arginfo_class_DuckDB_ResultIterator_key arginfo_class_DuckDB_Interval_getMonths
+#define arginfo_class_DuckDB_ResultIterator_key arginfo_DuckDB_vectorSize
 
 #define arginfo_class_DuckDB_ResultIterator_next arginfo_class_DuckDB_Connection_interrupt
 
@@ -365,7 +423,7 @@ ZEND_END_ARG_INFO()
 
 #define arginfo_class_DuckDB_PendingQuery_cancel arginfo_class_DuckDB_Connection_interrupt
 
-#define arginfo_class_DuckDB_PendingQuery_getFd arginfo_class_DuckDB_Interval_getMonths
+#define arginfo_class_DuckDB_PendingQuery_getFd arginfo_DuckDB_vectorSize
 
 #define arginfo_class_DuckDB_PendingQuery_getStream arginfo_class_DuckDB_ResultIterator_current
 
@@ -401,6 +459,7 @@ ZEND_END_ARG_INFO()
 
 
 ZEND_FUNCTION(DuckDB_version);
+ZEND_FUNCTION(DuckDB_vectorSize);
 ZEND_METHOD(DuckDB_Exception, getErrorType);
 ZEND_METHOD(DuckDB_Interval, __construct);
 ZEND_METHOD(DuckDB_Interval, getMonths);
@@ -454,6 +513,7 @@ ZEND_METHOD(DuckDB_CatalogValue, __construct);
 ZEND_METHOD(DuckDB_Database, __construct);
 ZEND_METHOD(DuckDB_Database, connect);
 ZEND_METHOD(DuckDB_Connection, dataChunkFromArrow);
+ZEND_METHOD(DuckDB_Connection, createVector);
 ZEND_METHOD(DuckDB_Connection, __construct);
 ZEND_METHOD(DuckDB_Connection, query);
 ZEND_METHOD(DuckDB_Connection, queryStreaming);
@@ -495,12 +555,24 @@ ZEND_METHOD(DuckDB_ArrowChunk, schema);
 ZEND_METHOD(DuckDB_ArrowChunk, rowCount);
 ZEND_METHOD(DuckDB_ArrowChunk, isConsumed);
 ZEND_METHOD(DuckDB_DataChunk, __construct);
+ZEND_METHOD(DuckDB_DataChunk, fromVectors);
+ZEND_METHOD(DuckDB_DataChunk, vector);
 ZEND_METHOD(DuckDB_DataChunk, rowCount);
 ZEND_METHOD(DuckDB_DataChunk, columnCount);
 ZEND_METHOD(DuckDB_DataChunk, columns);
 ZEND_METHOD(DuckDB_DataChunk, toRows);
 ZEND_METHOD(DuckDB_DataChunk, arrowSchema);
 ZEND_METHOD(DuckDB_DataChunk, toArrow);
+ZEND_METHOD(DuckDB_Vector, __construct);
+ZEND_METHOD(DuckDB_Vector, type);
+ZEND_METHOD(DuckDB_Vector, capacity);
+ZEND_METHOD(DuckDB_Vector, get);
+ZEND_METHOD(DuckDB_Vector, isNull);
+ZEND_METHOD(DuckDB_Vector, toArray);
+ZEND_METHOD(DuckDB_Vector, set);
+ZEND_METHOD(DuckDB_Vector, setValues);
+ZEND_METHOD(DuckDB_Vector, setNull);
+ZEND_METHOD(DuckDB_Vector, copyFrom);
 ZEND_METHOD(DuckDB_Result, __construct);
 ZEND_METHOD(DuckDB_Result, arrowSchema);
 ZEND_METHOD(DuckDB_Result, fetchArrowChunk);
@@ -543,6 +615,7 @@ ZEND_METHOD(DuckDB_Appender, close);
 
 static const zend_function_entry ext_functions[] = {
 	ZEND_NS_FALIAS("DuckDB", version, DuckDB_version, arginfo_DuckDB_version)
+	ZEND_NS_FALIAS("DuckDB", vectorSize, DuckDB_vectorSize, arginfo_DuckDB_vectorSize)
 	ZEND_FE_END
 };
 
@@ -876,6 +949,7 @@ static const zend_function_entry class_DuckDB_Database_methods[] = {
 
 static const zend_function_entry class_DuckDB_Connection_methods[] = {
 	ZEND_ME(DuckDB_Connection, dataChunkFromArrow, arginfo_class_DuckDB_Connection_dataChunkFromArrow, ZEND_ACC_PUBLIC)
+	ZEND_ME(DuckDB_Connection, createVector, arginfo_class_DuckDB_Connection_createVector, ZEND_ACC_PUBLIC)
 	ZEND_ME(DuckDB_Connection, __construct, arginfo_class_DuckDB_Connection___construct, ZEND_ACC_PRIVATE)
 	ZEND_ME(DuckDB_Connection, query, arginfo_class_DuckDB_Connection_query, ZEND_ACC_PUBLIC)
 	ZEND_ME(DuckDB_Connection, queryStreaming, arginfo_class_DuckDB_Connection_queryStreaming, ZEND_ACC_PUBLIC)
@@ -937,12 +1011,29 @@ static const zend_function_entry class_DuckDB_ArrowChunk_methods[] = {
 
 static const zend_function_entry class_DuckDB_DataChunk_methods[] = {
 	ZEND_ME(DuckDB_DataChunk, __construct, arginfo_class_DuckDB_DataChunk___construct, ZEND_ACC_PRIVATE)
+	ZEND_ME(DuckDB_DataChunk, fromVectors, arginfo_class_DuckDB_DataChunk_fromVectors, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+	ZEND_ME(DuckDB_DataChunk, vector, arginfo_class_DuckDB_DataChunk_vector, ZEND_ACC_PUBLIC)
 	ZEND_ME(DuckDB_DataChunk, rowCount, arginfo_class_DuckDB_DataChunk_rowCount, ZEND_ACC_PUBLIC)
 	ZEND_ME(DuckDB_DataChunk, columnCount, arginfo_class_DuckDB_DataChunk_columnCount, ZEND_ACC_PUBLIC)
 	ZEND_ME(DuckDB_DataChunk, columns, arginfo_class_DuckDB_DataChunk_columns, ZEND_ACC_PUBLIC)
 	ZEND_ME(DuckDB_DataChunk, toRows, arginfo_class_DuckDB_DataChunk_toRows, ZEND_ACC_PUBLIC)
 	ZEND_ME(DuckDB_DataChunk, arrowSchema, arginfo_class_DuckDB_DataChunk_arrowSchema, ZEND_ACC_PUBLIC)
 	ZEND_ME(DuckDB_DataChunk, toArrow, arginfo_class_DuckDB_DataChunk_toArrow, ZEND_ACC_PUBLIC)
+	ZEND_FE_END
+};
+
+
+static const zend_function_entry class_DuckDB_Vector_methods[] = {
+	ZEND_ME(DuckDB_Vector, __construct, arginfo_class_DuckDB_Vector___construct, ZEND_ACC_PRIVATE)
+	ZEND_ME(DuckDB_Vector, type, arginfo_class_DuckDB_Vector_type, ZEND_ACC_PUBLIC)
+	ZEND_ME(DuckDB_Vector, capacity, arginfo_class_DuckDB_Vector_capacity, ZEND_ACC_PUBLIC)
+	ZEND_ME(DuckDB_Vector, get, arginfo_class_DuckDB_Vector_get, ZEND_ACC_PUBLIC)
+	ZEND_ME(DuckDB_Vector, isNull, arginfo_class_DuckDB_Vector_isNull, ZEND_ACC_PUBLIC)
+	ZEND_ME(DuckDB_Vector, toArray, arginfo_class_DuckDB_Vector_toArray, ZEND_ACC_PUBLIC)
+	ZEND_ME(DuckDB_Vector, set, arginfo_class_DuckDB_Vector_set, ZEND_ACC_PUBLIC)
+	ZEND_ME(DuckDB_Vector, setValues, arginfo_class_DuckDB_Vector_setValues, ZEND_ACC_PUBLIC)
+	ZEND_ME(DuckDB_Vector, setNull, arginfo_class_DuckDB_Vector_setNull, ZEND_ACC_PUBLIC)
+	ZEND_ME(DuckDB_Vector, copyFrom, arginfo_class_DuckDB_Vector_copyFrom, ZEND_ACC_PUBLIC)
 	ZEND_FE_END
 };
 
@@ -1817,6 +1908,17 @@ static zend_class_entry *register_class_DuckDB_DataChunk(void)
 	zend_class_entry ce, *class_entry;
 
 	INIT_NS_CLASS_ENTRY(ce, "DuckDB", "DataChunk", class_DuckDB_DataChunk_methods);
+	class_entry = zend_register_internal_class_ex(&ce, NULL);
+	class_entry->ce_flags |= ZEND_ACC_FINAL;
+
+	return class_entry;
+}
+
+static zend_class_entry *register_class_DuckDB_Vector(void)
+{
+	zend_class_entry ce, *class_entry;
+
+	INIT_NS_CLASS_ENTRY(ce, "DuckDB", "Vector", class_DuckDB_Vector_methods);
 	class_entry = zend_register_internal_class_ex(&ce, NULL);
 	class_entry->ce_flags |= ZEND_ACC_FINAL;
 

@@ -11,9 +11,12 @@ Full typed binding was merged in [PR #7](https://github.com/martin-juul/php-duck
 Value string rendering was merged in
 [PR #8](https://github.com/martin-juul/php-duckdb/pull/8): explicit,
 connection-aware display text for logs and debugging, without a round-trip SQL
-guarantee. [Arrow schema/chunk conversion](arrow.md) is the current feature:
-C Data Interface import/export, reusable native chunks and batch appending.
-It is under development in this checkout and is not yet released. Standalone
+guarantee. [Arrow schema/chunk conversion](arrow.md) was merged in
+[PR #10](https://github.com/martin-juul/php-duckdb/pull/10): C Data Interface
+import/export, reusable native chunks and batch appending.
+[Standalone vectors](vector.md) are the current feature: owned, typed vectors
+that PHP creates, fills, copies and assembles into native chunks. Both are
+under development in this checkout and are not yet released. Selection
 vectors are next.
 
 The intended PR sequence is:

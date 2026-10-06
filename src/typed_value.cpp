@@ -604,6 +604,11 @@ std::string sql_type(duckdb_logical_type t, unsigned depth = 0) {
             }
             return s;
         }
+        /* The C API names differ from DuckDB's SQL spellings. */
+        case DUCKDB_TYPE_TIME_TZ:
+            return "TIMETZ";
+        case DUCKDB_TYPE_TIMESTAMP_TZ:
+            return "TIMESTAMPTZ";
         default: {
             char *a = duckdb_logical_type_get_alias(t);
             if (a) {
@@ -976,6 +981,10 @@ struct builder {
     }
 };
 } // namespace
+
+std::string duckdb_logical_type_sql(duckdb_logical_type type) {
+    return sql_type(type);
+}
 
 bool duckdb_initialize_typed_registry(db_inner *database) {
     return initialize_registry(database);

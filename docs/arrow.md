@@ -11,6 +11,8 @@ There is no public `ArrowArrayStream` wrapper.
 
 `DuckDB\ArrowSchema`, `DuckDB\ArrowChunk` and `DuckDB\DataChunk` have private
 constructors. Obtain them from a result, Arrow import or native conversion.
+`DataChunk::fromVectors()` also builds native chunks from
+[vectors](vector.md).
 Schema inspection, batch fetching, conversion and appending work without PHP
 FFI. FFI is useful when exchanging native addresses with another library.
 

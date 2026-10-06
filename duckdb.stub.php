@@ -9,6 +9,10 @@
  *
  *     php /path/to/php-src/build/gen_stub.php duckdb.stub.php
  *
+ * Use the generator from the oldest supported PHP branch (PHP-8.2). Newer
+ * generators emit APIs such as zend_register_internal_class_with_flags()
+ * that PHP 8.2 and 8.3 lack.
+ *
  * The generated header is committed to the repository so that end users
  * building via phpize/PECL do not need a php-src checkout. Never edit
  * `duckdb_arginfo.h` by hand; regenerate it after changing this file.
@@ -417,6 +421,13 @@ final class Connection
     /** Convert an Arrow record batch using this connection's settings; consumes its array. */
     public function dataChunkFromArrow(ArrowChunk $chunk): DataChunk {}
 
+    /**
+     * Create an owned vector whose rows are all NULL. The type is resolved
+     * on this connection; the vector is independent of it afterwards.
+     * The capacity defaults to {@see vectorSize()}.
+     */
+    public function createVector(string|Value $type, ?int $capacity = null): Vector {}
+
     private function __construct() {}
 
     /**
@@ -656,10 +667,21 @@ final class ArrowChunk
     public function isConsumed(): bool {}
 }
 
-/** A native DuckDB chunk imported from Arrow. Independent of its source connection. */
+/** A native DuckDB chunk built from Arrow or vectors. Independent of its source connection. */
 final class DataChunk
 {
     private function __construct() {}
+
+    /**
+     * Copy the first $rowCount rows of each vector into a new chunk.
+     * At most {@see vectorSize()} rows.
+     *
+     * @param array $vectors Column name => Vector.
+     */
+    public static function fromVectors(array $vectors, int $rowCount): DataChunk {}
+
+    /** Copy a column into a new vector whose capacity is the row count. */
+    public function vector(int $index): Vector {}
 
     public function rowCount(): int {}
     public function columnCount(): int {}
@@ -672,6 +694,40 @@ final class DataChunk
 
     public function arrowSchema(Connection $connection): ArrowSchema {}
     public function toArrow(Connection $connection): ArrowChunk {}
+}
+
+/**
+ * An owned, fixed-capacity native vector. Created by
+ * {@see Connection::createVector()} or {@see DataChunk::vector()}.
+ */
+final class Vector
+{
+    private function __construct() {}
+
+    public function type(): string {}
+    public function capacity(): int {}
+
+    /** Decode one row using the result type mappings. */
+    public function get(int $index): mixed {}
+
+    public function isNull(int $index): bool {}
+
+    /** Decode $length rows from $offset; by default, through the capacity. */
+    public function toArray(int $offset = 0, ?int $length = null): array {}
+
+    /** Convert a value to the vector type, as typed binding does, and write it. */
+    public function set(Connection $connection, int $index, mixed $value): void {}
+
+    /**
+     * Write a list of values from $offset. Every value is converted before
+     * any row changes, so a rejected value leaves the vector unchanged.
+     */
+    public function setValues(Connection $connection, array $values, int $offset = 0): void {}
+
+    public function setNull(int $index): void {}
+
+    /** Copy rows from a vector of the same type; by default, through its capacity. */
+    public function copyFrom(Vector $source, int $sourceOffset = 0, ?int $count = null, int $targetOffset = 0): void {}
 }
 
 /**
@@ -976,3 +1032,6 @@ final class Appender
  * compatibility with pre-1.0 releases of this extension.
  */
 function version(): string {}
+
+/** Rows in a standard DuckDB vector and the maximum rows of a vector-built chunk. */
+function vectorSize(): int {}

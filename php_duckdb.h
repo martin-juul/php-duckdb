@@ -527,6 +527,13 @@ zend_class_entry *duckdb_value_class_entry();
 bool duckdb_value_initialize(zval *object, const std::string &type, zval *input);
 bool duckdb_canonicalize_type(const std::string &declaration, std::string &canonical);
 bool duckdb_initialize_typed_registry(db_inner *database);
+/* SQL declaration that recreates a resolved type on any connection. */
+std::string duckdb_logical_type_sql(duckdb_logical_type type);
+
+/* type_classes.cpp */
+/* Resolve a SQL string, scalar value class name or Value to a declaration.
+ * Returns false and throws on failure. */
+bool duckdb_type_spec(zval *spec, std::string &type);
 
 /* result.cpp */
 /* Instantiate a DuckDB\Result object wrapping `res`. Takes ownership of
@@ -534,6 +541,9 @@ bool duckdb_initialize_typed_registry(db_inner *database);
  * results (pass nullptr otherwise). */
 void duckdb_result_instantiate(zval *return_value, duckdb_result *res, bool streaming,
                                std::shared_ptr<stmt_inner> keepalive, std::shared_ptr<conn_inner> connection);
+/* Decode one row of a flat vector with the result type mappings. Returns
+ * false and throws on failure. */
+bool duckdb_decode_vector_value(duckdb_vector vector, duckdb_logical_type type, idx_t row, zval *out);
 
 /* pending.cpp */
 /* Worker thread entry point for THREAD_* modes. */

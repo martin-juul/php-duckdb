@@ -277,6 +277,23 @@ int main() {
 if (NOT DUCKDB_HAS_ARROW_APIS)
     message(FATAL_ERROR "DuckDB Arrow C Data Interface and geometry CRS APIs are required; use the repository's patched SDK")
 endif()
+
+unset(DUCKDB_HAS_VECTOR_APIS CACHE)
+unset(DUCKDB_HAS_VECTOR_APIS)
+check_cxx_source_compiles("#include <duckdb.h>
+int main() {
+    duckdb_vector vector = duckdb_create_vector(nullptr, 0);
+    duckdb_vector_reference_value(vector, nullptr);
+    duckdb_vector_copy_sel(vector, vector, nullptr, 0, 0, 0);
+    duckdb_unsafe_vector_assign_string_element_len(vector, 0, nullptr, 0);
+    duckdb_error_data error = duckdb_valid_utf8_check(nullptr, 0);
+    duckdb_destroy_error_data(&error);
+    duckdb_destroy_vector(&vector);
+    return 0;
+}" DUCKDB_HAS_VECTOR_APIS)
+if (NOT DUCKDB_HAS_VECTOR_APIS)
+    message(FATAL_ERROR "DuckDB standalone vector and UTF-8 check APIs are required")
+endif()
 cmake_pop_check_state()
 
 # ------------------------------------------------------------------ extension
@@ -298,7 +315,8 @@ set(DUCKDB_SOURCES
     src/suspend_true_async.cpp
     src/suspend_amphp.cpp
     src/suspend_reactphp.cpp
-    src/appender.cpp)
+    src/appender.cpp
+    src/vector.cpp)
 
 set(DUCKDB_HEADERS
     php_duckdb.h
@@ -306,6 +324,7 @@ set(DUCKDB_HEADERS
     duckdb_arginfo.h
     src/arrow.h
     src/data_chunk.h
+    src/vector.h
     src/bignum_decode.h
     src/variant_decode.h
     src/type_classes.h

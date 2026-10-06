@@ -29,6 +29,7 @@ extern "C" {
 #include "src/type_classes.h"
 #include "src/arrow.h"
 #include "src/data_chunk.h"
+#include "src/vector.h"
 #include "duckdb_arginfo.h"
 #include <unordered_map>
 
@@ -1012,6 +1013,7 @@ PHP_MINIT_FUNCTION(duckdb) {
     duckdb_statement_handlers.get_gc = duckdb_statement_get_gc;
     duckdb_register_arrow_classes(register_class_DuckDB_ArrowSchema(), register_class_DuckDB_ArrowChunk());
     duckdb_register_data_chunk_class(register_class_DuckDB_DataChunk());
+    duckdb_register_vector_class(register_class_DuckDB_Vector());
     DUCKDB_REGISTER_CLASS(result, register_class_DuckDB_Result, zend_ce_aggregate);
     DUCKDB_REGISTER_CLASS(result_iterator, register_class_DuckDB_ResultIterator, zend_ce_iterator);
     DUCKDB_REGISTER_CLASS(pending, register_class_DuckDB_PendingQuery);
