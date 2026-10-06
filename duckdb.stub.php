@@ -705,7 +705,8 @@ final class DataChunk
 
 /**
  * An owned, fixed-capacity native vector. Created by
- * {@see Connection::createVector()} or {@see DataChunk::vector()}.
+ * {@see Connection::createVector()}, {@see DataChunk::vector()} or
+ * {@see Vector::select()}.
  */
 final class Vector
 {

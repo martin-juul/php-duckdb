@@ -27,6 +27,9 @@ Feature highlights:
   chunk conversion, schema inspection and batch appending
 - **Standalone vectors**: typed native columns built from PHP and
   [assembled into chunks](docs/vector.md) for appending or Arrow export
+- **Selection vectors**: pick, reorder and repeat [vector and chunk
+  rows](docs/selection.md) natively, for example to filter a batch before
+  appending it
 - **Asynchronous execution** on background worker threads, with cancellation,
   progress reporting, Fiber suspension, coroutine-native **Swoole 6+**, **True
   Async**, **AMPHP v3** and **ReactPHP** integration, and event-loop support
@@ -363,6 +366,18 @@ $appender->appendChunk(DuckDB\DataChunk::fromVectors(['id' => $ids, 'tags' => $t
 
 A chunk holds at most `DuckDB\vectorSize()` rows and copies its vectors. See
 [vectors](docs/vector.md) and the [runnable example](examples/vectors.php).
+
+Selections copy chosen rows of a vector or chunk without decoding them. Pass a
+reusable `DuckDB\SelectionVector` or a plain list of row indices:
+
+```php
+$chunk = $conn->dataChunkFromArrow($result->fetchArrowChunk());
+$valid = array_keys(array_filter($chunk->vector(1)->toArray(), fn($v) => $v !== null));
+$appender->appendChunk($chunk->select($valid));
+```
+
+See [selection vectors](docs/selection.md) and the
+[runnable example](examples/selection.php).
 
 ## Prepared statements
 

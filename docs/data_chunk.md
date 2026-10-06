@@ -68,6 +68,17 @@ $chunk = DuckDB\DataChunk::fromVectors(['id' => $ids], 2);
 $appender->appendChunk($chunk);
 ```
 
+`DataChunk::select()` copies the rows a [selection vector](selection.md) names
+into a new chunk of at most `DuckDB\vectorSize()` rows, for example to drop
+rejected rows before appending or exporting a batch. It uses
+`duckdb_vector_copy_sel()` for each column, and the new chunk holds its own
+copy of the data.
+
+```php
+$valid = $chunk->select([0, 2]);
+$appender->appendChunk($valid);
+```
+
 A chunk's own vectors are not exposed for in-place mutation. These chunks are
 also not C table or aggregate function callbacks, which this driver does not
 support from PHP; see [table_functions.md](table_functions.md).

@@ -30,6 +30,7 @@ application example. See the [API reference](../docs/api.md) and
 | [value_rendering.php](value_rendering.php) | Explicit display text, catalog types, timezone settings and binary strings | Extension |
 | [arrow.php](arrow.php) | Streaming Arrow batches copied between connections | Extension; no FFI required |
 | [vectors.php](vectors.php) | Typed column vectors built from PHP, split into native chunks and appended | Extension |
+| [selection.php](selection.php) | Streaming batches validated in PHP and routed to two tables, plus row reordering and gathering with selection vectors | Extension |
 | [arrow_c_data.php](arrow_c_data.php) | External buffer access and schema/array ownership across the C Data Interface | Enabled PHP FFI |
 | [errors.php](errors.php) | Typed errors and machine-readable error categories | Extension |
 | [async_jobs.php](async_jobs.php) | Reporting deadlines, progress, cancellation, polling and a minimal Fiber scheduler | Extension |
@@ -42,7 +43,7 @@ application example. See the [API reference](../docs/api.md) and
 
 ## Public API audit
 
-The stub currently declares 63 classes and 141 public methods, plus
+The stub currently declares 64 classes and 148 public methods, plus
 `DuckDB\version()`, `DuckDB\vectorSize()` and the compatibility alias
 `duckdb_version()`. It also
 exposes the three `FetchMode` cases and 43 `ErrorType` cases. The inventory
@@ -77,6 +78,9 @@ optional FFI and framework paths run only when their requirements are met.
 | `DataChunk` | `rowCount`, `columnCount`, `columns`, `toRows`, `arrowSchema`, `toArrow` | [arrow.php](arrow.php) |
 | `DataChunk`: vectors | `fromVectors`, `vector` | [vectors.php](vectors.php) |
 | `Vector` | `type`, `capacity`, `get`, `isNull`, `toArray`, `set`, `setValues`, `setNull`, `copyFrom` | [vectors.php](vectors.php) |
+| `Vector`: selections | `select`, `copySelected` | [selection.php](selection.php) |
+| `DataChunk`: selections | `select` | [selection.php](selection.php) |
+| `SelectionVector` | `__construct`, `count` through `count()`, `get`, `toArray` | [selection.php](selection.php) |
 | `Value` and all 39 subclasses | Every public `__construct`; inherited `getType`, `toString` | [typed_values.php](typed_values.php), dictionary below |
 | `Interval` | `__construct`, `getMonths`, `getDays`, `getMicros`, `__toString` through a string cast, `jsonSerialize`, `fromSeconds` | [typed_values.php](typed_values.php) |
 | `Exception` | `getErrorType` | [errors.php](errors.php), [async_jobs.php](async_jobs.php) |
