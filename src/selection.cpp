@@ -7,6 +7,7 @@
 #include "php_duckdb_cxx_compat.h"
 #include "php_duckdb.h"
 #include "selection.h"
+#include "vector.h"
 
 #include <exception>
 #include <limits>
@@ -122,6 +123,46 @@ std::shared_ptr<const selection_data> duckdb_selection_from_arg(zval *value, uin
     const char *given = Z_TYPE_P(value) == IS_OBJECT ? ZSTR_VAL(Z_OBJCE_P(value)->name) : zend_zval_type_name(value);
     zend_argument_type_error(arg_num, "must be of type DuckDB\\SelectionVector|array, %s given", given);
     return nullptr;
+}
+
+bool duckdb_selection_check_source(const selection_data &selection, idx_t source_size, uint32_t arg_num) {
+    if (selection.count == 0) {
+        return true;
+    }
+    if (source_size == 0) {
+        zend_argument_value_error(arg_num, "must be empty for an empty source");
+        return false;
+    }
+    if (selection.max_index >= source_size) {
+        zend_argument_value_error(arg_num, "must contain only indices less than " ZEND_ULONG_FMT ", " ZEND_ULONG_FMT
+                                  " given", static_cast<zend_ulong>(source_size),
+                                  static_cast<zend_ulong>(selection.max_index));
+        return false;
+    }
+    return true;
+}
+
+void duckdb_selection_gather(duckdb_vector source, duckdb_vector target, const selection_data &selection,
+                             idx_t target_offset) {
+    if (selection.count == 0) {
+        return;
+    }
+    if (source != target) {
+        duckdb_vector_copy_sel(source, target, selection.selection.get(), selection.count, 0, target_offset);
+        return;
+    }
+
+    /* The copier overwrites rows and validity while reading them and
+     * appends nested children to the vector it reads, so a gather from a
+     * vector into itself reads the original rows from a staged copy. */
+    scoped_duckdb_logical_type type(duckdb_vector_get_column_type(source));
+    duckdb_scoped<duckdb_vector, duckdb_destroy_vector> staged(duckdb_create_vector(type.get(), selection.count));
+    if (!staged) {
+        throw std::bad_alloc();
+    }
+    duckdb_vector_ensure_validity_writable(staged.get());
+    duckdb_vector_copy_sel(source, staged.get(), selection.selection.get(), selection.count, 0, 0);
+    duckdb_vector_copy_rows(staged.get(), target, 0, selection.count, target_offset);
 }
 
 PHP_METHOD(DuckDB_SelectionVector, __construct) {

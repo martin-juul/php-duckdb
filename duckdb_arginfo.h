@@ -1,5 +1,5 @@
 /* This is a generated file, edit the .stub.php file instead.
- * Stub hash: ab8574593fd4c7b26ad00d1d9804069230eb6f58 */
+ * Stub hash: 335a11c7a2222d00282b96090024b7f69c3dd965 */
 
 ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_DuckDB_version, 0, 0, IS_STRING, 0)
 ZEND_END_ARG_INFO()
@@ -365,6 +365,16 @@ ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_class_DuckDB_Vector_copyFrom, 0,
 	ZEND_ARG_TYPE_INFO_WITH_DEFAULT_VALUE(0, targetOffset, IS_LONG, 0, "0")
 ZEND_END_ARG_INFO()
 
+ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_class_DuckDB_Vector_select, 0, 1, DuckDB\\Vector, 0)
+	ZEND_ARG_OBJ_TYPE_MASK(0, selection, DuckDB\\SelectionVector, MAY_BE_ARRAY, NULL)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_class_DuckDB_Vector_copySelected, 0, 2, IS_VOID, 0)
+	ZEND_ARG_OBJ_INFO(0, source, DuckDB\\Vector, 0)
+	ZEND_ARG_OBJ_TYPE_MASK(0, selection, DuckDB\\SelectionVector, MAY_BE_ARRAY, NULL)
+	ZEND_ARG_TYPE_INFO_WITH_DEFAULT_VALUE(0, targetOffset, IS_LONG, 0, "0")
+ZEND_END_ARG_INFO()
+
 ZEND_BEGIN_ARG_INFO_EX(arginfo_class_DuckDB_SelectionVector___construct, 0, 0, 1)
 	ZEND_ARG_TYPE_INFO(0, indices, IS_ARRAY, 0)
 ZEND_END_ARG_INFO()
@@ -585,6 +595,8 @@ ZEND_METHOD(DuckDB_Vector, set);
 ZEND_METHOD(DuckDB_Vector, setValues);
 ZEND_METHOD(DuckDB_Vector, setNull);
 ZEND_METHOD(DuckDB_Vector, copyFrom);
+ZEND_METHOD(DuckDB_Vector, select);
+ZEND_METHOD(DuckDB_Vector, copySelected);
 ZEND_METHOD(DuckDB_SelectionVector, __construct);
 ZEND_METHOD(DuckDB_SelectionVector, count);
 ZEND_METHOD(DuckDB_SelectionVector, get);
@@ -1050,6 +1062,8 @@ static const zend_function_entry class_DuckDB_Vector_methods[] = {
 	ZEND_ME(DuckDB_Vector, setValues, arginfo_class_DuckDB_Vector_setValues, ZEND_ACC_PUBLIC)
 	ZEND_ME(DuckDB_Vector, setNull, arginfo_class_DuckDB_Vector_setNull, ZEND_ACC_PUBLIC)
 	ZEND_ME(DuckDB_Vector, copyFrom, arginfo_class_DuckDB_Vector_copyFrom, ZEND_ACC_PUBLIC)
+	ZEND_ME(DuckDB_Vector, select, arginfo_class_DuckDB_Vector_select, ZEND_ACC_PUBLIC)
+	ZEND_ME(DuckDB_Vector, copySelected, arginfo_class_DuckDB_Vector_copySelected, ZEND_ACC_PUBLIC)
 	ZEND_FE_END
 };
 

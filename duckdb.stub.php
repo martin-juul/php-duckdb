@@ -728,6 +728,19 @@ final class Vector
 
     /** Copy rows from a vector of the same type; by default, through its capacity. */
     public function copyFrom(Vector $source, int $sourceOffset = 0, ?int $count = null, int $targetOffset = 0): void {}
+
+    /**
+     * Copy the rows a selection names into a new vector, in selection order.
+     * Pass a SelectionVector or a list of row indices.
+     */
+    public function select(SelectionVector|array $selection): Vector {}
+
+    /**
+     * Gather rows from a vector of the same type: source row $selection[i]
+     * is written to row $targetOffset + i. Pass a SelectionVector or a list
+     * of row indices.
+     */
+    public function copySelected(Vector $source, SelectionVector|array $selection, int $targetOffset = 0): void {}
 }
 
 /**
