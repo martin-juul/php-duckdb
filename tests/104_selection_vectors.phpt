@@ -124,12 +124,17 @@ foreach ($swaps as [$type, $inputs]) {
     $vector = $conn->createVector($type, count($inputs));
     $vector->setValues($conn, $inputs);
     $rows = $vector->toArray();
+    $populated = $conn->createVector($type, 4);
+    $populated->setValues($conn, [$inputs[1], $inputs[0], $inputs[1], $inputs[0]]);
+    $kept = $populated->toArray();
+    $populated->copySelected($vector, [2, 0], 1);
+    check($populated->toArray() === [$kept[0], $rows[2], $rows[0], $kept[3]], "$type gather fills an offset range");
     $vector->copySelected($vector, [1, 0]);
     check($vector->toArray() === [$rows[1], $rows[0], $rows[2]], "$type self-gather swaps rows");
     $vector->copySelected($vector, [0, 0, 0]);
     check($vector->toArray() === [$rows[1], $rows[1], $rows[1]], "$type self-gather repeats rows");
 }
-echo count($swaps), " types gather from themselves\n";
+echo count($swaps), " types gather into offsets and from themselves\n";
 
 $owned = (function (): DuckDB\Vector {
     $db = new DuckDB\Database();
@@ -183,7 +188,7 @@ select() gathers rows into a new vector
 13 types select through objects and lists
 empty selections give empty vectors
 copySelected() gathers into an existing vector
-7 types gather from themselves
+7 types gather into offsets and from themselves
 selected vectors own their memory
 repeated selections release memory
 DuckDB\Vector::select(): Argument #1 ($selection) must contain only indices less than 4, 4 given

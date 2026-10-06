@@ -31,12 +31,7 @@ rejects(fn() => serialize($selection), Exception::class);
 rejects(fn() => unserialize('O:22:"DuckDB\SelectionVector":0:{}'), Exception::class);
 $reflection = new ReflectionClass(DuckDB\SelectionVector::class);
 check($reflection->isFinal(), 'SelectionVector is final');
-try {
-    $uninitialized = $reflection->newInstanceWithoutConstructor();
-    rejects(fn() => $uninitialized->count(), Error::class);
-    rejects(fn() => $uninitialized->toArray(), Error::class);
-} catch (ReflectionException $error) {
-}
+rejects(fn() => $reflection->newInstanceWithoutConstructor(), ReflectionException::class);
 echo "selections reject cloning, serialization and invalid construction\n";
 
 function build(): DuckDB\SelectionVector
