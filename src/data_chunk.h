@@ -2,15 +2,7 @@
 #define PHP_DUCKDB_DATA_CHUNK_H
 
 #include "arrow.h"
-
-/* Selection vectors are the C API exception: destroy takes the handle by
- * value, whereas duckdb_scoped adapts pointer-to-handle destroy functions. */
-inline void duckdb_destroy_owned_selection(duckdb_selection_vector *selection) {
-    duckdb_destroy_selection_vector(*selection);
-    *selection = nullptr;
-}
-
-using scoped_duckdb_selection = duckdb_scoped<duckdb_selection_vector, duckdb_destroy_owned_selection>;
+#include "selection.h"
 
 struct arrow_array_facade {
     ArrowArray array = {};

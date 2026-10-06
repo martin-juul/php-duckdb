@@ -731,6 +731,24 @@ final class Vector
 }
 
 /**
+ * An immutable list of source row indices that picks, reorders or repeats
+ * the rows of a {@see Vector} or {@see DataChunk}. Needs no connection.
+ */
+final class SelectionVector implements \Countable
+{
+    /** @param int[] $indices A list of row indices from 0 to 4294967294. */
+    public function __construct(array $indices) {}
+
+    public function count(): int {}
+
+    /** The row index at a 0-based position. */
+    public function get(int $position): int {}
+
+    /** @return list<int> */
+    public function toArray(): array {}
+}
+
+/**
  * The result of a query. Iterates row by row.
  *
  * Rows are associative arrays by default; pass a {@see FetchMode} to the
