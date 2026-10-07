@@ -167,6 +167,7 @@ Created via `Database::connect()`. Not constructible directly.
 | `createVector(string\|Value $type, ?int $capacity = null): Vector` | Create an owned, NULL-initialized vector of a type resolved on this connection |
 | `interrupt(): void` | Interrupt the currently running query on this connection; does not cancel queued work |
 | `getTableNames(string $sql): array` | `list<string>` of tables referenced by the query |
+| `registerCopyToFunction(string $name, CopyToFunction $function): void` | Make `$name` a `COPY ... TO` format on this connection, implemented in PHP. See [COPY TO formats](copy.md) |
 | `close(): void` | Mark the connection closed (idempotent); further use throws `ConnectionException` |
 | `isClosed(): bool` | Whether `close()` has been called |
 | `queryProgress(): array` | `array{percentage: float, rowsProcessed: int, totalRowsToProcess: int}`; `percentage` is -1 when unavailable. Safe to call from another thread/fiber |
@@ -193,7 +194,7 @@ parameters.
 | `columnType(int $index): string` | DuckDB type name of the 0-based column |
 | `execute(array $params = []): Result` | Execute, optionally binding `$params` first |
 | `executeStreaming(array $params = []): Result` | Execute with a streaming result |
-| `executeAsync(array $params = []): PendingQuery` | Execute on a background worker thread |
+| `executeAsync(array $params = []): PendingQuery` | Execute on a background worker thread; rejects statements that use a PHP COPY format |
 
 `bindValue()` throws `\ValueError` for an invalid parameter index or unsupported
 value, and `DuckDB\Exception` subclasses for DuckDB-side errors.
@@ -261,6 +262,9 @@ vectors and connection.
 | `arrowSchema(Connection $connection): ArrowSchema` | Export a schema using the connection's conversion settings |
 | `toArrow(Connection $connection): ArrowChunk` | Export a new Arrow batch without consuming this chunk |
 
+A batch passed to `CopyToWriter::write()` is only valid during that call; see
+[COPY TO formats](copy.md).
+
 See [Arrow conversion](arrow.md) for ownership, native address requirements,
 FFI examples, mixed row fetching and type conversion semantics. Result and
 DataChunk export reject lossy representations of HUGEINT, UHUGEINT, BIT and
@@ -310,6 +314,31 @@ Non-integer elements throw `TypeError`; non-list arrays and out-of-range
 indices throw `ValueError`. An index at or beyond the source row count throws
 `ValueError` when the selection is used. See
 [selection vectors](selection.md).
+
+## `interface CopyToFunction`
+
+A `COPY ... TO` format, registered with `Connection::registerCopyToFunction()`.
+Its methods run on the request thread and must not suspend.
+
+| Method | Description |
+| --- | --- |
+| `bind(array $columnTypes, array $options): void` | Validate a statement that uses the format; throw to reject it with a `BinderException` |
+| `open(string $path, array $columnTypes, array $options): CopyToWriter` | Start one execution writing `$path` |
+
+`$columnTypes` lists SQL type declarations. `$options` maps upper-cased format
+option names to values, sorted by name.
+
+## `interface CopyToWriter`
+
+Receives the batches of one `COPY ... TO` execution.
+
+| Method | Description |
+| --- | --- |
+| `write(DataChunk $batch): void` | Receive one batch, valid only during the call; columns are named `col0` … `colN-1` |
+| `close(): void` | The COPY succeeded |
+| `abort(\Throwable $reason): void` | The COPY failed after the writer was opened |
+
+See [COPY TO formats](copy.md) for call order, threading, paths and errors.
 
 ## `final class ResultIterator implements \Iterator`
 

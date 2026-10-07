@@ -60,5 +60,51 @@ if ($conn->query('SELECT count(*) AS n FROM geometry_smoke')->fetchRow()['n'] !=
     throw new RuntimeException('Installed package committed the caller transaction');
 }
 
+// PHP COPY formats need the patched binder: other connections must not see
+// the format, and parallel COPY options must be rejected while binding.
+$copy = new class implements DuckDB\CopyToFunction, DuckDB\CopyToWriter {
+    public array $rows = [];
+
+    public function bind(array $columnTypes, array $options): void
+    {
+    }
+
+    public function open(string $path, array $columnTypes, array $options): DuckDB\CopyToWriter
+    {
+        touch($path);
+        return $this;
+    }
+
+    public function write(DuckDB\DataChunk $batch): void
+    {
+        array_push($this->rows, ...$batch->toRows(DuckDB\FetchMode::Num));
+    }
+
+    public function close(): void
+    {
+    }
+
+    public function abort(Throwable $reason): void
+    {
+    }
+};
+$target = tempnam(sys_get_temp_dir(), 'duckdb-smoke');
+$conn->registerCopyToFunction('smoke_php', $copy);
+$conn->query("COPY (SELECT range AS i FROM range(3)) TO '$target' (FORMAT smoke_php)");
+if ($copy->rows !== [[0], [1], [2]]) {
+    throw new RuntimeException('Installed package lost rows in a PHP COPY format');
+}
+try {
+    $conn->query("COPY (SELECT 1 AS p, 2 AS v) TO '$target' (FORMAT smoke_php, PARTITION_BY (p))");
+    throw new RuntimeException('Installed package accepted PARTITION_BY for a PHP COPY format');
+} catch (DuckDB\BinderException $error) {
+}
+try {
+    (new DuckDB\Database())->connect()->query("COPY (SELECT 1) TO '$target' (FORMAT smoke_php)");
+    throw new RuntimeException('Installed package exposed a PHP COPY format to another connection');
+} catch (DuckDB\CatalogException $error) {
+}
+@unlink($target);
+
 printf("smoke OK: duckdb ext %s, patched libduckdb %s, PHP %s\n",
     phpversion('duckdb'), DuckDB\version(), PHP_VERSION);
