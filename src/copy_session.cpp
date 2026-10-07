@@ -8,6 +8,7 @@
 #include "php_duckdb_cxx_compat.h"
 #include "php_duckdb.h"
 #include "copy_session.h"
+#include "copy.h"
 
 #include <cstdlib>
 #include <exception>
@@ -31,6 +32,13 @@ static bool force_pump() {
 
 static bool service_only() {
     static const bool enabled = env_flag("DUCKDB_PHP_TEST_PUMP_SERVICE_ONLY");
+    return enabled;
+}
+
+/* The driver behaves as if it never left DuckDB: it stops servicing
+ * requests and its stuck clock keeps running. */
+static bool stuck_driver() {
+    static const bool enabled = env_flag("DUCKDB_PHP_TEST_STUCK_DRIVER");
     return enabled;
 }
 
@@ -130,7 +138,7 @@ bool copy_session::submit(const std::shared_ptr<copy_request> &request, std::str
     }
 }
 
-static idx_t connection_id_of(conn_inner &conn) {
+idx_t duckdb_conn_connection_id(conn_inner &conn) {
     if (!conn.connection_id_known) {
         duckdb_client_context context = nullptr;
         duckdb_connection_get_client_context(conn.conn, &context);
@@ -148,7 +156,8 @@ std::shared_ptr<copy_session> duckdb_session_open(conn_inner &conn) {
 
     auto session = std::make_shared<copy_session>();
     session->db = conn.db;
-    session->connection_id = connection_id_of(conn);
+    session->connection_id = duckdb_conn_connection_id(conn);
+    duckdb_copy_session_attach(conn, *session);
     {
         std::lock_guard<std::mutex> lock(conn.db->session_mutex);
         conn.db->sessions[session->connection_id] = session;
@@ -189,16 +198,29 @@ std::shared_ptr<copy_session> duckdb_session_find(db_inner &db, idx_t connection
 }
 
 duckdb_pending_state duckdb_session_step(copy_session &session, duckdb_pending_result pending) {
-    session.service();
+    if (stuck_driver()) {
+        int64_t idle = 0;
+        session.duckdb_since.compare_exchange_strong(idle, steady_now(), std::memory_order_acq_rel);
+    } else {
+        session.service();
+        session.duckdb_since.store(steady_now(), std::memory_order_release);
+    }
 
     duckdb_pending_state state;
-    session.duckdb_since.store(steady_now(), std::memory_order_release);
     if (service_only()) {
         state = duckdb_pending_execute_check_state(pending);
+        /* check_state reports a finished execution as an error without a
+         * message; execute_pending then returns the result. */
+        const char *error = state == DUCKDB_PENDING_ERROR ? duckdb_pending_error(pending) : nullptr;
+        if (state == DUCKDB_PENDING_ERROR && (!error || !error[0])) {
+            state = DUCKDB_PENDING_RESULT_READY;
+        }
     } else {
         state = duckdb_pending_execute_task(pending);
     }
-    session.duckdb_since.store(0, std::memory_order_release);
+    if (!stuck_driver()) {
+        session.duckdb_since.store(0, std::memory_order_release);
+    }
 
     if (state == DUCKDB_PENDING_NO_TASKS_AVAILABLE ||
         (service_only() && state == DUCKDB_PENDING_RESULT_NOT_READY)) {

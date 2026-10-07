@@ -18,6 +18,7 @@
 
 #include "php_duckdb_cxx_compat.h"
 #include "php_duckdb.h"
+#include "copy.h"
 #include "copy_session.h"
 
 #if defined(ZTS) && defined(COMPILE_DL_DUCKDB)
@@ -564,11 +565,11 @@ static void duckdb_statement_execute_impl(INTERNAL_FUNCTION_PARAMETERS, bool str
                               streaming ? intern->inner : nullptr, intern->inner->conn);
 }
 
-PHP_METHOD(DuckDB_Statement, execute) {
+DUCKDB_COPY_METHOD(DuckDB_Statement, execute) {
     duckdb_statement_execute_impl(INTERNAL_FUNCTION_PARAM_PASSTHRU, /*streaming=*/false);
 }
 
-PHP_METHOD(DuckDB_Statement, executeStreaming) {
+DUCKDB_COPY_METHOD(DuckDB_Statement, executeStreaming) {
     duckdb_statement_execute_impl(INTERNAL_FUNCTION_PARAM_PASSTHRU, /*streaming=*/true);
 }
 
@@ -586,6 +587,10 @@ PHP_METHOD(DuckDB_Statement, executeAsync) {
         RETURN_THROWS();
     }
     if (!duckdb_connection_guard(intern->inner->conn)) {
+        RETURN_THROWS();
+    }
+    if (intern->inner->uses_copy_format) {
+        duckdb_throw_msg(duckdb_copy_not_pumped_message);
         RETURN_THROWS();
     }
 

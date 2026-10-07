@@ -30,6 +30,7 @@ extern "C" {
 #include "src/arrow.h"
 #include "src/data_chunk.h"
 #include "src/vector.h"
+#include "src/copy.h"
 #include "src/copy_session.h"
 #include "src/selection.h"
 #include "duckdb_arginfo.h"
@@ -144,8 +145,17 @@ static void duckdb_database_free_object(zend_object *object) {
 
 static void duckdb_connection_free_object(zend_object *object) {
     php_duckdb_connection_object *intern = duckdb_connection_from_obj(object);
+    duckdb_copy_connection_free(intern->inner.get());
     intern->inner.~shared_ptr();
     zend_object_std_dtor(&intern->std);
+}
+
+static HashTable *duckdb_connection_get_gc(zend_object *object, zval **table, int *n) {
+    php_duckdb_connection_object *intern = duckdb_connection_from_obj(object);
+    zend_get_gc_buffer *buffer = zend_get_gc_buffer_create();
+    duckdb_copy_connection_gc(intern->inner.get(), buffer);
+    zend_get_gc_buffer_use(buffer, table, n);
+    return zend_std_get_properties(object);
 }
 
 static void duckdb_statement_free_object(zend_object *object) {
@@ -188,6 +198,19 @@ static void duckdb_pending_free_object(zend_object *object) {
     }
     /* the write end is closed by the worker after notification */
     zend_object_std_dtor(&intern->std);
+}
+
+/* End an undriven COPY session while PHP may still run its writers' abort(). */
+static void duckdb_pending_dtor_object(zend_object *object) {
+    php_duckdb_pending_object *intern = duckdb_pending_from_obj(object);
+    std::shared_ptr<async_task> &task = intern->task;
+    if (task && task->session && task->conn) {
+        auto session = std::move(task->session);
+        task->session.reset();
+        duckdb_session_end(*task->conn, session, "PendingQuery discarded", true);
+        duckdb_copy_after_destructor();
+    }
+    zend_objects_destroy_object(object);
 }
 
 static void duckdb_appender_free_object(zend_object *object) {
@@ -250,10 +273,17 @@ bool duckdb_conn_enter(conn_inner &conn, std::unique_lock<std::mutex> &lock) {
     return true;
 }
 
+/* Connections with cleanup deferred on this thread, drained once their
+ * COPY handlers return. */
+static thread_local std::vector<std::weak_ptr<conn_inner>> duckdb_deferred_connections;
+
 void duckdb_conn_cleanup(const std::shared_ptr<conn_inner> &conn, std::function<void()> work) {
     if (duckdb_conn_busy_here(*conn)) {
-        std::lock_guard<std::mutex> lock(conn->deferred_mutex);
-        conn->deferred.push_back(std::move(work));
+        {
+            std::lock_guard<std::mutex> lock(conn->deferred_mutex);
+            conn->deferred.push_back(std::move(work));
+        }
+        duckdb_deferred_connections.push_back(conn);
         return;
     }
     std::lock_guard<std::mutex> lock(conn->mutex);
@@ -273,6 +303,26 @@ void duckdb_conn_drain_deferred(conn_inner &conn) {
     std::lock_guard<std::mutex> lock(conn.mutex);
     for (auto &work : pending) {
         work();
+    }
+}
+
+void duckdb_drain_deferred_connections() {
+    if (duckdb_deferred_connections.empty()) {
+        return;
+    }
+
+    std::vector<std::weak_ptr<conn_inner>> waiting;
+    waiting.swap(duckdb_deferred_connections);
+    for (auto &weak : waiting) {
+        auto conn = weak.lock();
+        if (!conn) {
+            continue;
+        }
+        if (duckdb_conn_busy_here(*conn)) {
+            duckdb_deferred_connections.push_back(conn);
+            continue;
+        }
+        duckdb_conn_drain_deferred(*conn);
     }
 }
 
@@ -475,7 +525,7 @@ PHP_METHOD(DuckDB_Connection, __construct) {
     zend_throw_error(NULL, "DuckDB\\Connection objects must be created via DuckDB\\Database::connect()");
 }
 
-PHP_METHOD(DuckDB_Connection, query) {
+DUCKDB_COPY_METHOD(DuckDB_Connection, query) {
     DUCKDB_TSRMLS_CACHE_UPDATE();
     char *sql;
     size_t sql_len;
@@ -513,7 +563,7 @@ PHP_METHOD(DuckDB_Connection, query) {
     duckdb_result_instantiate(return_value, &res, /*streaming=*/false, nullptr, intern->inner);
 }
 
-PHP_METHOD(DuckDB_Connection, queryStreaming) {
+DUCKDB_COPY_METHOD(DuckDB_Connection, queryStreaming) {
     DUCKDB_TSRMLS_CACHE_UPDATE();
     char *sql;
     size_t sql_len;
@@ -644,7 +694,7 @@ PHP_METHOD(DuckDB_Connection, queryAsync) {
     p->read_fd = fds[0];
 }
 
-PHP_METHOD(DuckDB_Connection, queryPending) {
+DUCKDB_COPY_METHOD(DuckDB_Connection, queryPending) {
     DUCKDB_TSRMLS_CACHE_UPDATE();
     char *sql;
     size_t sql_len;
@@ -715,7 +765,7 @@ PHP_METHOD(DuckDB_Connection, queryPending) {
     p->read_fd = DUCKDB_INVALID_NOTIFY_FD; /* polling mode: no worker thread, no notify channel */
 }
 
-PHP_METHOD(DuckDB_Connection, execute) {
+DUCKDB_COPY_METHOD(DuckDB_Connection, execute) {
     DUCKDB_TSRMLS_CACHE_UPDATE();
     char *sql;
     size_t sql_len;
@@ -780,7 +830,7 @@ PHP_METHOD(DuckDB_Connection, execute) {
     duckdb_result_instantiate(return_value, &res, /*streaming=*/false, nullptr, intern->inner);
 }
 
-PHP_METHOD(DuckDB_Connection, prepare) {
+DUCKDB_COPY_METHOD(DuckDB_Connection, prepare) {
     DUCKDB_TSRMLS_CACHE_UPDATE();
     char *sql;
     size_t sql_len;
@@ -805,11 +855,13 @@ PHP_METHOD(DuckDB_Connection, prepare) {
         if (!duckdb_conn_enter(*intern->inner, lk)) {
             RETURN_THROWS();
         }
+        duckdb_copy_prepare_begin();
         if (duckdb_prepare(intern->inner->conn, sql, &inner->stmt) == DuckDBError) {
             const char *err = inner->stmt ? duckdb_prepare_error(inner->stmt) : nullptr;
             duckdb_throw_prepare_error(err ? err : "Failed to prepare statement");
             RETURN_THROWS();
         }
+        inner->uses_copy_format = duckdb_copy_prepare_used_format();
     }
 
     object_init_ex(return_value, duckdb_statement_ce);
@@ -965,6 +1017,7 @@ PHP_METHOD(DuckDB_Connection, getTableNames) {
         if (!duckdb_conn_enter(*intern->inner, lk)) {
             RETURN_THROWS();
         }
+        duckdb_copy_native_bind_scope native;
         names.reset(duckdb_get_table_names(intern->inner->conn, sql, /*qualified=*/false));
     }
     if (!names) {
@@ -1121,6 +1174,8 @@ PHP_MINIT_FUNCTION(duckdb) {
     DUCKDB_REGISTER_CLASS(interval, register_class_DuckDB_Interval, php_json_serializable_ce);
     DUCKDB_REGISTER_CLASS(database, register_class_DuckDB_Database);
     DUCKDB_REGISTER_CLASS(connection, register_class_DuckDB_Connection);
+    duckdb_connection_handlers.get_gc = duckdb_connection_get_gc;
+    duckdb_register_copy_interfaces(register_class_DuckDB_CopyToFunction(), register_class_DuckDB_CopyToWriter());
     DUCKDB_REGISTER_CLASS(statement, register_class_DuckDB_Statement);
     duckdb_statement_handlers.get_gc = duckdb_statement_get_gc;
     duckdb_register_arrow_classes(register_class_DuckDB_ArrowSchema(), register_class_DuckDB_ArrowChunk());
@@ -1130,6 +1185,7 @@ PHP_MINIT_FUNCTION(duckdb) {
     DUCKDB_REGISTER_CLASS(result, register_class_DuckDB_Result, zend_ce_aggregate);
     DUCKDB_REGISTER_CLASS(result_iterator, register_class_DuckDB_ResultIterator, zend_ce_iterator);
     DUCKDB_REGISTER_CLASS(pending, register_class_DuckDB_PendingQuery);
+    duckdb_pending_handlers.dtor_obj = duckdb_pending_dtor_object;
     DUCKDB_REGISTER_CLASS(appender, register_class_DuckDB_Appender);
 
     /* Registered manually (not via ext_functions in duckdb_arginfo.h)

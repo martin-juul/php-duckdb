@@ -23,6 +23,7 @@
 #include "php_streams.h"
 #include "main/php_network.h"
 #include "php_duckdb.h"
+#include "copy.h"
 #include "copy_session.h"
 #include "suspend_internal.h"
 
@@ -473,7 +474,7 @@ PHP_METHOD(DuckDB_PendingQuery, __construct) {
     zend_throw_error(NULL, "DuckDB\\PendingQuery objects are returned by queryAsync() and friends");
 }
 
-PHP_METHOD(DuckDB_PendingQuery, isReady) {
+DUCKDB_COPY_METHOD(DuckDB_PendingQuery, isReady) {
     DUCKDB_TSRMLS_CACHE_UPDATE();
     ZEND_PARSE_PARAMETERS_START(0, 0)
     ZEND_PARSE_PARAMETERS_END();
@@ -485,7 +486,7 @@ PHP_METHOD(DuckDB_PendingQuery, isReady) {
     RETURN_BOOL(duckdb_task_step(intern->task));
 }
 
-PHP_METHOD(DuckDB_PendingQuery, await) {
+DUCKDB_COPY_METHOD(DuckDB_PendingQuery, await) {
     DUCKDB_TSRMLS_CACHE_UPDATE();
     ZEND_PARSE_PARAMETERS_START(0, 0)
     ZEND_PARSE_PARAMETERS_END();
@@ -508,7 +509,7 @@ PHP_METHOD(DuckDB_PendingQuery, await) {
     duckdb_pending_complete(intern, return_value);
 }
 
-PHP_METHOD(DuckDB_PendingQuery, suspend) {
+DUCKDB_COPY_METHOD(DuckDB_PendingQuery, suspend) {
     DUCKDB_TSRMLS_CACHE_UPDATE();
     ZEND_PARSE_PARAMETERS_START(0, 0)
     ZEND_PARSE_PARAMETERS_END();
@@ -555,7 +556,7 @@ PHP_METHOD(DuckDB_PendingQuery, suspend) {
     duckdb_pending_complete(intern, return_value);
 }
 
-PHP_METHOD(DuckDB_PendingQuery, cancel) {
+DUCKDB_COPY_METHOD(DuckDB_PendingQuery, cancel) {
     DUCKDB_TSRMLS_CACHE_UPDATE();
     ZEND_PARSE_PARAMETERS_START(0, 0)
     ZEND_PARSE_PARAMETERS_END();

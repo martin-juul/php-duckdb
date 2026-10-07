@@ -411,6 +411,9 @@ final class Harness
         if ($valgrind) {
             // Zend's allocator hides leaks from Valgrind; disable it.
             $env['USE_ZEND_ALLOC'] = '0';
+            // A COPY worker gives up on a driver stuck inside DuckDB; scale
+            // that limit for Valgrind's slowdown unless the caller set one.
+            $env['DUCKDB_PHP_COPY_STUCK_SECONDS'] = getenv('DUCKDB_PHP_COPY_STUCK_SECONDS') ?: '600';
             $supp = "{$root}/tests/duckdb.supp";
             // Let DuckDB workers progress while another thread polls for tasks.
             // Unsupported platforms retain Valgrind's default scheduler.

@@ -59,7 +59,17 @@ std::shared_ptr<data_chunk_data> duckdb_data_chunk_from_zval(zval *value) {
     if (!duckdb_initialized_guard(static_cast<bool>(data), "DuckDB\\DataChunk")) {
         return nullptr;
     }
+    if (data->expired) {
+        zend_throw_error(nullptr, "This COPY batch is only valid during CopyToWriter::write(); "
+                                  "keep a copy with select() or vector()");
+        return nullptr;
+    }
     return data;
+}
+
+void duckdb_data_chunk_wrap(zval *return_value, std::shared_ptr<data_chunk_data> data) {
+    object_init_ex(return_value, duckdb_data_chunk_ce);
+    data_chunk_object(Z_OBJ_P(return_value))->data = std::move(data);
 }
 
 /* DuckDB's importer can borrow some columns while materializing others. Use

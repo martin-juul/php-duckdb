@@ -146,6 +146,8 @@ duckdb_notify_fd duckdb_notify_fd_duplicate(duckdb_notify_fd fd);
 /* ================================================================== */
 
 struct copy_session;
+struct copy_slot;
+struct copy_registration;
 
 /* A DuckDB database instance. Connections hold a shared_ptr to this,
  * so the database outlives its connections. */
@@ -155,6 +157,9 @@ struct db_inner {
      * run on DuckDB threads and only know their client context. */
     std::mutex session_mutex;
     std::unordered_map<idx_t, std::weak_ptr<copy_session>> sessions;
+    /* PHP COPY formats registered in this instance, by lower-cased name. */
+    std::mutex copy_mutex;
+    std::unordered_map<std::string, std::shared_ptr<copy_slot>> copy_slots;
     /* One private callback per database; capture values remain operation-scoped. */
     std::mutex typed_capture_mutex;
     std::shared_ptr<void> typed_capture_state;
@@ -193,6 +198,8 @@ struct conn_inner {
     std::vector<std::function<void()>> deferred;
     /* Live COPY format registrations; statements are pumped while nonzero. */
     std::atomic<int> copy_registrations{0};
+    /* This connection's COPY formats by lower-cased name (request thread). */
+    std::unordered_map<std::string, std::shared_ptr<copy_registration>> copy_regs;
     /* The pumped statement on this connection, if any (request thread only). */
     std::shared_ptr<copy_session> session;
     /* DuckDB's id for this connection, resolved when first pumped. */
@@ -227,12 +234,17 @@ void duckdb_conn_cleanup(const std::shared_ptr<conn_inner> &conn, std::function<
 /* Run cleanup deferred by duckdb_conn_cleanup(). Caller must not hold
  * conn->mutex and must not be inside a handler for this connection. */
 void duckdb_conn_drain_deferred(conn_inner &conn);
+/* Drain every connection whose cleanup this thread deferred and that is no
+ * longer busy here. */
+void duckdb_drain_deferred_connections();
 
 /* A prepared statement, reference-counted so a Statement object may be
  * freed while an asynchronous execution of it is still running. */
 struct stmt_inner {
     std::shared_ptr<conn_inner> conn;
     duckdb_prepared_statement stmt = nullptr;
+    /* Bound to a PHP COPY format at prepare time. */
+    bool uses_copy_format = false;
     ~stmt_inner() {
         if (stmt) {
             duckdb_destroy_prepare(&stmt);

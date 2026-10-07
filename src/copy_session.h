@@ -45,6 +45,14 @@ struct copy_session {
      * ends. `failure` is empty on success; PHP may only run when
      * `can_call_php` is true. */
     std::function<void(const std::string &failure, bool can_call_php)> finish;
+    /* The COPY layer's request-thread state, cleared when the session ends.
+     * Only the request thread dereferences it. */
+    std::atomic<void *> php_state{nullptr};
+
+    bool is_open() {
+        std::lock_guard<std::mutex> lock(mutex);
+        return open;
+    }
 
     /* Request thread: run every queued request. */
     void service();
@@ -57,6 +65,9 @@ struct copy_session {
      * the driver stayed inside one DuckDB call past the stuck limit. */
     bool submit(const std::shared_ptr<copy_request> &request, std::string &error);
 };
+
+/* DuckDB's connection id for `conn`, resolved once (request thread). */
+idx_t duckdb_conn_connection_id(conn_inner &conn);
 
 /* Whether statements on this connection must be pumped: it has live COPY
  * format registrations, or the test-only forced-pump switch is set. */
