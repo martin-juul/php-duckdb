@@ -513,7 +513,14 @@ static bool on_request_thread(copy_session &session, const std::function<bool(st
     std::string work_error;
     auto request = std::make_shared<copy_request>();
     request->work = [&]() {
-        ok = work(work_error);
+        /* The waiting worker must always be released, even on bad_alloc. */
+        try {
+            ok = work(work_error);
+        } catch (const std::exception &failure) {
+            work_error = failure.what();
+        } catch (...) {
+            work_error = "COPY callback failed";
+        }
     };
     if (!session.submit(request, error)) {
         return false;
@@ -662,7 +669,12 @@ static void copy_global_init_callback(duckdb_copy_function_global_init_info info
         duckdb_context_connection_id(duckdb_copy_function_global_init_get_client_context(info));
     auto db = slot->db.lock();
     auto session = db ? duckdb_session_find(*db, connection_id) : nullptr;
-    if (!session || !session->is_open() || !session->php_state.load(std::memory_order_acquire)) {
+    std::string closed = session ? session->closed_reason() : std::string();
+    if (!closed.empty()) {
+        duckdb_copy_function_global_init_set_error(info, closed.c_str());
+        return;
+    }
+    if (!session || !session->php_state.load(std::memory_order_acquire)) {
         /* Without a live registration the statement is not pumped either. */
         if (!bind->registration->alive.load(std::memory_order_acquire)) {
             duckdb_copy_function_global_init_set_error(info, stale_message(*bind->registration).c_str());
@@ -692,8 +704,13 @@ template <typename SetError>
 static void run_callback(copy_exec *exec, SetError set_error,
                          const std::function<bool(copy_session &, std::string &)> &work) {
     auto session = exec ? exec->session.lock() : nullptr;
-    if (!session || !session->is_open()) {
+    if (!session) {
         set_error(duckdb_copy_not_pumped_message);
+        return;
+    }
+    std::string closed = session->closed_reason();
+    if (!closed.empty()) {
+        set_error(closed.c_str());
         return;
     }
     if (exec->in_callback.exchange(true)) {

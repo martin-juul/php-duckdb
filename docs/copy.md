@@ -165,8 +165,11 @@ limit, ends the request as usual; neither `close()` nor `abort()` runs, and
 the writer is released without calling PHP. The same applies to writers that
 are still open once the request is past its destructor phase.
 
-Discarding an unfinished `PendingQuery`, starting another statement on its
-connection, or cancelling it aborts its writers with a `DuckDB\Exception`.
+Discarding an unfinished `PendingQuery` or cancelling it aborts its writers
+with a `DuckDB\Exception`. So does any other use of its connection before the
+query finishes, including binding values, appending rows or freeing an
+`Appender`: DuckDB cancels the unfinished statement when the connection is used
+again, and the failure says that the COPY statement was superseded.
 
 ## FrankenPHP and long-running workers
 

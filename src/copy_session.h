@@ -54,6 +54,12 @@ struct copy_session {
         return open;
     }
 
+    /* Why the session closed; empty while it is open. */
+    std::string closed_reason() {
+        std::lock_guard<std::mutex> lock(mutex);
+        return open ? std::string() : close_reason;
+    }
+
     /* Request thread: run every queued request. */
     void service();
     /* Request thread: wait up to `timeout` for queued work. */
@@ -98,8 +104,8 @@ duckdb_state duckdb_pump_execute(conn_inner &conn, duckdb_prepared_statement sta
                                  duckdb_result *out, std::string &start_error);
 
 /* Run all statements of `sql` through the pump with duckdb_query()'s
- * semantics: stop at the first error and return the first statement's
- * result. Caller holds conn.mutex. Throws and returns false on failure. */
+ * semantics: stop at the first error and return the result duckdb_query()
+ * would. Caller holds conn.mutex. Throws and returns false on failure. */
 bool duckdb_pump_query(conn_inner &conn, const char *sql, duckdb_result *out);
 
 /* Throw a start failure reported by duckdb_pump_execute(). */

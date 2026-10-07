@@ -258,16 +258,20 @@ bool duckdb_conn_check_not_busy(const conn_inner &conn) {
     return true;
 }
 
+/* Another operation supersedes an undriven pumped statement. DuckDB
+ * cancels that statement when the connection is used again, so release its
+ * waiting workers before taking the connection mutex. */
+static void duckdb_conn_supersede(conn_inner &conn) {
+    if (conn.session) {
+        conn.session->close("COPY statement superseded by another operation on its connection");
+    }
+}
+
 bool duckdb_conn_enter(conn_inner &conn, std::unique_lock<std::mutex> &lock) {
     if (!duckdb_conn_check_not_busy(conn)) {
         return false;
     }
-    /* Another operation supersedes an undriven pumped statement. DuckDB
-     * cancels that statement when the connection is used again, so release
-     * its waiting workers first. */
-    if (conn.session) {
-        conn.session->close("COPY statement superseded by another operation on its connection");
-    }
+    duckdb_conn_supersede(conn);
     lock = std::unique_lock<std::mutex>(conn.mutex);
     return true;
 }
@@ -285,6 +289,7 @@ void duckdb_conn_cleanup(const std::shared_ptr<conn_inner> &conn, std::function<
         duckdb_deferred_connections.push_back(conn);
         return;
     }
+    duckdb_conn_supersede(*conn);
     std::lock_guard<std::mutex> lock(conn->mutex);
     work();
 }
@@ -299,6 +304,7 @@ void duckdb_conn_drain_deferred(conn_inner &conn) {
         return;
     }
 
+    duckdb_conn_supersede(conn);
     std::lock_guard<std::mutex> lock(conn.mutex);
     for (auto &work : pending) {
         work();

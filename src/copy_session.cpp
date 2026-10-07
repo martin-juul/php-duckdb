@@ -295,8 +295,11 @@ bool duckdb_pump_query(conn_inner &conn, const char *sql, duckdb_result *out) {
         return true;
     }
 
-    /* Like duckdb_query(): run every statement, stop at the first error and
-     * return the first statement's result. */
+    /* Like duckdb_query(): run every statement and stop at the first error.
+     * The result returned is the first statement's, replaced by each later
+     * statement's until one that returns rows is held. */
+    bool held = false;
+    bool held_rows = false;
     for (idx_t i = 0; i < count; i++) {
         duckdb_prepared_statement statement = nullptr;
         if (duckdb_prepare_extracted_statement(conn.conn, extracted, i, &statement) == DuckDBError) {
@@ -304,33 +307,40 @@ bool duckdb_pump_query(conn_inner &conn, const char *sql, duckdb_result *out) {
             std::string message = error ? error : "Failed to prepare statement";
             duckdb_destroy_prepare(&statement);
             duckdb_destroy_extracted(&extracted);
-            if (i > 0) {
+            if (held) {
                 duckdb_destroy_result(out);
             }
             duckdb_throw_prepare_error(message.c_str());
             return false;
         }
 
-        duckdb_result later = {};
-        duckdb_result *target = i == 0 ? out : &later;
+        duckdb_result current = {};
         std::string start_error;
-        duckdb_state state = duckdb_pump_execute(conn, statement, false, target, start_error);
+        duckdb_state state = duckdb_pump_execute(conn, statement, false, &current, start_error);
         duckdb_destroy_prepare(&statement);
         if (!start_error.empty() || state == DuckDBError) {
             duckdb_destroy_extracted(&extracted);
-            if (i > 0) {
+            if (held) {
                 duckdb_destroy_result(out);
             }
             if (!start_error.empty()) {
                 duckdb_throw_start_error(start_error);
             } else {
-                duckdb_throw_result_error(target);
+                duckdb_throw_result_error(&current);
             }
             return false;
         }
-        if (i > 0) {
-            duckdb_destroy_result(&later);
+
+        if (held && held_rows) {
+            duckdb_destroy_result(&current);
+            continue;
         }
+        if (held) {
+            duckdb_destroy_result(out);
+        }
+        *out = current;
+        held = true;
+        held_rows = duckdb_result_return_type(*out) == DUCKDB_RESULT_TYPE_QUERY_RESULT;
     }
 
     duckdb_destroy_extracted(&extracted);

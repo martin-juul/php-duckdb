@@ -8,7 +8,8 @@ if (ltrim(DuckDB\version(), 'v') !== $pins['version']) {
     throw new RuntimeException('Installed package loaded a different DuckDB engine version');
 }
 
-$conn = (new DuckDB\Database())->connect();
+$db = new DuckDB\Database();
+$conn = $db->connect();
 $sql = "SELECT '340282366920938463463374607431768211455'::UHUGEINT AS n,
     '00101'::BIT AS bits, '12:34:56+02'::TIMETZ AS clock";
 $expected = $conn->query($sql)->fetchAll();
@@ -100,7 +101,7 @@ try {
 } catch (DuckDB\BinderException $error) {
 }
 try {
-    (new DuckDB\Database())->connect()->query("COPY (SELECT 1) TO '$target' (FORMAT smoke_php)");
+    $db->connect()->query("COPY (SELECT 1) TO '$target' (FORMAT smoke_php)");
     throw new RuntimeException('Installed package exposed a PHP COPY format to another connection');
 } catch (DuckDB\CatalogException $error) {
 }

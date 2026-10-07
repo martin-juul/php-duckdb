@@ -31,6 +31,11 @@ check($conn->query('SELECT 1 AS a; SELECT 2 AS b')->fetchAll() === [['a' => 1]],
 check($conn->query('')->fetchAll() === [] && $conn->query(' ; ')->fetchAll() === [], 'Empty input is accepted');
 $conn->query('CREATE TABLE t(i INTEGER PRIMARY KEY); INSERT INTO t VALUES (1), (2); SET threads = 2');
 check($conn->query('SELECT count(*) AS n FROM t')->fetchAll() === [['n' => 2]], 'Every statement runs in order');
+check($conn->query('CREATE TABLE u AS SELECT 1 AS a; SELECT 42 AS x')->fetchAll() === [['x' => 42]],
+    'A statement without rows is replaced by the next result');
+check($conn->query('CREATE TABLE w(a INTEGER); INSERT INTO w VALUES (7); SELECT a FROM w; SELECT 0 AS z')->fetchAll()
+    === [['a' => 7]], 'The first result with rows is kept');
+check($conn->query('BEGIN; SELECT 7 AS y; COMMIT')->fetchAll() === [['y' => 7]], 'Transaction statements are skipped');
 echo "multi-statement queries run every statement\n";
 
 $classes = [];
