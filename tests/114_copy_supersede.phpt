@@ -57,12 +57,16 @@ $pending->cancel();
 unset($pending);
 echo "registration refused while running\n";
 
-// Relative targets are resolved against the process working directory.
+// Relative targets are resolved against the process working directory, as
+// DuckDB resolves them. Under ZTS, chdir() only moves PHP's own directory.
 $format->reset();
 chdir($dir);
 $conn->query("COPY (SELECT 1 AS i) TO 'relative.lines' (FORMAT lines)");
-check($format->paths === [getcwd() . DIRECTORY_SEPARATOR . 'relative.lines'], json_encode($format->paths));
-check(copy_lines("$dir/relative.lines") === [[1]], 'The file was written in the working directory');
+$path = $format->paths[0];
+check(str_ends_with($path, DIRECTORY_SEPARATOR . 'relative.lines') && $path !== 'relative.lines', $path);
+check(PHP_ZTS || $path === getcwd() . DIRECTORY_SEPARATOR . 'relative.lines', $path);
+check(copy_lines($path) === [[1]], 'The file was written where the writer was told');
+unlink($path);
 echo "relative target\n";
 ?>
 --EXPECT--

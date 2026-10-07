@@ -121,8 +121,9 @@ enum class call_outcome {
 
 /* Only plain locals: zend_try returns here by longjmp. */
 static bool invoke_method(zend_object *object, const char *method, uint32_t argc, zval *argv, zval *retval) {
-    zend_function *fn = static_cast<zend_function *>(
-        zend_hash_str_find_ptr_lc(&object->ce->function_table, method, strlen(method)));
+    /* Method names here are lower case, like function table keys. */
+    zend_function *fn =
+        static_cast<zend_function *>(zend_hash_str_find_ptr(&object->ce->function_table, method, strlen(method)));
     /* A fatal error unwinds to here and leaves the engine pointing at the
      * handler's discarded frames; the calling method is still running. */
     zend_execute_data *const frame = EG(current_execute_data);
