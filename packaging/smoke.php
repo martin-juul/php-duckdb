@@ -24,6 +24,10 @@ $vectorRows = DuckDB\DataChunk::fromVectors(['clock' => $clock], 1)->toRows();
 if ($vectorRows !== [['clock' => [$expected[0]['clock']]]]) {
     throw new RuntimeException('Installed package lost values in a native vector');
 }
+$selectedRows = $native->select(new DuckDB\SelectionVector([0, 0]))->toRows();
+if ($selectedRows !== [$expected[0], $expected[0]]) {
+    throw new RuntimeException('Installed package lost values in a selected chunk');
+}
 
 $sql = "SELECT 'POINT (1 2)'::GEOMETRY('OGC:CRS84') AS point";
 $native = $conn->dataChunkFromArrow($conn->query($sql)->fetchArrowChunk());

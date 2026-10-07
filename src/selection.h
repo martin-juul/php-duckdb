@@ -1,0 +1,38 @@
+#ifndef PHP_DUCKDB_SELECTION_H
+#define PHP_DUCKDB_SELECTION_H
+
+#include "php_duckdb.h"
+
+/* Selection vectors are the C API exception: destroy takes the handle by
+ * value, whereas duckdb_scoped adapts pointer-to-handle destroy functions. */
+inline void duckdb_destroy_owned_selection(duckdb_selection_vector *selection) {
+    duckdb_destroy_selection_vector(*selection);
+    *selection = nullptr;
+}
+
+using scoped_duckdb_selection = duckdb_scoped<duckdb_selection_vector, duckdb_destroy_owned_selection>;
+
+/* An immutable list of source row indices. The largest index is cached so
+ * each operation checks its source bound once. */
+struct selection_data {
+    scoped_duckdb_selection selection;
+    idx_t count = 0;
+    /* Meaningless when count is 0. */
+    idx_t max_index = 0;
+};
+
+extern zend_class_entry *duckdb_selection_vector_ce;
+void duckdb_register_selection_vector_class(zend_class_entry *ce);
+/* Accept a SelectionVector or a list of row indices. Throws and returns
+ * nullptr for any other argument; may throw std::bad_alloc. */
+std::shared_ptr<const selection_data> duckdb_selection_from_arg(zval *value, uint32_t arg_num);
+/* Raise a ValueError and return false unless every index is below
+ * source_size. */
+bool duckdb_selection_check_source(const selection_data &selection, idx_t source_size, uint32_t arg_num);
+/* Write source[selection[i]] to target[target_offset + i]. The caller has
+ * validated bounds and types. A gather into the source itself is staged.
+ * May throw std::bad_alloc. */
+void duckdb_selection_gather(duckdb_vector source, duckdb_vector target, const selection_data &selection,
+                             idx_t target_offset);
+
+#endif

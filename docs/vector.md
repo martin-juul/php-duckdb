@@ -42,6 +42,7 @@ addressed from 0 to `capacity() - 1`; indices outside that range throw
 | `setValues(Connection $connection, array $values, int $offset = 0): void` | Write a list of values to consecutive rows |
 | `setNull(int $index): void` | Mark one row NULL |
 | `copyFrom(Vector $source, int $sourceOffset = 0, ?int $count = null, int $targetOffset = 0): void` | Copy rows from a vector of the same type |
+| `copySelected(Vector $source, SelectionVector\|array $selection, int $targetOffset = 0): void` | Gather the rows a [selection](selection.md) names from a vector of the same type |
 
 Writes convert input exactly as typed binding of
 `new DuckDB\Value($vector->type(), $value)` would: the same PHP shapes for
@@ -78,6 +79,7 @@ ranges.
 | `get(int $index): mixed` | Decode one row |
 | `isNull(int $index): bool` | Whether one row is NULL |
 | `toArray(int $offset = 0, ?int $length = null): array` | Decode a range of rows; by default, through the capacity |
+| `select(SelectionVector\|array $selection): Vector` | Copy the rows a [selection](selection.md) names into a new vector |
 
 Values decode with the normal [PHP type mappings](types.md). `type()` renders
 like result metadata: JSON reports `VARCHAR`, and GEOMETRY omits its CRS even
@@ -131,14 +133,15 @@ constructor. A `DuckDB\Vector` must not be shared between threads.
 | `duckdb_vector_get_column_type()` | `type()` |
 | `duckdb_vector_get_data()`, `duckdb_vector_assign_string_element_len()` | `set()`, `setValues()` |
 | `duckdb_vector_get_validity()`, `duckdb_validity_set_row_invalid()` | `isNull()`, `setNull()` |
-| `duckdb_vector_reference_value()`, `duckdb_vector_copy_sel()` | Used internally by writes, `copyFrom()` and chunk copies |
+| `duckdb_vector_reference_value()` | Used internally by writes |
+| `duckdb_vector_copy_sel()` | `copyFrom()`, chunk copies and [selections](selection.md) |
 | `duckdb_create_data_chunk()`, `duckdb_data_chunk_get_vector()` | `DataChunk::fromVectors()`, `DataChunk::vector()` |
 | `duckdb_vector_size()` | `DuckDB\vectorSize()` |
 
 PHP has no raw buffer or validity-mask access. Vectors stay flat: there is no
 public `duckdb_vector_reference_vector()`, constant-vector or slicing API.
-Selection vectors and slicing are planned separately; see the
-[roadmap](roadmap.md). Vectors are not a user-defined function interface; see
-[table functions](table_functions.md).
+[Selection vectors](selection.md) pick, reorder and repeat rows by copying
+them into new flat vectors and chunks. Vectors are not a user-defined
+function interface; see [table functions](table_functions.md).
 
 See the runnable [vector example](../examples/vectors.php).

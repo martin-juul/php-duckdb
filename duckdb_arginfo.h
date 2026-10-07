@@ -1,5 +1,5 @@
 /* This is a generated file, edit the .stub.php file instead.
- * Stub hash: 37058061dc0aa810a6bdc3391ff65973f46ebb50 */
+ * Stub hash: 40b19c14020709628dcd23280a76ead8e378df17 */
 
 ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_DuckDB_version, 0, 0, IS_STRING, 0)
 ZEND_END_ARG_INFO()
@@ -305,6 +305,10 @@ ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_class_DuckDB_DataChunk_vector, 0,
 	ZEND_ARG_TYPE_INFO(0, index, IS_LONG, 0)
 ZEND_END_ARG_INFO()
 
+ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_class_DuckDB_DataChunk_select, 0, 1, DuckDB\\DataChunk, 0)
+	ZEND_ARG_OBJ_TYPE_MASK(0, selection, DuckDB\\SelectionVector, MAY_BE_ARRAY, NULL)
+ZEND_END_ARG_INFO()
+
 #define arginfo_class_DuckDB_DataChunk_rowCount arginfo_DuckDB_vectorSize
 
 #define arginfo_class_DuckDB_DataChunk_columnCount arginfo_DuckDB_vectorSize
@@ -364,6 +368,28 @@ ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_class_DuckDB_Vector_copyFrom, 0,
 	ZEND_ARG_TYPE_INFO_WITH_DEFAULT_VALUE(0, count, IS_LONG, 1, "null")
 	ZEND_ARG_TYPE_INFO_WITH_DEFAULT_VALUE(0, targetOffset, IS_LONG, 0, "0")
 ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_class_DuckDB_Vector_select, 0, 1, DuckDB\\Vector, 0)
+	ZEND_ARG_OBJ_TYPE_MASK(0, selection, DuckDB\\SelectionVector, MAY_BE_ARRAY, NULL)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_class_DuckDB_Vector_copySelected, 0, 2, IS_VOID, 0)
+	ZEND_ARG_OBJ_INFO(0, source, DuckDB\\Vector, 0)
+	ZEND_ARG_OBJ_TYPE_MASK(0, selection, DuckDB\\SelectionVector, MAY_BE_ARRAY, NULL)
+	ZEND_ARG_TYPE_INFO_WITH_DEFAULT_VALUE(0, targetOffset, IS_LONG, 0, "0")
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(arginfo_class_DuckDB_SelectionVector___construct, 0, 0, 1)
+	ZEND_ARG_TYPE_INFO(0, indices, IS_ARRAY, 0)
+ZEND_END_ARG_INFO()
+
+#define arginfo_class_DuckDB_SelectionVector_count arginfo_DuckDB_vectorSize
+
+ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_class_DuckDB_SelectionVector_get, 0, 1, IS_LONG, 0)
+	ZEND_ARG_TYPE_INFO(0, position, IS_LONG, 0)
+ZEND_END_ARG_INFO()
+
+#define arginfo_class_DuckDB_SelectionVector_toArray arginfo_class_DuckDB_Interval_jsonSerialize
 
 #define arginfo_class_DuckDB_Result___construct arginfo_class_DuckDB_Connection___construct
 
@@ -557,6 +583,7 @@ ZEND_METHOD(DuckDB_ArrowChunk, isConsumed);
 ZEND_METHOD(DuckDB_DataChunk, __construct);
 ZEND_METHOD(DuckDB_DataChunk, fromVectors);
 ZEND_METHOD(DuckDB_DataChunk, vector);
+ZEND_METHOD(DuckDB_DataChunk, select);
 ZEND_METHOD(DuckDB_DataChunk, rowCount);
 ZEND_METHOD(DuckDB_DataChunk, columnCount);
 ZEND_METHOD(DuckDB_DataChunk, columns);
@@ -573,6 +600,12 @@ ZEND_METHOD(DuckDB_Vector, set);
 ZEND_METHOD(DuckDB_Vector, setValues);
 ZEND_METHOD(DuckDB_Vector, setNull);
 ZEND_METHOD(DuckDB_Vector, copyFrom);
+ZEND_METHOD(DuckDB_Vector, select);
+ZEND_METHOD(DuckDB_Vector, copySelected);
+ZEND_METHOD(DuckDB_SelectionVector, __construct);
+ZEND_METHOD(DuckDB_SelectionVector, count);
+ZEND_METHOD(DuckDB_SelectionVector, get);
+ZEND_METHOD(DuckDB_SelectionVector, toArray);
 ZEND_METHOD(DuckDB_Result, __construct);
 ZEND_METHOD(DuckDB_Result, arrowSchema);
 ZEND_METHOD(DuckDB_Result, fetchArrowChunk);
@@ -1013,6 +1046,7 @@ static const zend_function_entry class_DuckDB_DataChunk_methods[] = {
 	ZEND_ME(DuckDB_DataChunk, __construct, arginfo_class_DuckDB_DataChunk___construct, ZEND_ACC_PRIVATE)
 	ZEND_ME(DuckDB_DataChunk, fromVectors, arginfo_class_DuckDB_DataChunk_fromVectors, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	ZEND_ME(DuckDB_DataChunk, vector, arginfo_class_DuckDB_DataChunk_vector, ZEND_ACC_PUBLIC)
+	ZEND_ME(DuckDB_DataChunk, select, arginfo_class_DuckDB_DataChunk_select, ZEND_ACC_PUBLIC)
 	ZEND_ME(DuckDB_DataChunk, rowCount, arginfo_class_DuckDB_DataChunk_rowCount, ZEND_ACC_PUBLIC)
 	ZEND_ME(DuckDB_DataChunk, columnCount, arginfo_class_DuckDB_DataChunk_columnCount, ZEND_ACC_PUBLIC)
 	ZEND_ME(DuckDB_DataChunk, columns, arginfo_class_DuckDB_DataChunk_columns, ZEND_ACC_PUBLIC)
@@ -1034,6 +1068,17 @@ static const zend_function_entry class_DuckDB_Vector_methods[] = {
 	ZEND_ME(DuckDB_Vector, setValues, arginfo_class_DuckDB_Vector_setValues, ZEND_ACC_PUBLIC)
 	ZEND_ME(DuckDB_Vector, setNull, arginfo_class_DuckDB_Vector_setNull, ZEND_ACC_PUBLIC)
 	ZEND_ME(DuckDB_Vector, copyFrom, arginfo_class_DuckDB_Vector_copyFrom, ZEND_ACC_PUBLIC)
+	ZEND_ME(DuckDB_Vector, select, arginfo_class_DuckDB_Vector_select, ZEND_ACC_PUBLIC)
+	ZEND_ME(DuckDB_Vector, copySelected, arginfo_class_DuckDB_Vector_copySelected, ZEND_ACC_PUBLIC)
+	ZEND_FE_END
+};
+
+
+static const zend_function_entry class_DuckDB_SelectionVector_methods[] = {
+	ZEND_ME(DuckDB_SelectionVector, __construct, arginfo_class_DuckDB_SelectionVector___construct, ZEND_ACC_PUBLIC)
+	ZEND_ME(DuckDB_SelectionVector, count, arginfo_class_DuckDB_SelectionVector_count, ZEND_ACC_PUBLIC)
+	ZEND_ME(DuckDB_SelectionVector, get, arginfo_class_DuckDB_SelectionVector_get, ZEND_ACC_PUBLIC)
+	ZEND_ME(DuckDB_SelectionVector, toArray, arginfo_class_DuckDB_SelectionVector_toArray, ZEND_ACC_PUBLIC)
 	ZEND_FE_END
 };
 
@@ -1921,6 +1966,18 @@ static zend_class_entry *register_class_DuckDB_Vector(void)
 	INIT_NS_CLASS_ENTRY(ce, "DuckDB", "Vector", class_DuckDB_Vector_methods);
 	class_entry = zend_register_internal_class_ex(&ce, NULL);
 	class_entry->ce_flags |= ZEND_ACC_FINAL;
+
+	return class_entry;
+}
+
+static zend_class_entry *register_class_DuckDB_SelectionVector(zend_class_entry *class_entry_Countable)
+{
+	zend_class_entry ce, *class_entry;
+
+	INIT_NS_CLASS_ENTRY(ce, "DuckDB", "SelectionVector", class_DuckDB_SelectionVector_methods);
+	class_entry = zend_register_internal_class_ex(&ce, NULL);
+	class_entry->ce_flags |= ZEND_ACC_FINAL;
+	zend_class_implements(class_entry, 1, class_entry_Countable);
 
 	return class_entry;
 }

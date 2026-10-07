@@ -816,6 +816,75 @@ PHP_METHOD(DuckDB_Vector, copyFrom) {
     }
 }
 
+PHP_METHOD(DuckDB_Vector, select) {
+    DUCKDB_TSRMLS_CACHE_UPDATE();
+    zval *selection_zval;
+    ZEND_PARSE_PARAMETERS_START(1, 1)
+        Z_PARAM_ZVAL(selection_zval)
+    ZEND_PARSE_PARAMETERS_END();
+    auto source = duckdb_vector_from_zval(ZEND_THIS);
+    if (!source) {
+        RETURN_THROWS();
+    }
+
+    try {
+        auto selection = duckdb_selection_from_arg(selection_zval, 1);
+        if (!selection || !duckdb_selection_check_source(*selection, source->capacity, 1)) {
+            RETURN_THROWS();
+        }
+
+        auto data = duckdb_vector_allocate(source->type.get(), selection->count);
+        if (!data) {
+            RETURN_THROWS();
+        }
+        duckdb_selection_gather(source->vector, data->vector, *selection, 0);
+        duckdb_vector_wrap(return_value, std::move(data));
+    } catch (...) {
+        throw_native_error("Unknown error while selecting vector rows");
+        RETURN_THROWS();
+    }
+}
+
+PHP_METHOD(DuckDB_Vector, copySelected) {
+    DUCKDB_TSRMLS_CACHE_UPDATE();
+    zval *source_zval;
+    zval *selection_zval;
+    zend_long target_offset = 0;
+    ZEND_PARSE_PARAMETERS_START(2, 3)
+        Z_PARAM_OBJECT_OF_CLASS(source_zval, duckdb_vector_ce)
+        Z_PARAM_ZVAL(selection_zval)
+        Z_PARAM_OPTIONAL
+        Z_PARAM_LONG(target_offset)
+    ZEND_PARSE_PARAMETERS_END();
+    auto target = duckdb_vector_from_zval(ZEND_THIS);
+    if (!target) {
+        RETURN_THROWS();
+    }
+    auto source = duckdb_vector_from_zval(source_zval);
+    if (!source) {
+        RETURN_THROWS();
+    }
+
+    try {
+        auto selection = duckdb_selection_from_arg(selection_zval, 2);
+        if (!selection || !duckdb_selection_check_source(*selection, source->capacity, 2) ||
+            !check_range(target.get(), target_offset, selection->count, 3)) {
+            RETURN_THROWS();
+        }
+        if (!duckdb_vector_types_equal(source->type.get(), target->type.get())) {
+            std::string source_type = duckdb_logical_type_render(source->type.get());
+            std::string target_type = duckdb_logical_type_render(target->type.get());
+            zend_argument_type_error(1, "must have type %s, %s given", target_type.c_str(), source_type.c_str());
+            RETURN_THROWS();
+        }
+
+        duckdb_selection_gather(source->vector, target->vector, *selection, static_cast<idx_t>(target_offset));
+    } catch (...) {
+        throw_native_error("Unknown error while gathering vector rows");
+        RETURN_THROWS();
+    }
+}
+
 PHP_FUNCTION(DuckDB_vectorSize) {
     DUCKDB_TSRMLS_CACHE_UPDATE();
     ZEND_PARSE_PARAMETERS_NONE();

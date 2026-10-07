@@ -14,10 +14,13 @@ connection-aware display text for logs and debugging, without a round-trip SQL
 guarantee. [Arrow schema/chunk conversion](arrow.md) was merged in
 [PR #10](https://github.com/martin-juul/php-duckdb/pull/10): C Data Interface
 import/export, reusable native chunks and batch appending.
-[Standalone vectors](vector.md) are the current feature: owned, typed vectors
-that PHP creates, fills, copies and assembles into native chunks. Both are
-under development in this checkout and are not yet released. Selection
-vectors are next.
+[Standalone vectors](vector.md) were merged in
+[PR #11](https://github.com/martin-juul/php-duckdb/pull/11): owned, typed
+vectors that PHP creates, fills, copies and assembles into native chunks.
+[Selection vectors](selection.md) are the current feature: reusable lists of
+row indices that pick, reorder and repeat vector and chunk rows. These
+features are under development in this checkout and are not yet released.
+Custom COPY functions are next.
 
 The intended PR sequence is:
 

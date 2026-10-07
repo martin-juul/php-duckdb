@@ -19,7 +19,7 @@ Returns the version of the linked DuckDB library, e.g. `"v1.5.6"`. The global
 
 Returns the number of rows in a standard DuckDB vector, 2048 for the pinned
 engine. It is the default vector capacity and the maximum row count of
-`DataChunk::fromVectors()`.
+`DataChunk::fromVectors()` and `DataChunk::select()`.
 
 ## Enums
 
@@ -253,6 +253,7 @@ vectors and connection.
 | --- | --- |
 | `static fromVectors(array $vectors, int $rowCount): DataChunk` | Copy the first rows of named vectors into a chunk of at most `vectorSize()` rows |
 | `vector(int $index): Vector` | Copy a column into a new vector whose capacity is the row count |
+| `select(SelectionVector\|array $selection): DataChunk` | Copy the selected rows of every column into a new chunk of at most `vectorSize()` rows |
 | `rowCount(): int` | Number of rows |
 | `columnCount(): int` | Number of columns |
 | `columns(): array` | `list<array{name: string, type: string}>` |
@@ -269,9 +270,9 @@ conversion transactions and geometry CRS preservation.
 
 ## `final class Vector`
 
-An owned, fixed-capacity native vector, created by `Connection::createVector()`
-or `DataChunk::vector()`. Every row of a new vector is NULL. Vectors remain
-usable after their connection and database close.
+An owned, fixed-capacity native vector, created by `Connection::createVector()`,
+`DataChunk::vector()` or `Vector::select()`. Every row of a new vector is NULL.
+Vectors remain usable after their connection and database close.
 
 | Method | Description |
 | --- | --- |
@@ -284,11 +285,31 @@ usable after their connection and database close.
 | `setValues(Connection $connection, array $values, int $offset = 0): void` | Write a list to consecutive rows; a rejected value leaves the vector unchanged |
 | `setNull(int $index): void` | Mark one row NULL |
 | `copyFrom(Vector $source, int $sourceOffset = 0, ?int $count = null, int $targetOffset = 0): void` | Copy rows from a vector of the same type |
+| `select(SelectionVector\|array $selection): Vector` | Copy the selected rows into a new vector |
+| `copySelected(Vector $source, SelectionVector\|array $selection, int $targetOffset = 0): void` | Write source row `$selection[i]` to row `$targetOffset + i`; the source must have the same type |
 
 Indices outside the capacity throw `ValueError`. Converting input other than
 plain scalars of the vector's type executes on the supplied connection and
 invalidates its streaming result. See [vectors](vector.md) for conversion,
 ownership and chunk semantics.
+
+## `final class SelectionVector implements \Countable`
+
+An immutable list of source row indices with a public constructor. It needs no
+connection and remains usable after every connection and database closes.
+Methods that take a selection also accept a plain list of row indices.
+
+| Method | Description |
+| --- | --- |
+| `__construct(array $indices)` | Store a list of integers from 0 to 4294967294; indices may repeat and appear in any order |
+| `count(): int` | Number of indices |
+| `get(int $position): int` | Index at a 0-based position |
+| `toArray(): array` | All indices, in order |
+
+Non-integer elements throw `TypeError`; non-list arrays and out-of-range
+indices throw `ValueError`. An index at or beyond the source row count throws
+`ValueError` when the selection is used. See
+[selection vectors](selection.md).
 
 ## `final class ResultIterator implements \Iterator`
 

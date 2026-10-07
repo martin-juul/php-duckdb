@@ -683,6 +683,13 @@ final class DataChunk
     /** Copy a column into a new vector whose capacity is the row count. */
     public function vector(int $index): Vector {}
 
+    /**
+     * Copy the rows a selection names into a new chunk, in selection order.
+     * Pass a SelectionVector or a list of at most {@see vectorSize()} row
+     * indices.
+     */
+    public function select(SelectionVector|array $selection): DataChunk {}
+
     public function rowCount(): int {}
     public function columnCount(): int {}
 
@@ -698,7 +705,8 @@ final class DataChunk
 
 /**
  * An owned, fixed-capacity native vector. Created by
- * {@see Connection::createVector()} or {@see DataChunk::vector()}.
+ * {@see Connection::createVector()}, {@see DataChunk::vector()} or
+ * {@see Vector::select()}.
  */
 final class Vector
 {
@@ -728,6 +736,37 @@ final class Vector
 
     /** Copy rows from a vector of the same type; by default, through its capacity. */
     public function copyFrom(Vector $source, int $sourceOffset = 0, ?int $count = null, int $targetOffset = 0): void {}
+
+    /**
+     * Copy the rows a selection names into a new vector, in selection order.
+     * Pass a SelectionVector or a list of row indices.
+     */
+    public function select(SelectionVector|array $selection): Vector {}
+
+    /**
+     * Gather rows from a vector of the same type: source row $selection[i]
+     * is written to row $targetOffset + i. Pass a SelectionVector or a list
+     * of row indices.
+     */
+    public function copySelected(Vector $source, SelectionVector|array $selection, int $targetOffset = 0): void {}
+}
+
+/**
+ * An immutable list of source row indices that picks, reorders or repeats
+ * the rows of a {@see Vector} or {@see DataChunk}. Needs no connection.
+ */
+final class SelectionVector implements \Countable
+{
+    /** @param int[] $indices A list of row indices from 0 to 4294967294. */
+    public function __construct(array $indices) {}
+
+    public function count(): int {}
+
+    /** The row index at a 0-based position. */
+    public function get(int $position): int {}
+
+    /** @return list<int> */
+    public function toArray(): array {}
 }
 
 /**
