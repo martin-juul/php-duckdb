@@ -138,12 +138,17 @@ bool copy_session::submit(const std::shared_ptr<copy_request> &request, std::str
     }
 }
 
+idx_t duckdb_context_connection_id(duckdb_client_context context) {
+    idx_t id = duckdb_client_context_get_connection_id(context);
+    duckdb_destroy_client_context(&context);
+    return id;
+}
+
 idx_t duckdb_conn_connection_id(conn_inner &conn) {
     if (!conn.connection_id_known) {
         duckdb_client_context context = nullptr;
         duckdb_connection_get_client_context(conn.conn, &context);
-        conn.connection_id = duckdb_client_context_get_connection_id(context);
-        duckdb_destroy_client_context(&context);
+        conn.connection_id = duckdb_context_connection_id(context);
         conn.connection_id_known = true;
     }
     return conn.connection_id;
@@ -259,10 +264,7 @@ duckdb_state duckdb_pump_execute(conn_inner &conn, duckdb_prepared_statement sta
         start_error = (error && error[0]) ? error : "Query execution failed";
         /* Close before execute_pending, which cancels the executor. */
         duckdb_session_end(conn, session, start_error);
-        duckdb_result discarded = {};
-        duckdb_execute_pending(pending, &discarded);
-        duckdb_destroy_result(&discarded);
-        duckdb_destroy_pending(&pending);
+        duckdb_discard_pending(conn, pending);
         return DuckDBError;
     }
     duckdb_session_end(conn, session);

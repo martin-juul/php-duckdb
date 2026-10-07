@@ -206,7 +206,6 @@ static void duckdb_pending_dtor_object(zend_object *object) {
     std::shared_ptr<async_task> &task = intern->task;
     if (task && task->session && task->conn) {
         auto session = std::move(task->session);
-        task->session.reset();
         duckdb_session_end(*task->conn, session, "PendingQuery discarded", true);
         duckdb_copy_after_destructor();
     }

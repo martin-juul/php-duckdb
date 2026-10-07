@@ -66,6 +66,8 @@ struct copy_session {
     bool submit(const std::shared_ptr<copy_request> &request, std::string &error);
 };
 
+/* The connection id of a client context, which this destroys. */
+idx_t duckdb_context_connection_id(duckdb_client_context context);
 /* DuckDB's connection id for `conn`, resolved once (request thread). */
 idx_t duckdb_conn_connection_id(conn_inner &conn);
 

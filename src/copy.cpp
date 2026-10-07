@@ -72,6 +72,8 @@ struct copy_slot {
 struct copy_bind {
     std::shared_ptr<copy_registration> registration;
     std::vector<std::string> types;
+    /* Batch column names: COPY functions do not receive the real ones. */
+    std::vector<std::string> names;
     duckdb_value options = nullptr;
 
     ~copy_bind() {
@@ -232,16 +234,20 @@ static std::string describe(const std::string &format, const char *method, call_
 /* Option and type decoding (request thread)                          */
 /* ------------------------------------------------------------------ */
 
+static std::string struct_child_name(duckdb_logical_type type, idx_t index) {
+    char *name = duckdb_struct_type_child_name(type, index);
+    std::string value = name ? name : "";
+    duckdb_free(name);
+    return value;
+}
+
 static bool unnamed_struct(duckdb_logical_type type) {
     if (duckdb_get_type_id(type) != DUCKDB_TYPE_STRUCT) {
         return false;
     }
     idx_t count = duckdb_struct_type_child_count(type);
     for (idx_t i = 0; i < count; i++) {
-        char *name = duckdb_struct_type_child_name(type, i);
-        bool empty = !name || !name[0];
-        duckdb_free(name);
-        if (!empty) {
+        if (!struct_child_name(type, i).empty()) {
             return false;
         }
     }
@@ -297,9 +303,7 @@ static void decode_options(duckdb_value options, zval *out) {
     idx_t count = duckdb_struct_type_child_count(type);
     std::vector<std::pair<std::string, idx_t>> names;
     for (idx_t i = 0; i < count; i++) {
-        char *name = duckdb_struct_type_child_name(type, i);
-        names.emplace_back(name ? name : "", i);
-        duckdb_free(name);
+        names.emplace_back(struct_child_name(type, i), i);
     }
     std::sort(names.begin(), names.end());
 
@@ -401,18 +405,24 @@ void duckdb_copy_session_attach(conn_inner &conn, copy_session &session) {
     };
 }
 
-/* Open the execution's writer on first use. */
-static bool ensure_open(copy_php_state &state, copy_exec &exec, std::string &error) {
-    auto &writer = state.writers[&exec];
+/* The execution's writer, opened on first use; nullptr with `error` set
+ * when it cannot be opened. */
+static copy_php_state::writer *open_writer(copy_session &session, copy_exec &exec, std::string &error) {
+    copy_php_state *state = php_state_of(session);
+    if (!state) {
+        error = "COPY format is not registered on this connection";
+        return nullptr;
+    }
+    auto &writer = state->writers[&exec];
     if (writer.object) {
-        return true;
+        return &writer;
     }
 
     copy_registration *registration = exec.bind->registration.get();
-    zend_object *function = pinned_function(state, registration);
+    zend_object *function = pinned_function(*state, registration);
     if (!function) {
         error = stale_message(*registration);
-        return false;
+        return nullptr;
     }
 
     zval argv[3];
@@ -422,49 +432,42 @@ static bool ensure_open(copy_php_state &state, copy_exec &exec, std::string &err
     zval retval;
     std::string message;
     zend_object *thrown = nullptr;
-    call_outcome outcome = call_handler(state.conn, function, "open", 3, argv, &retval, message, &thrown);
+    call_outcome outcome = call_handler(state->conn, function, "open", 3, argv, &retval, message, &thrown);
     zval_ptr_dtor(&argv[0]);
     zval_ptr_dtor(&argv[1]);
     zval_ptr_dtor(&argv[2]);
     if (outcome != call_outcome::ok) {
-        keep_cause(&state.cause, thrown);
+        keep_cause(&state->cause, thrown);
         error = describe(registration->name, "open", outcome, message);
-        return false;
+        return nullptr;
     }
     if (Z_TYPE(retval) != IS_OBJECT || !instanceof_function(Z_OBJCE(retval), duckdb_copy_to_writer_ce)) {
         zval_ptr_dtor(&retval);
         error = "COPY format '" + registration->name + "' open() must return a DuckDB\\CopyToWriter";
-        return false;
+        return nullptr;
     }
     writer.object = Z_OBJ(retval);
-    return true;
+    return &writer;
 }
 
 static bool php_write(copy_session &session, copy_exec &exec, duckdb_data_chunk chunk, std::string &error) {
+    copy_php_state::writer *writer = open_writer(session, exec, error);
+    if (!writer) {
+        return false;
+    }
     copy_php_state *state = php_state_of(session);
-    if (!state) {
-        error = "COPY format is not registered on this connection";
-        return false;
-    }
-    if (!ensure_open(*state, exec, error)) {
-        return false;
-    }
 
     auto data = std::make_shared<data_chunk_data>();
     data->chunk = chunk;
     data->borrowed = true;
-    idx_t columns = duckdb_data_chunk_get_column_count(chunk);
-    for (idx_t i = 0; i < columns; i++) {
-        data->names.push_back("col" + std::to_string(i));
-    }
+    data->names = exec.bind->names;
     zval batch;
     duckdb_data_chunk_wrap(&batch, data);
 
     zval retval;
     std::string message;
     zend_object *thrown = nullptr;
-    auto &writer = state->writers[&exec];
-    call_outcome outcome = call_handler(state->conn, writer.object, "write", 1, &batch, &retval, message, &thrown);
+    call_outcome outcome = call_handler(state->conn, writer->object, "write", 1, &batch, &retval, message, &thrown);
     data->expired = true;
     data->chunk = nullptr;
     zval_ptr_dtor(&retval);
@@ -478,27 +481,23 @@ static bool php_write(copy_session &session, copy_exec &exec, duckdb_data_chunk 
 }
 
 static bool php_finalize(copy_session &session, copy_exec &exec, std::string &error) {
+    copy_php_state::writer *writer = open_writer(session, exec, error);
+    if (!writer) {
+        return false;
+    }
     copy_php_state *state = php_state_of(session);
-    if (!state) {
-        error = "COPY format is not registered on this connection";
-        return false;
-    }
-    if (!ensure_open(*state, exec, error)) {
-        return false;
-    }
 
     zval retval;
     std::string message;
     zend_object *thrown = nullptr;
-    auto &writer = state->writers[&exec];
-    call_outcome outcome = call_handler(state->conn, writer.object, "close", 0, nullptr, &retval, message, &thrown);
+    call_outcome outcome = call_handler(state->conn, writer->object, "close", 0, nullptr, &retval, message, &thrown);
     zval_ptr_dtor(&retval);
     if (outcome != call_outcome::ok) {
         keep_cause(&state->cause, thrown);
         error = describe(exec.bind->registration->name, "close", outcome, message);
         return false;
     }
-    writer.closed = true;
+    writer->closed = true;
     return true;
 }
 
@@ -532,13 +531,6 @@ static bool on_request_thread(copy_session &session, const std::function<bool(st
 const char duckdb_copy_not_pumped_message[] =
     "PHP COPY formats run only through query(), execute(), prepared statements and queryPending(), "
     "not queryAsync() or executeAsync()";
-static const char *const not_pumped_message = duckdb_copy_not_pumped_message;
-
-static idx_t context_connection_id(duckdb_client_context context) {
-    idx_t id = duckdb_client_context_get_connection_id(context);
-    duckdb_destroy_client_context(&context);
-    return id;
-}
 
 static bool option_is_probe(duckdb_value options, std::string &token) {
     if (!options || duckdb_is_null_value(options)) {
@@ -550,10 +542,7 @@ static bool option_is_probe(duckdb_value options, std::string &token) {
     }
     idx_t count = duckdb_struct_type_child_count(type);
     for (idx_t i = 0; i < count; i++) {
-        char *name = duckdb_struct_type_child_name(type, i);
-        bool probe = name && strcmp(name, "DUCKDB_PHP_PROBE") == 0;
-        duckdb_free(name);
-        if (probe) {
+        if (struct_child_name(type, i) == "DUCKDB_PHP_PROBE") {
             scoped_duckdb_value child(duckdb_get_struct_child(options, i));
             char *text = duckdb_get_varchar(child.get());
             token = text ? text : "";
@@ -566,15 +555,14 @@ static bool option_is_probe(duckdb_value options, std::string &token) {
 
 static void copy_bind_callback(duckdb_copy_function_bind_info info) {
     auto *slot = static_cast<std::shared_ptr<copy_slot> *>(duckdb_copy_function_bind_get_extra_info(info))->get();
-    idx_t connection_id = context_connection_id(duckdb_copy_function_bind_get_client_context(info));
-    duckdb_value options = duckdb_copy_function_bind_get_options(info);
+    idx_t connection_id = duckdb_context_connection_id(duckdb_copy_function_bind_get_client_context(info));
+    scoped_duckdb_value options(duckdb_copy_function_bind_get_options(info));
 
     std::string token;
-    if (option_is_probe(options, token)) {
+    if (option_is_probe(options.get(), token)) {
         if (probe_token && token == probe_token) {
             probe_answer = slot;
         }
-        duckdb_destroy_value(&options);
         duckdb_copy_function_bind_set_error(info, "COPY format registration probe");
         return;
     }
@@ -588,30 +576,28 @@ static void copy_bind_callback(duckdb_copy_function_bind_info info) {
         }
     }
     if (!registration || !registration->alive.load(std::memory_order_acquire)) {
-        duckdb_destroy_value(&options);
         std::string message =
             std::string(decline_prefix) + "COPY format '" + slot->name + "' is not registered on this connection";
         duckdb_copy_function_bind_set_error(info, message.c_str());
         return;
     }
     if (registration->owner != std::this_thread::get_id()) {
-        duckdb_destroy_value(&options);
-        duckdb_copy_function_bind_set_error(info, not_pumped_message);
+        duckdb_copy_function_bind_set_error(info, duckdb_copy_not_pumped_message);
         return;
     }
     if (handler_depth > 0) {
-        duckdb_destroy_value(&options);
         duckdb_copy_function_bind_set_error(info, "PHP COPY formats cannot run inside another COPY handler");
         return;
     }
 
-    auto *bind = new copy_bind();
+    auto bind = std::make_unique<copy_bind>();
     bind->registration = registration;
-    bind->options = options;
+    bind->options = options.release();
     idx_t columns = duckdb_copy_function_bind_get_column_count(info);
     for (idx_t i = 0; i < columns; i++) {
         scoped_duckdb_logical_type type(duckdb_copy_function_bind_get_column_type(info, i));
         bind->types.push_back(duckdb_logical_type_sql(type.get()));
+        bind->names.push_back("col" + std::to_string(i));
     }
     prepare_used_format = true;
 
@@ -630,14 +616,13 @@ static void copy_bind_callback(duckdb_copy_function_bind_info info) {
         zval_ptr_dtor(&retval);
         if (outcome != call_outcome::ok) {
             keep_cause(&pending_cause, thrown);
-            delete bind;
             std::string error = describe(registration->name, "bind", outcome, message);
             duckdb_copy_function_bind_set_error(info, error.c_str());
             return;
         }
     }
 
-    duckdb_copy_function_bind_set_bind_data(info, bind, [](void *data) {
+    duckdb_copy_function_bind_set_bind_data(info, bind.release(), [](void *data) {
         delete static_cast<copy_bind *>(data);
     });
 }
@@ -670,11 +655,11 @@ static void copy_global_init_callback(duckdb_copy_function_global_init_info info
     auto *slot =
         static_cast<std::shared_ptr<copy_slot> *>(duckdb_copy_function_global_init_get_extra_info(info))->get();
     if (!bind) {
-        duckdb_copy_function_global_init_set_error(info, not_pumped_message);
+        duckdb_copy_function_global_init_set_error(info, duckdb_copy_not_pumped_message);
         return;
     }
     idx_t connection_id =
-        context_connection_id(duckdb_copy_function_global_init_get_client_context(info));
+        duckdb_context_connection_id(duckdb_copy_function_global_init_get_client_context(info));
     auto db = slot->db.lock();
     auto session = db ? duckdb_session_find(*db, connection_id) : nullptr;
     if (!session || !session->is_open() || !session->php_state.load(std::memory_order_acquire)) {
@@ -682,7 +667,7 @@ static void copy_global_init_callback(duckdb_copy_function_global_init_info info
         if (!bind->registration->alive.load(std::memory_order_acquire)) {
             duckdb_copy_function_global_init_set_error(info, stale_message(*bind->registration).c_str());
         } else {
-            duckdb_copy_function_global_init_set_error(info, not_pumped_message);
+            duckdb_copy_function_global_init_set_error(info, duckdb_copy_not_pumped_message);
         }
         return;
     }
@@ -708,7 +693,7 @@ static void run_callback(copy_exec *exec, SetError set_error,
                          const std::function<bool(copy_session &, std::string &)> &work) {
     auto session = exec ? exec->session.lock() : nullptr;
     if (!session || !session->is_open()) {
-        set_error(not_pumped_message);
+        set_error(duckdb_copy_not_pumped_message);
         return;
     }
     if (exec->in_callback.exchange(true)) {
@@ -796,8 +781,8 @@ static std::shared_ptr<copy_slot> ensure_slot(db_inner &db, const std::shared_pt
     slot->db = owner;
 
     /* Register on a private connection, outside any user transaction. */
-    duckdb_connection infra = nullptr;
-    if (duckdb_connect(db.db, &infra) == DuckDBError) {
+    duckdb_scoped<duckdb_connection, duckdb_disconnect> infra;
+    if (duckdb_connect(db.db, infra.out()) == DuckDBError) {
         duckdb_throw_msg("Could not open a connection to register the COPY format");
         return nullptr;
     }
@@ -811,10 +796,9 @@ static std::shared_ptr<copy_slot> ensure_slot(db_inner &db, const std::shared_pt
     duckdb_copy_function_set_global_init(function, copy_global_init_callback);
     duckdb_copy_function_set_sink(function, copy_sink_callback);
     duckdb_copy_function_set_finalize(function, copy_finalize_callback);
-    duckdb_state registered = duckdb_register_copy_function(infra, function);
+    duckdb_state registered = duckdb_register_copy_function(infra.get(), function);
     duckdb_destroy_copy_function(&function);
     if (registered == DuckDBError) {
-        duckdb_disconnect(&infra);
         duckdb_throw_msg("DuckDB could not register the COPY format");
         return nullptr;
     }
@@ -826,13 +810,11 @@ static std::shared_ptr<copy_slot> ensure_slot(db_inner &db, const std::shared_pt
                       token + "')";
     probe_token = token.c_str();
     probe_answer = nullptr;
-    duckdb_prepared_statement probe = nullptr;
-    duckdb_prepare(infra, sql.c_str(), &probe);
-    duckdb_destroy_prepare(&probe);
+    scoped_duckdb_prepared probe;
+    duckdb_prepare(infra.get(), sql.c_str(), probe.out());
     bool ours = probe_answer == slot.get();
     probe_token = nullptr;
     probe_answer = nullptr;
-    duckdb_disconnect(&infra);
 
     if (!ours) {
         std::string message = "COPY format '" + lower + "' is already provided by DuckDB or an extension";
@@ -841,6 +823,15 @@ static std::shared_ptr<copy_slot> ensure_slot(db_inner &db, const std::shared_pt
     }
     db.copy_slots[lower] = slot;
     return slot;
+}
+
+/* Stop new statements from binding `registration` and drop its handler. */
+static void retire_registration(copy_registration &registration) {
+    registration.alive.store(false, std::memory_order_release);
+    if (registration.function) {
+        OBJ_RELEASE(registration.function);
+        registration.function = nullptr;
+    }
 }
 
 PHP_METHOD(DuckDB_Connection, registerCopyToFunction) {
@@ -908,9 +899,7 @@ PHP_METHOD(DuckDB_Connection, registerCopyToFunction) {
 
     auto previous = conn.copy_regs.find(lower);
     if (previous != conn.copy_regs.end()) {
-        previous->second->alive.store(false, std::memory_order_release);
-        OBJ_RELEASE(previous->second->function);
-        previous->second->function = nullptr;
+        retire_registration(*previous->second);
         previous->second = registration;
     } else {
         conn.copy_regs[lower] = registration;
@@ -933,10 +922,10 @@ void duckdb_copy_connection_free(conn_inner *conn) {
     if (!conn || conn->copy_regs.empty()) {
         return;
     }
-    idx_t connection_id = conn->connection_id_known ? conn->connection_id : duckdb_conn_connection_id(*conn);
+    idx_t connection_id = duckdb_conn_connection_id(*conn);
     for (auto &entry : conn->copy_regs) {
         auto &registration = entry.second;
-        registration->alive.store(false, std::memory_order_release);
+        retire_registration(*registration);
         {
             std::lock_guard<std::mutex> lock(conn->db->copy_mutex);
             auto found = conn->db->copy_slots.find(entry.first);
@@ -947,10 +936,6 @@ void duckdb_copy_connection_free(conn_inner *conn) {
                     found->second->entries.erase(own);
                 }
             }
-        }
-        if (registration->function) {
-            OBJ_RELEASE(registration->function);
-            registration->function = nullptr;
         }
     }
     conn->copy_regs.clear();
@@ -977,6 +962,13 @@ duckdb_copy_native_bind_scope::~duckdb_copy_native_bind_scope() {
     native_bind = false;
 }
 
+static void drop_pending_cause() {
+    if (pending_cause) {
+        OBJ_RELEASE(pending_cause);
+        pending_cause = nullptr;
+    }
+}
+
 static void duckdb_copy_chain_cause() {
     if (!pending_cause) {
         return;
@@ -1001,10 +993,7 @@ void duckdb_copy_after_method() {
 
     if (pending_bailout) {
         pending_bailout = false;
-        if (pending_cause) {
-            OBJ_RELEASE(pending_cause);
-            pending_cause = nullptr;
-        }
+        drop_pending_cause();
         /* The fatal error was already reported; drop the COPY failure. */
         if (EG(exception)) {
             zend_clear_exception();
@@ -1014,10 +1003,7 @@ void duckdb_copy_after_method() {
     if (pending_exit) {
         zend_object *exit_object = pending_exit;
         pending_exit = nullptr;
-        if (pending_cause) {
-            OBJ_RELEASE(pending_cause);
-            pending_cause = nullptr;
-        }
+        drop_pending_cause();
         if (EG(exception)) {
             zend_clear_exception();
         }
@@ -1034,9 +1020,8 @@ void duckdb_copy_after_method() {
 }
 
 void duckdb_copy_after_destructor() {
-    if (handler_depth == 0 && pending_cause) {
-        OBJ_RELEASE(pending_cause);
-        pending_cause = nullptr;
+    if (handler_depth == 0) {
+        drop_pending_cause();
     }
     duckdb_copy_after_method();
 }
