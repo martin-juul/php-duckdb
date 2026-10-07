@@ -317,7 +317,8 @@ set(DUCKDB_SOURCES
     src/suspend_reactphp.cpp
     src/appender.cpp
     src/vector.cpp
-    src/selection.cpp)
+    src/selection.cpp
+    src/copy_session.cpp)
 
 set(DUCKDB_HEADERS
     php_duckdb.h
@@ -327,6 +328,7 @@ set(DUCKDB_HEADERS
     src/data_chunk.h
     src/vector.h
     src/selection.h
+    src/copy_session.h
     src/bignum_decode.h
     src/variant_decode.h
     src/type_classes.h

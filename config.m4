@@ -63,6 +63,6 @@ if test "$PHP_DUCKDB" != "no"; then
   PHP_SUBST([DUCKDB_SHARED_LIBADD])
   PHP_ADD_BUILD_DIR([$ext_builddir/src])
   PHP_NEW_EXTENSION([duckdb],
-    [duckdb.cpp src/arrow.cpp src/data_chunk.cpp src/typed_value.cpp src/type_classes.cpp src/values.cpp src/bignum_decode.cpp src/variant_decode.cpp src/result.cpp src/statement.cpp src/pending.cpp src/suspend_swoole.cpp src/suspend_true_async.cpp src/suspend_amphp.cpp src/suspend_reactphp.cpp src/appender.cpp src/vector.cpp src/selection.cpp],
+    [duckdb.cpp src/arrow.cpp src/data_chunk.cpp src/typed_value.cpp src/type_classes.cpp src/values.cpp src/bignum_decode.cpp src/variant_decode.cpp src/result.cpp src/statement.cpp src/pending.cpp src/suspend_swoole.cpp src/suspend_true_async.cpp src/suspend_amphp.cpp src/suspend_reactphp.cpp src/appender.cpp src/vector.cpp src/selection.cpp src/copy_session.cpp],
     [$ext_shared],, [-DZEND_ENABLE_STATIC_TSRMLS_CACHE=1], [cxx])
 fi

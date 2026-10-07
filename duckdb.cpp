@@ -30,6 +30,7 @@ extern "C" {
 #include "src/arrow.h"
 #include "src/data_chunk.h"
 #include "src/vector.h"
+#include "src/copy_session.h"
 #include "src/selection.h"
 #include "duckdb_arginfo.h"
 #include <unordered_map>
@@ -238,6 +239,12 @@ bool duckdb_conn_check_not_busy(const conn_inner &conn) {
 bool duckdb_conn_enter(conn_inner &conn, std::unique_lock<std::mutex> &lock) {
     if (!duckdb_conn_check_not_busy(conn)) {
         return false;
+    }
+    /* Another operation supersedes an undriven pumped statement. DuckDB
+     * cancels that statement when the connection is used again, so release
+     * its waiting workers first. */
+    if (conn.session) {
+        conn.session->close("COPY statement superseded by another operation on its connection");
     }
     lock = std::unique_lock<std::mutex>(conn.mutex);
     return true;
@@ -493,7 +500,11 @@ PHP_METHOD(DuckDB_Connection, query) {
             RETURN_THROWS();
         }
         intern->inner->execution_epoch.fetch_add(1, std::memory_order_relaxed);
-        if (duckdb_query(intern->inner->conn, sql, &res) == DuckDBError) {
+        if (duckdb_conn_needs_pump(*intern->inner)) {
+            if (!duckdb_pump_query(*intern->inner, sql, &res)) {
+                RETURN_THROWS();
+            }
+        } else if (duckdb_query(intern->inner->conn, sql, &res) == DuckDBError) {
             duckdb_throw_result_error(&res);
             RETURN_THROWS();
         }
@@ -541,23 +552,29 @@ PHP_METHOD(DuckDB_Connection, queryStreaming) {
          * scan then surfaces at execute time instead of mid-fetch).
          * Kept deliberately until upstream ships the promised replacement
          * (duckdb/duckdb#13384); isolated to this call site. */
-        duckdb_pending_result pending = nullptr;
-        if (duckdb_pending_prepared_streaming(stmt->stmt, &pending) == DuckDBError) {
-            const char *err = pending ? duckdb_pending_error(pending) : nullptr;
-            std::string msg = (err && err[0]) ? err : "Failed to start streaming query";
-            if (pending) {
-                duckdb_destroy_pending(&pending);
+        duckdb_state st;
+        if (duckdb_conn_needs_pump(*intern->inner)) {
+            std::string start_error;
+            st = duckdb_pump_execute(*intern->inner, stmt->stmt, /*streaming=*/true, &res, start_error);
+            if (!start_error.empty()) {
+                duckdb_throw_start_error(start_error);
+                RETURN_THROWS();
             }
-            duckdb_error_type type = duckdb_classify_error_message(msg.c_str());
-            if (type == DUCKDB_ERROR_INVALID) {
-                type = DUCKDB_ERROR_INTERNAL;
+        } else {
+            duckdb_pending_result pending = nullptr;
+            if (duckdb_pending_prepared_streaming(stmt->stmt, &pending) == DuckDBError) {
+                const char *err = pending ? duckdb_pending_error(pending) : nullptr;
+                std::string msg = (err && err[0]) ? err : "Failed to start streaming query";
+                if (pending) {
+                    duckdb_destroy_pending(&pending);
+                }
+                duckdb_throw_start_error(msg);
+                RETURN_THROWS();
             }
-            duckdb_throw_error(type, msg.c_str());
-            RETURN_THROWS();
+            st = duckdb_execute_pending(pending, &res);
+            /* duckdb_execute_pending does NOT consume the pending handle. */
+            duckdb_destroy_pending(&pending);
         }
-        duckdb_state st = duckdb_execute_pending(pending, &res);
-        /* duckdb_execute_pending does NOT consume the pending handle. */
-        duckdb_destroy_pending(&pending);
         if (st == DuckDBError) {
             duckdb_throw_result_error(&res);
             RETURN_THROWS();
@@ -669,7 +686,15 @@ PHP_METHOD(DuckDB_Connection, queryPending) {
          * statement, but the pending result may reference its data - keep it
          * alive on the task, destroyed after the pending result. */
         task->owned_stmt = ps;
+        /* Workers start with the pending query: publish the session first. */
+        if (duckdb_conn_needs_pump(*task->conn)) {
+            task->session = duckdb_session_open(*task->conn);
+        }
         if (duckdb_pending_prepared(ps, &task->pending) == DuckDBError) {
+            if (task->session) {
+                duckdb_session_end(*task->conn, task->session, "Failed to start query", true);
+                task->session.reset();
+            }
             if (task->pending) {
                 const char *err = duckdb_pending_error(task->pending);
                 std::string msg = err ? err : "Failed to start query";
@@ -731,7 +756,19 @@ PHP_METHOD(DuckDB_Connection, execute) {
             duckdb_destroy_prepare(&ps);
             RETURN_THROWS();
         }
-        if (duckdb_execute_prepared(ps, &res) == DuckDBError) {
+        duckdb_state st;
+        std::string start_error;
+        if (duckdb_conn_needs_pump(*intern->inner)) {
+            st = duckdb_pump_execute(*intern->inner, ps, /*streaming=*/false, &res, start_error);
+        } else {
+            st = duckdb_execute_prepared(ps, &res);
+        }
+        if (!start_error.empty()) {
+            duckdb_destroy_prepare(&ps);
+            duckdb_throw_start_error(start_error);
+            RETURN_THROWS();
+        }
+        if (st == DuckDBError) {
             duckdb_destroy_prepare(&ps);
             duckdb_throw_result_error(&res);
             RETURN_THROWS();

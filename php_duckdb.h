@@ -49,6 +49,7 @@ ZEND_TSRMLS_CACHE_EXTERN()
 #include <string>
 #include <system_error>
 #include <thread>
+#include <unordered_map>
 #include <vector>
 
 /* ================================================================== */
@@ -144,10 +145,16 @@ duckdb_notify_fd duckdb_notify_fd_duplicate(duckdb_notify_fd fd);
 /* Internal handle wrappers (no PHP state)                            */
 /* ================================================================== */
 
+struct copy_session;
+
 /* A DuckDB database instance. Connections hold a shared_ptr to this,
  * so the database outlives its connections. */
 struct db_inner {
     duckdb_database db = nullptr;
+    /* Pumped statements by DuckDB connection id, for COPY callbacks that
+     * run on DuckDB threads and only know their client context. */
+    std::mutex session_mutex;
+    std::unordered_map<idx_t, std::weak_ptr<copy_session>> sessions;
     /* One private callback per database; capture values remain operation-scoped. */
     std::mutex typed_capture_mutex;
     std::shared_ptr<void> typed_capture_state;
@@ -184,6 +191,13 @@ struct conn_inner {
     /* Native cleanup that destructors could not run while busy. */
     std::mutex deferred_mutex;
     std::vector<std::function<void()>> deferred;
+    /* Live COPY format registrations; statements are pumped while nonzero. */
+    std::atomic<int> copy_registrations{0};
+    /* The pumped statement on this connection, if any (request thread only). */
+    std::shared_ptr<copy_session> session;
+    /* DuckDB's id for this connection, resolved when first pumped. */
+    idx_t connection_id = 0;
+    bool connection_id_known = false;
     ~conn_inner() {
         std::lock_guard<std::mutex> lock(mutex);
         /* Deferred work never owns the connection, so the last owner can
@@ -251,6 +265,9 @@ enum class task_mode {
 
 /* Drain and destroy a pending result. Caller holds conn.mutex. */
 void duckdb_discard_pending(conn_inner &conn, duckdb_pending_result &pending);
+/* Close a pumped statement's session and stop publishing it (copy_session.h). */
+void duckdb_session_end(conn_inner &conn, const std::shared_ptr<copy_session> &session,
+                        const std::string &failure, bool can_call_php);
 
 /* State of one asynchronous query. Shared between the PHP PendingQuery
  * object and, for THREAD_* modes, the detached worker thread. The worker
@@ -278,6 +295,8 @@ struct async_task {
      * result may reference it (duckdb_pending_prepared does NOT take
      * ownership). Destroyed after the pending result. */
     duckdb_prepared_statement owned_stmt = nullptr;
+    /* POLLING on a pumped connection: services COPY callbacks between slices. */
+    std::shared_ptr<copy_session> session;
 
     duckdb_notify_fd notify_write_fd = DUCKDB_INVALID_NOTIFY_FD;
 
@@ -289,6 +308,12 @@ struct async_task {
     ~async_task() {
         if (cancellation_worker.joinable()) {
             cancellation_worker.join();
+        }
+
+        /* Release waiting COPY workers before DuckDB cancels the statement. */
+        if (session && conn) {
+            duckdb_session_end(*conn, session, "PendingQuery discarded", false);
+            session.reset();
         }
 
         /* The destroy calls below touch connection state; serialize them

@@ -33,6 +33,8 @@
  *                        or $DUCKDB_DIR)
  *   --extension=PATH     test this .so instead of modules/duckdb.so
  *   --rebuild            force a clean build
+ *   --force-pump         run every statement through the COPY pump
+ *                        (DUCKDB_PHP_TEST_FORCE_PUMP=1 for all stages)
  *   --junit=FILE         write a JUnit XML report
  *   --no-color           disable ANSI colors
  *   --help               show this text
@@ -865,6 +867,7 @@ Options:
   --duckdb-dir=DIR     DuckDB install prefix (default: $DUCKDB_DIR or /opt/duckdb)
   --extension=PATH     test this .so instead of modules/duckdb.so
   --rebuild            force a clean rebuild
+  --force-pump         run every statement through the COPY pump (test mode)
   --junit=FILE         write a JUnit XML report
   --no-color           disable ANSI colors
   --help               show this text
@@ -905,6 +908,10 @@ function parseArgs(array $argv): Config
             $config->full = true;
         } elseif ($arg === '--rebuild') {
             $config->rebuild = true;
+        } elseif ($arg === '--force-pump') {
+            // Every child process inherits this; the extension then pumps
+            // all statements, so the suite exercises the COPY pump path.
+            putenv('DUCKDB_PHP_TEST_FORCE_PUMP=1');
         } elseif ($arg === '--no-color') {
             $config->color = false;
         } elseif (str_starts_with($arg, '--jobs=')) {

@@ -23,6 +23,7 @@
 #include "php_streams.h"
 #include "main/php_network.h"
 #include "php_duckdb.h"
+#include "copy_session.h"
 #include "suspend_internal.h"
 
 #include <algorithm>
@@ -265,8 +266,22 @@ bool duckdb_task_step(std::shared_ptr<async_task> task) {
     duckdb_pending_state st;
     {
         std::lock_guard<std::mutex> lk(task->conn->mutex);
-        st = duckdb_pending_execute_task(task->pending);
+        if (task->session) {
+            st = duckdb_session_step(*task->session, task->pending);
+        } else {
+            st = duckdb_pending_execute_task(task->pending);
+        }
         if (st == DUCKDB_PENDING_RESULT_READY || st == DUCKDB_PENDING_ERROR) {
+            /* Close before execute_pending, which cancels on error. */
+            if (task->session) {
+                std::string failure;
+                if (st == DUCKDB_PENDING_ERROR) {
+                    const char *e = duckdb_pending_error(task->pending);
+                    failure = (e && e[0]) ? e : "Query execution failed";
+                }
+                duckdb_session_end(*task->conn, task->session, failure, true);
+                task->session.reset();
+            }
             /* For both states, duckdb_execute_pending produces the final
              * materialized result - on failure it also carries the precise
              * error message and error type. */
@@ -381,6 +396,10 @@ void duckdb_task_cancel(std::shared_ptr<async_task> &task) {
     if (task->mode == task_mode::POLLING) {
         {
             std::lock_guard<std::mutex> lk(task->conn->mutex);
+            if (task->session) {
+                duckdb_session_end(*task->conn, task->session, "Query interrupted", true);
+                task->session.reset();
+            }
             if (task->pending) {
                 task->discard_pending();
             }

@@ -18,6 +18,7 @@
 
 #include "php_duckdb_cxx_compat.h"
 #include "php_duckdb.h"
+#include "copy_session.h"
 
 #if defined(ZTS) && defined(COMPILE_DL_DUCKDB)
 #define DUCKDB_TSRMLS_CACHE_UPDATE() ZEND_TSRMLS_CACHE_UPDATE()
@@ -516,23 +517,37 @@ static void duckdb_statement_execute_impl(INTERNAL_FUNCTION_PARAMETERS, bool str
              * surfaces at execute time instead of mid-fetch). Kept
              * deliberately until upstream ships the promised replacement
              * (duckdb/duckdb#13384); isolated to this call site. */
-            duckdb_pending_result pending = nullptr;
-            if (duckdb_pending_prepared_streaming(intern->inner->stmt, &pending) == DuckDBError) {
-                const char *err = pending ? duckdb_pending_error(pending) : nullptr;
-                std::string msg = (err && err[0]) ? err : "Failed to start streaming query";
-                if (pending) {
-                    duckdb_destroy_pending(&pending);
+            if (duckdb_conn_needs_pump(*intern->inner->conn)) {
+                std::string start_error;
+                st = duckdb_pump_execute(*intern->inner->conn, intern->inner->stmt, /*streaming=*/true, &res,
+                                         start_error);
+                if (!start_error.empty()) {
+                    duckdb_throw_start_error(start_error);
+                    RETURN_THROWS();
                 }
-                duckdb_error_type type = duckdb_classify_error_message(msg.c_str());
-                if (type == DUCKDB_ERROR_INVALID) {
-                    type = DUCKDB_ERROR_INTERNAL;
+            } else {
+                duckdb_pending_result pending = nullptr;
+                if (duckdb_pending_prepared_streaming(intern->inner->stmt, &pending) == DuckDBError) {
+                    const char *err = pending ? duckdb_pending_error(pending) : nullptr;
+                    std::string msg = (err && err[0]) ? err : "Failed to start streaming query";
+                    if (pending) {
+                        duckdb_destroy_pending(&pending);
+                    }
+                    duckdb_throw_start_error(msg);
+                    RETURN_THROWS();
                 }
-                duckdb_throw_error(type, msg.c_str());
+                st = duckdb_execute_pending(pending, &res);
+                /* duckdb_execute_pending does NOT consume the pending handle. */
+                duckdb_destroy_pending(&pending);
+            }
+        } else if (duckdb_conn_needs_pump(*intern->inner->conn)) {
+            std::string start_error;
+            st = duckdb_pump_execute(*intern->inner->conn, intern->inner->stmt, /*streaming=*/false, &res,
+                                     start_error);
+            if (!start_error.empty()) {
+                duckdb_throw_start_error(start_error);
                 RETURN_THROWS();
             }
-            st = duckdb_execute_pending(pending, &res);
-            /* duckdb_execute_pending does NOT consume the pending handle. */
-            duckdb_destroy_pending(&pending);
         } else {
             st = duckdb_execute_prepared(intern->inner->stmt, &res);
         }
