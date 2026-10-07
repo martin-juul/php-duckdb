@@ -28,6 +28,12 @@ extern "C" {
 #include <cstring>
 #include <unordered_map>
 
+#ifdef PHP_WIN32
+#include <direct.h>
+#else
+#include <unistd.h>
+#endif
+
 #if defined(ZTS) && defined(COMPILE_DL_DUCKDB)
 #define DUCKDB_TSRMLS_CACHE_UPDATE() ZEND_TSRMLS_CACHE_UPDATE()
 #else
@@ -636,18 +642,27 @@ static void copy_bind_callback(duckdb_copy_function_bind_info info) {
     });
 }
 
+/* DuckDB resolves a relative target against the process working directory,
+ * not PHP's per-request one, and this may run on a DuckDB thread. */
 static std::string absolute_path(const char *path) {
     std::string value = path ? path : "";
     if (value.empty() || value.find("://") != std::string::npos || value[0] == '/' || value[0] == '\\' ||
         (value.size() > 1 && std::isalpha(static_cast<unsigned char>(value[0])) && value[1] == ':')) {
         return value;
     }
+
     char buffer[4096];
-    if (!VCWD_GETCWD(buffer, sizeof(buffer))) {
+#ifdef PHP_WIN32
+    if (!_getcwd(buffer, sizeof(buffer))) {
         return value;
     }
-    std::string base = buffer;
-    return base + "/" + value;
+    return std::string(buffer) + "\\" + value;
+#else
+    if (!getcwd(buffer, sizeof(buffer))) {
+        return value;
+    }
+    return std::string(buffer) + "/" + value;
+#endif
 }
 
 static void copy_global_init_callback(duckdb_copy_function_global_init_info info) {
@@ -972,6 +987,10 @@ static void duckdb_copy_chain_cause() {
         OBJ_RELEASE(pending_cause);
     }
     pending_cause = nullptr;
+}
+
+bool duckdb_copy_unwinding() {
+    return pending_exit || pending_bailout;
 }
 
 void duckdb_copy_after_method() {

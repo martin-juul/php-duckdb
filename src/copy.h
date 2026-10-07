@@ -40,6 +40,10 @@ struct duckdb_copy_native_bind_scope {
     ~duckdb_copy_native_bind_scope();
 };
 
+/* Whether a COPY handler hit exit() or a fatal error that is not yet
+ * re-raised; no other PHP code should run until it is. */
+bool duckdb_copy_unwinding();
+
 /* Run after every PHP method that may have run COPY handlers, once its C++
  * state is gone: drain deferred cleanup, re-raise exit() or a fatal
  * error that a handler hit inside DuckDB, and chain a handler's exception

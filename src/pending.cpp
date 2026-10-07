@@ -253,7 +253,7 @@ void duckdb_async_run(std::shared_ptr<async_task> task) {
  * slice) via duckdb_pending_execute_task, so calling this in a loop makes
  * real progress without worker threads and without busy-waiting. Must
  * only be called from the owning request thread. */
-bool duckdb_task_step(std::shared_ptr<async_task> task) {
+static bool duckdb_task_step_once(const std::shared_ptr<async_task> &task) {
     if (task->mode != task_mode::POLLING) {
         std::lock_guard<std::mutex> lk(task->m);
         return task->done;
@@ -312,6 +312,17 @@ bool duckdb_task_step(std::shared_ptr<async_task> task) {
         return true;
     }
     return false;
+}
+
+bool duckdb_task_step(std::shared_ptr<async_task> task) {
+    bool done = duckdb_task_step_once(task);
+
+    /* After exit() or a fatal error in a COPY handler, finish the failing
+     * statement here rather than letting a runtime yield to other code. */
+    while (!done && duckdb_copy_unwinding()) {
+        done = duckdb_task_step_once(task);
+    }
+    return done;
 }
 
 void duckdb_pending_complete(php_duckdb_pending_object *intern, zval *return_value) {

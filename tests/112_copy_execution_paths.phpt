@@ -49,6 +49,24 @@ switch ($scenario) {
         $conn->query($copy);
         echo "not reached\n";
         break;
+    case 'suspend-exit':
+        $exited = false;
+        $format->hooks['write'] = function () use (&$writes, &$exited) {
+            if (++$writes === 2) {
+                $exited = true;
+                exit(7);
+            }
+        };
+        $fiber = new Fiber(fn() => $conn->queryPending($copy)->suspend());
+        $fiber->start();
+        while (!$fiber->isTerminated()) {
+            if ($exited) {
+                echo "ran after exit\n";
+            }
+            $fiber->resume();
+        }
+        echo "not reached\n";
+        break;
     case 'fatal':
         $format->hooks['write'] = function () use (&$writes) {
             if (++$writes === 2) {
@@ -108,9 +126,12 @@ foreach ($modes as $mode => $env) {
     [$status, $output] = run_child($dir, $args, 'copy', $env);
     check($status === 0 && $output === "5000 rows\nshutdown\n", "$mode copy: $status $output");
 
-    [$status, $output] = run_child($dir, $args, 'exit', $env);
-    check($status === 7, "$mode exit status: $status $output");
-    check(preg_match('/^abort: .*COPY aborted by exit\\(\\)\nshutdown\n$/', $output) === 1, "$mode exit: $output");
+    foreach (['exit', 'suspend-exit'] as $scenario) {
+        [$status, $output] = run_child($dir, $args, $scenario, $env);
+        check($status === 7, "$mode $scenario status: $status $output");
+        check(preg_match('/^abort: .*COPY aborted by exit\\(\\)\nshutdown\n$/', $output) === 1,
+            "$mode $scenario: $output");
+    }
 
     // PHP abandons the handler's frames on a fatal error and never frees
     // their values; with USE_ZEND_ALLOC=0 Memcheck reports that engine leak
