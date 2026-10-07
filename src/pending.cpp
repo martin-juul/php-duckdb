@@ -347,7 +347,7 @@ zend_class_entry *duckdb_lookup_userland_class(const char *name) {
     return ce;
 }
 
-void async_task::discard_pending() {
+void duckdb_discard_pending(conn_inner &conn, duckdb_pending_result &pending) {
     if (!pending) {
         return;
     }
@@ -355,12 +355,16 @@ void async_task::discard_pending() {
     // The PHP execution epoch also counts queued async workers, which may
     // not have started yet, so it cannot establish ownership here.
     if (duckdb_pending_execute_check_state(pending) != DUCKDB_PENDING_ERROR) {
-        duckdb_interrupt(conn->conn);
+        duckdb_interrupt(conn.conn);
     }
     duckdb_result discarded = {};
     duckdb_execute_pending(pending, &discarded);
     duckdb_destroy_result(&discarded);
     duckdb_destroy_pending(&pending);
+}
+
+void async_task::discard_pending() {
+    duckdb_discard_pending(*conn, pending);
 }
 
 /* Interrupt a running task. Safe to call at any time: a finished task is
@@ -430,6 +434,19 @@ void duckdb_task_cancel(std::shared_ptr<async_task> &task) {
 /* DuckDB\PendingQuery                                                */
 /* ================================================================== */
 
+/* PendingQuery methods drive the connection, so they refuse to run inside a
+ * COPY handler for it. duckdb_task_step() and duckdb_task_cancel() rely on
+ * this check at method entry and lock the connection directly. */
+static bool duckdb_pending_enter(php_duckdb_pending_object *intern) {
+    if (!duckdb_initialized_guard(static_cast<bool>(intern->task), "DuckDB\\PendingQuery")) {
+        return false;
+    }
+    if (intern->task->conn && !duckdb_conn_check_not_busy(*intern->task->conn)) {
+        return false;
+    }
+    return true;
+}
+
 PHP_METHOD(DuckDB_PendingQuery, __construct) {
     DUCKDB_TSRMLS_CACHE_UPDATE();
     ZEND_PARSE_PARAMETERS_START(0, 0)
@@ -443,7 +460,7 @@ PHP_METHOD(DuckDB_PendingQuery, isReady) {
     ZEND_PARSE_PARAMETERS_END();
 
     php_duckdb_pending_object *intern = Z_DUCKDB_PENDING_P(ZEND_THIS);
-    if (!duckdb_initialized_guard(static_cast<bool>(intern->task), "DuckDB\\PendingQuery")) {
+    if (!duckdb_pending_enter(intern)) {
         RETURN_THROWS();
     }
     RETURN_BOOL(duckdb_task_step(intern->task));
@@ -455,7 +472,7 @@ PHP_METHOD(DuckDB_PendingQuery, await) {
     ZEND_PARSE_PARAMETERS_END();
 
     php_duckdb_pending_object *intern = Z_DUCKDB_PENDING_P(ZEND_THIS);
-    if (!duckdb_initialized_guard(static_cast<bool>(intern->task), "DuckDB\\PendingQuery")) {
+    if (!duckdb_pending_enter(intern)) {
         RETURN_THROWS();
     }
     std::shared_ptr<async_task> task = intern->task;
@@ -478,7 +495,7 @@ PHP_METHOD(DuckDB_PendingQuery, suspend) {
     ZEND_PARSE_PARAMETERS_END();
 
     php_duckdb_pending_object *intern = Z_DUCKDB_PENDING_P(ZEND_THIS);
-    if (!duckdb_initialized_guard(static_cast<bool>(intern->task), "DuckDB\\PendingQuery")) {
+    if (!duckdb_pending_enter(intern)) {
         RETURN_THROWS();
     }
     std::shared_ptr<async_task> task = intern->task;
@@ -525,7 +542,7 @@ PHP_METHOD(DuckDB_PendingQuery, cancel) {
     ZEND_PARSE_PARAMETERS_END();
 
     php_duckdb_pending_object *intern = Z_DUCKDB_PENDING_P(ZEND_THIS);
-    if (!duckdb_initialized_guard(static_cast<bool>(intern->task), "DuckDB\\PendingQuery")) {
+    if (!duckdb_pending_enter(intern)) {
         RETURN_THROWS();
     }
     duckdb_task_cancel(intern->task);

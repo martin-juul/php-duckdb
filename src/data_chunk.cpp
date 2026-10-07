@@ -319,7 +319,10 @@ PHP_METHOD(DuckDB_Connection, dataChunkFromArrow) {
     if (!arrow) {
         RETURN_THROWS();
     }
-    std::lock_guard<std::mutex> lock(conn->mutex);
+    std::unique_lock<std::mutex> lock;
+    if (!duckdb_conn_enter(*conn, lock)) {
+        RETURN_THROWS();
+    }
     auto data = duckdb_import_arrow_chunk(conn.get(), arrow);
     if (!data) {
         RETURN_THROWS();
@@ -591,7 +594,10 @@ static void data_chunk_export(INTERNAL_FUNCTION_PARAMETERS, bool with_array) {
     if (!duckdb_connection_guard(conn)) {
         RETURN_THROWS();
     }
-    std::lock_guard<std::mutex> lock(conn->mutex);
+    std::unique_lock<std::mutex> lock;
+    if (!duckdb_conn_enter(*conn, lock)) {
+        RETURN_THROWS();
+    }
     duckdb_scoped<duckdb_arrow_options, duckdb_destroy_arrow_options> options;
     duckdb_connection_get_arrow_options(conn->conn, options.out());
     auto schema = data_chunk_schema(data.get(), options.get());

@@ -219,6 +219,56 @@ bool duckdb_connection_guard(const std::shared_ptr<conn_inner> &conn) {
     return true;
 }
 
+bool duckdb_conn_busy_here(const conn_inner &conn) {
+    if (conn.handler_depth.load(std::memory_order_acquire) == 0) {
+        return false;
+    }
+    return conn.handler_thread.load(std::memory_order_acquire) == std::this_thread::get_id();
+}
+
+bool duckdb_conn_check_not_busy(const conn_inner &conn) {
+    if (duckdb_conn_busy_here(conn)) {
+        zend_throw_exception_ex(duckdb_connection_exception_ce, DUCKDB_ERROR_CONNECTION,
+                                "Connection is busy executing a COPY handler; use another connection");
+        return false;
+    }
+    return true;
+}
+
+bool duckdb_conn_enter(conn_inner &conn, std::unique_lock<std::mutex> &lock) {
+    if (!duckdb_conn_check_not_busy(conn)) {
+        return false;
+    }
+    lock = std::unique_lock<std::mutex>(conn.mutex);
+    return true;
+}
+
+void duckdb_conn_cleanup(const std::shared_ptr<conn_inner> &conn, std::function<void()> work) {
+    if (duckdb_conn_busy_here(*conn)) {
+        std::lock_guard<std::mutex> lock(conn->deferred_mutex);
+        conn->deferred.push_back(std::move(work));
+        return;
+    }
+    std::lock_guard<std::mutex> lock(conn->mutex);
+    work();
+}
+
+void duckdb_conn_drain_deferred(conn_inner &conn) {
+    std::vector<std::function<void()>> pending;
+    {
+        std::lock_guard<std::mutex> lock(conn.deferred_mutex);
+        pending.swap(conn.deferred);
+    }
+    if (pending.empty()) {
+        return;
+    }
+
+    std::lock_guard<std::mutex> lock(conn.mutex);
+    for (auto &work : pending) {
+        work();
+    }
+}
+
 /* Process-wide instance cache for file-backed databases.
  *
  * POSIX fcntl locks are per-process, not per-fd: closing ANY descriptor
@@ -438,7 +488,10 @@ PHP_METHOD(DuckDB_Connection, query) {
 
     duckdb_result res = {};
     {
-        std::lock_guard<std::mutex> lk(intern->inner->mutex);
+        std::unique_lock<std::mutex> lk;
+        if (!duckdb_conn_enter(*intern->inner, lk)) {
+            RETURN_THROWS();
+        }
         intern->inner->execution_epoch.fetch_add(1, std::memory_order_relaxed);
         if (duckdb_query(intern->inner->conn, sql, &res) == DuckDBError) {
             duckdb_throw_result_error(&res);
@@ -471,7 +524,10 @@ PHP_METHOD(DuckDB_Connection, queryStreaming) {
     stmt->conn = intern->inner;
     duckdb_result res = {};
     {
-        std::lock_guard<std::mutex> lk(intern->inner->mutex);
+        std::unique_lock<std::mutex> lk;
+        if (!duckdb_conn_enter(*intern->inner, lk)) {
+            RETURN_THROWS();
+        }
         if (duckdb_prepare(intern->inner->conn, sql, &stmt->stmt) == DuckDBError) {
             const char *err = stmt->stmt ? duckdb_prepare_error(stmt->stmt) : nullptr;
             duckdb_throw_prepare_error(err ? err : "Failed to prepare statement");
@@ -595,7 +651,10 @@ PHP_METHOD(DuckDB_Connection, queryPending) {
     task->sql.assign(sql, sql_len);
 
     {
-        std::lock_guard<std::mutex> lk(task->conn->mutex);
+        std::unique_lock<std::mutex> lk;
+        if (!duckdb_conn_enter(*task->conn, lk)) {
+            RETURN_THROWS();
+        }
         duckdb_prepared_statement ps = nullptr;
         if (duckdb_prepare(task->conn->conn, task->sql.c_str(), &ps) == DuckDBError) {
             const char *err = ps ? duckdb_prepare_error(ps) : nullptr;
@@ -655,7 +714,10 @@ PHP_METHOD(DuckDB_Connection, execute) {
     duckdb_prepared_statement ps = nullptr;
     duckdb_result res = {};
     {
-        std::lock_guard<std::mutex> lk(intern->inner->mutex);
+        std::unique_lock<std::mutex> lk;
+        if (!duckdb_conn_enter(*intern->inner, lk)) {
+            RETURN_THROWS();
+        }
         if (duckdb_prepare(intern->inner->conn, sql, &ps) == DuckDBError) {
             const char *err = ps ? duckdb_prepare_error(ps) : nullptr;
             std::string msg = err ? err : "Failed to prepare statement";
@@ -702,7 +764,10 @@ PHP_METHOD(DuckDB_Connection, prepare) {
     auto inner = std::make_shared<stmt_inner>();
     inner->conn = intern->inner;
     {
-        std::lock_guard<std::mutex> lk(intern->inner->mutex);
+        std::unique_lock<std::mutex> lk;
+        if (!duckdb_conn_enter(*intern->inner, lk)) {
+            RETURN_THROWS();
+        }
         if (duckdb_prepare(intern->inner->conn, sql, &inner->stmt) == DuckDBError) {
             const char *err = inner->stmt ? duckdb_prepare_error(inner->stmt) : nullptr;
             duckdb_throw_prepare_error(err ? err : "Failed to prepare statement");
@@ -745,7 +810,10 @@ PHP_METHOD(DuckDB_Connection, appender) {
     auto inner = std::make_shared<appender_inner>();
     inner->conn = intern->inner;
     {
-        std::lock_guard<std::mutex> lk(intern->inner->mutex);
+        std::unique_lock<std::mutex> lk;
+        if (!duckdb_conn_enter(*intern->inner, lk)) {
+            RETURN_THROWS();
+        }
         /* Appender operations go through the connection context and
          * invalidate any open streaming result on this connection. */
         intern->inner->execution_epoch.fetch_add(1, std::memory_order_relaxed);
@@ -856,7 +924,10 @@ PHP_METHOD(DuckDB_Connection, getTableNames) {
 
     scoped_duckdb_value names;
     {
-        std::lock_guard<std::mutex> lk(intern->inner->mutex);
+        std::unique_lock<std::mutex> lk;
+        if (!duckdb_conn_enter(*intern->inner, lk)) {
+            RETURN_THROWS();
+        }
         names.reset(duckdb_get_table_names(intern->inner->conn, sql, /*qualified=*/false));
     }
     if (!names) {
@@ -892,7 +963,10 @@ static void duckdb_connection_exec_simple(INTERNAL_FUNCTION_PARAMETERS, const ch
 
     duckdb_result res = {};
     {
-        std::lock_guard<std::mutex> lk(intern->inner->mutex);
+        std::unique_lock<std::mutex> lk;
+        if (!duckdb_conn_enter(*intern->inner, lk)) {
+            RETURN_THROWS();
+        }
         /* BEGIN/COMMIT/ROLLBACK are executions too: they invalidate any
          * open streaming result on this connection. */
         intern->inner->execution_epoch.fetch_add(1, std::memory_order_relaxed);

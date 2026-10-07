@@ -419,7 +419,10 @@ static bool write_values(conn_inner *conn, vector_data *data, std::vector<pendin
 
     std::vector<scoped_duckdb_value> converted;
     if (!inputs.empty()) {
-        std::lock_guard<std::mutex> lock(conn->mutex);
+        std::unique_lock<std::mutex> lock;
+        if (!duckdb_conn_enter(*conn, lock)) {
+            return false;
+        }
         if (!convert_inputs(conn, data, inputs, converted)) {
             return false;
         }
@@ -510,7 +513,10 @@ PHP_METHOD(DuckDB_Connection, createVector) {
          * value also initializes every row, including nested children. */
         std::vector<scoped_duckdb_value> nulls;
         {
-            std::lock_guard<std::mutex> lock(conn->mutex);
+            std::unique_lock<std::mutex> lock;
+            if (!duckdb_conn_enter(*conn, lock)) {
+                RETURN_THROWS();
+            }
             zval wrapper, input;
             object_init_ex(&wrapper, duckdb_value_class_entry());
             ZVAL_NULL(&input);

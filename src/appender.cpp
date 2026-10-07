@@ -28,20 +28,25 @@
 
 appender_inner::~appender_inner() {
     if (appender) {
-        std::lock_guard<std::mutex> lk(conn->mutex);
-
-        /* Native destroy itself closes the handle. Clear failed buffers first
-         * so destruction cannot retry an earlier partially submitted batch. */
-        if (failed) {
-            duckdb_appender_clear(appender);
-        }
-        if (!closed && !failed) {
-            /* Best-effort flush; there is no one left to report errors to. */
-            if (duckdb_appender_close(appender) == DuckDBError) {
-                duckdb_appender_clear(appender);
+        duckdb_appender owned = appender;
+        appender = nullptr;
+        bool was_failed = failed;
+        bool flush = !closed && !failed;
+        duckdb_conn_cleanup(conn, [owned, was_failed, flush]() mutable {
+            /* Native destroy itself closes the handle. Clear failed buffers
+             * first so destruction cannot retry an earlier partially submitted
+             * batch. */
+            if (was_failed) {
+                duckdb_appender_clear(owned);
             }
-        }
-        duckdb_appender_destroy(&appender);
+            if (flush) {
+                /* Best-effort flush; there is no one left to report errors to. */
+                if (duckdb_appender_close(owned) == DuckDBError) {
+                    duckdb_appender_clear(owned);
+                }
+            }
+            duckdb_appender_destroy(&owned);
+        });
     }
 }
 
@@ -112,7 +117,10 @@ PHP_METHOD(DuckDB_Appender, beginRow) {
         RETURN_THROWS();
     }
 
-    std::lock_guard<std::mutex> lk(intern->inner->conn->mutex);
+    std::unique_lock<std::mutex> lk;
+    if (!duckdb_conn_enter(*intern->inner->conn, lk)) {
+        RETURN_THROWS();
+    }
     if (duckdb_appender_begin_row(appender) == DuckDBError) {
         duckdb_appender_fail(intern, "Failed to begin appender row");
         RETURN_THROWS();
@@ -139,7 +147,10 @@ PHP_METHOD(DuckDB_Appender, append) {
     }
 
     /* Convert before submitting this column, preserving an open row on failure. */
-    std::lock_guard<std::mutex> lk(intern->inner->conn->mutex);
+    std::unique_lock<std::mutex> lk;
+    if (!duckdb_conn_enter(*intern->inner->conn, lk)) {
+        RETURN_THROWS();
+    }
     std::vector<zval *> inputs{value};
     std::vector<scoped_duckdb_value> converted;
     if (!duckdb_convert_values(intern->inner->conn.get(), inputs, converted)) {
@@ -167,7 +178,10 @@ PHP_METHOD(DuckDB_Appender, appendDefault) {
         RETURN_THROWS();
     }
 
-    std::lock_guard<std::mutex> lk(intern->inner->conn->mutex);
+    std::unique_lock<std::mutex> lk;
+    if (!duckdb_conn_enter(*intern->inner->conn, lk)) {
+        RETURN_THROWS();
+    }
     if (duckdb_append_default(appender) == DuckDBError) {
         duckdb_appender_fail(intern, "Failed to append column default");
         RETURN_THROWS();
@@ -189,7 +203,10 @@ PHP_METHOD(DuckDB_Appender, endRow) {
         RETURN_THROWS();
     }
 
-    std::lock_guard<std::mutex> lk(intern->inner->conn->mutex);
+    std::unique_lock<std::mutex> lk;
+    if (!duckdb_conn_enter(*intern->inner->conn, lk)) {
+        RETURN_THROWS();
+    }
     intern->inner->row_open = false;
     if (duckdb_appender_end_row(appender) == DuckDBError) {
         duckdb_appender_fail(intern, "Failed to finish appender row "
@@ -231,7 +248,10 @@ PHP_METHOD(DuckDB_Appender, appendRow) {
     } ZEND_HASH_FOREACH_END();
 
     std::vector<scoped_duckdb_value> converted;
-    std::lock_guard<std::mutex> lk(intern->inner->conn->mutex);
+    std::unique_lock<std::mutex> lk;
+    if (!duckdb_conn_enter(*intern->inner->conn, lk)) {
+        RETURN_THROWS();
+    }
     if (!duckdb_convert_values(intern->inner->conn.get(), inputs, converted)) {
         RETURN_THROWS();
     }
@@ -260,7 +280,10 @@ PHP_METHOD(DuckDB_Appender, flush) {
         RETURN_THROWS();
     }
 
-    std::lock_guard<std::mutex> lk(intern->inner->conn->mutex);
+    std::unique_lock<std::mutex> lk;
+    if (!duckdb_conn_enter(*intern->inner->conn, lk)) {
+        RETURN_THROWS();
+    }
     if (duckdb_appender_flush(appender) == DuckDBError) {
         duckdb_appender_fail(intern, "Failed to flush appender");
         RETURN_THROWS();
@@ -284,7 +307,10 @@ static void duckdb_appender_append_chunk(INTERNAL_FUNCTION_PARAMETERS, bool from
         RETURN_THROWS();
     }
 
-    std::lock_guard<std::mutex> lock(intern->inner->conn->mutex);
+    std::unique_lock<std::mutex> lock;
+    if (!duckdb_conn_enter(*intern->inner->conn, lock)) {
+        RETURN_THROWS();
+    }
     std::shared_ptr<data_chunk_data> data;
     if (from_arrow) {
         auto arrow = duckdb_arrow_chunk_from_zval(value);
@@ -364,7 +390,10 @@ PHP_METHOD(DuckDB_Appender, clear) {
         RETURN_THROWS();
     }
 
-    std::lock_guard<std::mutex> lk(inner.conn->mutex);
+    std::unique_lock<std::mutex> lk;
+    if (!duckdb_conn_enter(*inner.conn, lk)) {
+        RETURN_THROWS();
+    }
     if (duckdb_appender_clear(inner.appender) == DuckDBError) {
         duckdb_appender_fail(intern, "Failed to clear appender");
         RETURN_THROWS();
@@ -390,7 +419,10 @@ PHP_METHOD(DuckDB_Appender, close) {
     intern->inner->row_open = false;
 
     if (intern->inner->failed) {
-        std::lock_guard<std::mutex> lk(intern->inner->conn->mutex);
+        std::unique_lock<std::mutex> lk;
+        if (!duckdb_conn_enter(*intern->inner->conn, lk)) {
+            RETURN_THROWS();
+        }
         if (duckdb_appender_clear(intern->inner->appender) == DuckDBError) {
             duckdb_appender_throw(intern->inner->appender, "Failed to discard appender buffers");
             RETURN_THROWS();
@@ -399,7 +431,10 @@ PHP_METHOD(DuckDB_Appender, close) {
     }
 
     if (intern->inner->appender) {
-        std::lock_guard<std::mutex> lk(intern->inner->conn->mutex);
+        std::unique_lock<std::mutex> lk;
+        if (!duckdb_conn_enter(*intern->inner->conn, lk)) {
+            RETURN_THROWS();
+        }
         if (duckdb_appender_close(intern->inner->appender) == DuckDBError) {
             intern->inner->failed = true;
             duckdb_appender_throw(intern->inner->appender, "Failed to close appender");

@@ -239,7 +239,10 @@ static void duckdb_statement_bind_impl(INTERNAL_FUNCTION_PARAMETERS, bool as_blo
     {
         /* The whole resolve+bind sequence runs under the connection mutex:
          * an async worker may currently be executing this same statement. */
-        std::lock_guard<std::mutex> lk(intern->inner->conn->mutex);
+        std::unique_lock<std::mutex> lk;
+        if (!duckdb_conn_enter(*intern->inner->conn, lk)) {
+            RETURN_THROWS();
+        }
         if (!duckdb_resolve_param_index(intern->inner->stmt, param, &index)) {
             RETURN_THROWS();
         }
@@ -314,7 +317,10 @@ PHP_METHOD(DuckDB_Statement, clearBindings) {
     }
     HashTable *retired = nullptr;
     {
-        std::lock_guard<std::mutex> lk(intern->inner->conn->mutex);
+        std::unique_lock<std::mutex> lk;
+        if (!duckdb_conn_enter(*intern->inner->conn, lk)) {
+            RETURN_THROWS();
+        }
         duckdb_clear_bindings(intern->inner->stmt);
         if (intern->deferred_bindings && zend_hash_num_elements(intern->deferred_bindings)) {
             retired = intern->deferred_bindings;
@@ -492,7 +498,10 @@ static void duckdb_statement_execute_impl(INTERNAL_FUNCTION_PARAMETERS, bool str
     duckdb_statement_retained retained;
     duckdb_result res = {};
     {
-        std::lock_guard<std::mutex> lk(intern->inner->conn->mutex);
+        std::unique_lock<std::mutex> lk;
+        if (!duckdb_conn_enter(*intern->inner->conn, lk)) {
+            RETURN_THROWS();
+        }
         if (!duckdb_statement_bind_execution(intern, params, retained)) {
             RETURN_THROWS();
         }
@@ -570,7 +579,10 @@ PHP_METHOD(DuckDB_Statement, executeAsync) {
      * interleave with a running async execution of the same statement; the
      * worker thread only executes. */
     {
-        std::lock_guard<std::mutex> lk(intern->inner->conn->mutex);
+        std::unique_lock<std::mutex> lk;
+        if (!duckdb_conn_enter(*intern->inner->conn, lk)) {
+            RETURN_THROWS();
+        }
         if (!duckdb_statement_bind_execution(intern, params, retained)) {
             RETURN_THROWS();
         }

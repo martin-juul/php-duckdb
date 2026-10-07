@@ -432,7 +432,10 @@ PHP_METHOD(DuckDB_Value, toString) {
     }
 
     try {
-        std::lock_guard<std::mutex> lock(conn->mutex);
+        std::unique_lock<std::mutex> lock;
+        if (!duckdb_conn_enter(*conn, lock)) {
+            RETURN_THROWS();
+        }
         std::vector<scoped_duckdb_value> values;
         // Conversion advances the execution epoch for the whole operation.
         if (!duckdb_convert_values(conn.get(), {ZEND_THIS}, values)) {

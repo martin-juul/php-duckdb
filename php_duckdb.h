@@ -43,6 +43,7 @@ ZEND_TSRMLS_CACHE_EXTERN()
 #include <atomic>
 #include <condition_variable>
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -159,7 +160,9 @@ struct db_inner {
 
 /* A DuckDB connection. DuckDB connections are not safe for concurrent
  * use from multiple threads, so every statement execution (sync or
- * async) holds `mutex` for the duration of the DuckDB call. */
+ * async) holds `mutex` for the duration of the DuckDB call. PHP-thread
+ * code acquires it through duckdb_conn_enter() or duckdb_conn_cleanup(),
+ * which refuse re-entry from a COPY handler running for this connection. */
 struct conn_inner {
     std::shared_ptr<db_inner> db;
     duckdb_connection conn = nullptr;
@@ -174,13 +177,42 @@ struct conn_inner {
      * epoch lets streaming results detect that and fail loudly instead of
      * silently truncating. */
     std::atomic<uint64_t> execution_epoch{0};
+    /* Nonzero while handler_thread runs a COPY handler for this connection.
+     * Re-entering the connection from that thread would self-deadlock. */
+    std::atomic<int> handler_depth{0};
+    std::atomic<std::thread::id> handler_thread{};
+    /* Native cleanup that destructors could not run while busy. */
+    std::mutex deferred_mutex;
+    std::vector<std::function<void()>> deferred;
     ~conn_inner() {
         std::lock_guard<std::mutex> lock(mutex);
+        /* Deferred work never owns the connection, so the last owner can
+         * still find some pending; it must run before disconnecting. */
+        for (auto &work : deferred) {
+            work();
+        }
+        deferred.clear();
         if (conn) {
             duckdb_disconnect(&conn);
         }
     }
 };
+
+/* True while the calling thread runs a COPY handler for this connection. */
+bool duckdb_conn_busy_here(const conn_inner &conn);
+/* Throw a ConnectionException and return false when the calling thread runs
+ * a COPY handler for this connection. */
+bool duckdb_conn_check_not_busy(const conn_inner &conn);
+/* Acquire conn->mutex into `lock` for a PHP-thread operation. Throws a
+ * ConnectionException and returns false instead of locking when the calling
+ * thread runs a COPY handler for this connection. */
+bool duckdb_conn_enter(conn_inner &conn, std::unique_lock<std::mutex> &lock);
+/* Run native cleanup under conn->mutex, or defer it until the connection's
+ * COPY handler returns when the calling thread is inside one. */
+void duckdb_conn_cleanup(const std::shared_ptr<conn_inner> &conn, std::function<void()> work);
+/* Run cleanup deferred by duckdb_conn_cleanup(). Caller must not hold
+ * conn->mutex and must not be inside a handler for this connection. */
+void duckdb_conn_drain_deferred(conn_inner &conn);
 
 /* A prepared statement, reference-counted so a Statement object may be
  * freed while an asynchronous execution of it is still running. */
@@ -216,6 +248,9 @@ enum class task_mode {
     THREAD_PREPARED, /* worker thread runs duckdb_execute_prepared() */
     POLLING,         /* single-threaded duckdb_pending_execute*()    */
 };
+
+/* Drain and destroy a pending result. Caller holds conn.mutex. */
+void duckdb_discard_pending(conn_inner &conn, duckdb_pending_result &pending);
 
 /* State of one asynchronous query. Shared between the PHP PendingQuery
  * object and, for THREAD_* modes, the detached worker thread. The worker
@@ -257,17 +292,28 @@ struct async_task {
         }
 
         /* The destroy calls below touch connection state; serialize them
-         * with any in-flight execution on this connection. The connection
-         * outlives the task via conn, and no code path destroys a task
-         * while holding the connection mutex, so this cannot deadlock. */
+         * with any in-flight execution on this connection. Destruction
+         * inside a COPY handler for this connection is deferred until the
+         * handler returns, because the handler's thread holds the mutex. */
         if (conn && (pending || !consumed)) {
-            std::lock_guard<std::mutex> lk(conn->mutex);
-            if (pending) {
-                discard_pending();
-            }
-            if (!consumed) {
-                duckdb_destroy_result(&result);
-            }
+            duckdb_pending_result owned_pending = pending;
+            pending = nullptr;
+            bool destroy_result = !consumed;
+            duckdb_result owned_result = result;
+            result = {};
+            consumed = true;
+            duckdb_prepared_statement statement = owned_stmt;
+            owned_stmt = nullptr;
+            conn_inner *raw = conn.get();
+            duckdb_conn_cleanup(conn, [raw, owned_pending, destroy_result, owned_result, statement]() mutable {
+                duckdb_discard_pending(*raw, owned_pending);
+                if (destroy_result) {
+                    duckdb_destroy_result(&owned_result);
+                }
+                if (statement) {
+                    duckdb_destroy_prepare(&statement);
+                }
+            });
         }
         if (owned_stmt) {
             duckdb_destroy_prepare(&owned_stmt);
@@ -323,8 +369,13 @@ struct result_data {
          * connection, so serialize with other executions. Materialized
          * results are self-contained and need no lock. */
         if (streaming && stmt_keepalive) {
-            std::lock_guard<std::mutex> lk(stmt_keepalive->conn->mutex);
-            duckdb_destroy_result(&result);
+            /* The deferred work keeps the statement until the stream closes. */
+            duckdb_result owned_result = result;
+            result = {};
+            std::shared_ptr<stmt_inner> statement = stmt_keepalive;
+            duckdb_conn_cleanup(stmt_keepalive->conn, [owned_result, statement]() mutable {
+                duckdb_destroy_result(&owned_result);
+            });
         } else {
             duckdb_destroy_result(&result);
         }
