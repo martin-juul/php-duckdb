@@ -67,7 +67,7 @@ patchelf --remove-rpath "$RPM_BUILD_ROOT%{php_extdir}/%{pecl_name}.so"
 Native PHP bindings for DuckDB with buffered, streaming and asynchronous
 queries, prepared statements, bulk appending and Arrow interoperability.
 
-The package builds the pinned DuckDB source with both repository patches
+The package builds the pinned DuckDB source with all repository patches
 and installs the engine privately with a distinct SONAME. A distribution
 DuckDB package is neither required nor replaced.
 
@@ -165,7 +165,8 @@ export TEST_PHP_ARGS='-d ffi.enable=true'
 %doc README.md packaging/amazonlinux
 %doc duckdb-sdk/share/duckdb-sdk/build.txt duckdb-sdk/share/duckdb-sdk/source.json
 %doc duckdb-sdk/share/duckdb-sdk/nullable-bitpacking.patch
-%doc duckdb-sdk/share/duckdb-sdk/arrow-geometry.patch duckdb-sdk/share/duckdb-sdk/artifacts.json
+%doc duckdb-sdk/share/duckdb-sdk/arrow-geometry.patch
+%doc duckdb-sdk/share/duckdb-sdk/c-api-copy-functions.patch duckdb-sdk/share/duckdb-sdk/artifacts.json
 %config(noreplace) %{php_inidir}/%{ini_name}
 %{php_extdir}/%{pecl_name}.so
 %dir %{engine_dir}

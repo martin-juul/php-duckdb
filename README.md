@@ -156,7 +156,7 @@ disappears, the next configure retries discovery and automatic setup;
 
 On a fresh checkout, CMake automatically runs the shared SDK builder into
 `<build directory>/duckdb-sdk`. Cold configuration downloads the pinned engine,
-applies both repository patches and compiles it with the resource-aware worker
+applies all repository patches and compiles it with the resource-aware worker
 budget. The builder needs Python 3, CMake, C/C++ compilers, curl, tar, patch and
 make; `DUCKDB_BUILD_JOBS` and `DUCKDB_SDK_CACHE_DIR` retain their usual meanings.
 The first configure can therefore take substantially longer than later reloads.

@@ -33,12 +33,16 @@ class SDKCacheTests(unittest.TestCase):
         (self.builder / "patches/arrow-geometry.patch").write_text(
             "--- a/arrow.txt\n+++ b/arrow.txt\n@@ -1 +1 @@\n-old-arrow\n+patched-arrow\n"
         )
+        (self.builder / "patches/c-api-copy-functions.patch").write_text(
+            "--- a/copy.txt\n+++ b/copy.txt\n@@ -1 +1 @@\n-old-copy\n+patched-copy\n"
+        )
         source = self.directory / "source"
         (source / "src/include").mkdir(parents=True)
         (source / "src/include/duckdb.h").write_text("fixture C API header\n")
         (source / "LICENSE").write_text("fixture license\n")
         (source / "fixture.txt").write_text("old\n")
         (source / "arrow.txt").write_text("old-arrow\n")
+        (source / "copy.txt").write_text("old-copy\n")
         self.archive = self.directory / "source.tar.gz"
         with tarfile.open(self.archive, "w:gz") as archive:
             archive.add(source, arcname="duckdb-fixture")
@@ -98,11 +102,16 @@ if patch.startswith('--- a/fixture.txt'):
     assert patch == '--- a/fixture.txt\\n+++ b/fixture.txt\\n@@ -1 +1 @@\\n-old\\n+patched\\n'
     assert Path('fixture.txt').read_text() == 'old\\n'
     Path('fixture.txt').write_text('patched\\n')
-else:
+elif patch.startswith('--- a/arrow.txt'):
     assert patch == '--- a/arrow.txt\\n+++ b/arrow.txt\\n@@ -1 +1 @@\\n-old-arrow\\n+patched-arrow\\n'
     assert Path('fixture.txt').read_text() == 'patched\\n'
     assert Path('arrow.txt').read_text() == 'old-arrow\\n'
     Path('arrow.txt').write_text('patched-arrow\\n')
+else:
+    assert patch == '--- a/copy.txt\\n+++ b/copy.txt\\n@@ -1 +1 @@\\n-old-copy\\n+patched-copy\\n'
+    assert Path('arrow.txt').read_text() == 'patched-arrow\\n'
+    assert Path('copy.txt').read_text() == 'old-copy\\n'
+    Path('copy.txt').write_text('patched-copy\\n')
 """)
         self.tool("cmake", """#!/usr/bin/env python3
 import json
@@ -126,6 +135,7 @@ else:
     source = Path(args[args.index('-S') + 1])
     assert (source / 'fixture.txt').read_text() == 'patched\\n'
     assert (source / 'arrow.txt').read_text() == 'patched-arrow\\n'
+    assert (source / 'copy.txt').read_text() == 'patched-copy\\n'
 """)
         self.env = os.environ.copy()
         for variable in [
@@ -223,10 +233,11 @@ else:
         with (self.builder / "fixture.patch").open("a") as patch:
             patch.write("\n")
         self.assertNotEqual(fingerprint, self.fingerprint())
-        fingerprint = self.fingerprint()
-        with (self.builder / "patches/arrow-geometry.patch").open("a") as patch:
-            patch.write("\n")
-        self.assertNotEqual(fingerprint, self.fingerprint())
+        for name in ["arrow-geometry.patch", "c-api-copy-functions.patch"]:
+            fingerprint = self.fingerprint()
+            with (self.builder / "patches" / name).open("a") as patch:
+                patch.write("\n")
+            self.assertNotEqual(fingerprint, self.fingerprint())
         fingerprint = self.fingerprint()
         with (self.builder / "build-sdk.sh").open("a") as builder:
             builder.write("\n# changed implementation\n")
@@ -245,7 +256,7 @@ else:
         fingerprint = self.fingerprint()
         entry = self.cache / fingerprint
         self.assertTrue((entry / "share/duckdb-sdk/artifacts.json").is_file())
-        self.assertEqual(len(list(entry.rglob("*.*"))), 8)
+        self.assertEqual(len(list(entry.rglob("*.*"))), 9)
         self.assertEqual([path.name for path in self.cache.iterdir()], [fingerprint])
         shutil.rmtree(self.prefix)
         self.assertIn("Restored verified", self.build(cached=True).stdout)
@@ -261,7 +272,7 @@ else:
         for name in [
             "lib/libduckdb.so", "include/duckdb.h", "share/duckdb-sdk/LICENSE.duckdb",
             "share/duckdb-sdk/source.json", "share/duckdb-sdk/nullable-bitpacking.patch",
-            "share/duckdb-sdk/arrow-geometry.patch",
+            "share/duckdb-sdk/arrow-geometry.patch", "share/duckdb-sdk/c-api-copy-functions.patch",
             "share/duckdb-sdk/build.txt", "share/duckdb-sdk/artifacts.json",
         ]:
             with self.subTest(artifact=name):
@@ -273,18 +284,27 @@ else:
                 self.assertEqual(self.builds(), count + 1)
                 self.assertNotEqual((entry / name).read_bytes(), b"corrupt")
 
-    def test_missing_arrow_patch_rejected_before_fingerprint_or_build(self):
-        (self.builder / "patches/arrow-geometry.patch").unlink()
-        result = self.run_builder("--fingerprint", success=False)
-        self.assertIn("Pinned DuckDB patch missing", result.stderr)
-        self.assertFalse(self.log.exists())
+    def test_missing_patch_rejected_before_fingerprint_or_build(self):
+        for name in ["arrow-geometry.patch", "c-api-copy-functions.patch"]:
+            with self.subTest(patch=name):
+                patch = self.builder / "patches" / name
+                content = patch.read_text()
+                patch.unlink()
+                result = self.run_builder("--fingerprint", success=False)
+                self.assertIn("Pinned DuckDB patch missing", result.stderr)
+                self.assertFalse(self.log.exists())
+                patch.write_text(content)
 
-    def test_cache_missing_arrow_patch_or_hash_is_rejected(self):
+    def test_cache_missing_patch_or_hash_is_rejected(self):
         self.build(cached=True)
-        for remove_hash in [False, True]:
-            with self.subTest(remove_hash=remove_hash):
+        for name, remove_hash in [
+            (name, remove_hash)
+            for name in ["arrow-geometry.patch", "c-api-copy-functions.patch"]
+            for remove_hash in [False, True]
+        ]:
+            with self.subTest(patch=name, remove_hash=remove_hash):
                 entry = self.cache / self.fingerprint()
-                artifact = "share/duckdb-sdk/arrow-geometry.patch"
+                artifact = "share/duckdb-sdk/" + name
                 if remove_hash:
                     manifest = entry / "share/duckdb-sdk/artifacts.json"
                     pins = json.loads(manifest.read_text())
@@ -298,7 +318,7 @@ else:
                 self.assertEqual(self.builds(), count + 1)
                 self.assertTrue((entry / artifact).is_file())
 
-    def test_solaris_recipe_applies_and_records_both_patches(self):
+    def test_solaris_recipe_applies_and_records_all_patches(self):
         solaris = self.directory / "packaging/solaris"
         solaris.mkdir()
         shutil.copy2(ROOT.parent / "solaris/build-sdk.sh", solaris / "build-sdk.sh")
@@ -316,11 +336,12 @@ else:
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         metadata = self.prefix / "share/duckdb-sdk"
         pins = json.loads((metadata / "artifacts.json").read_text())
-        for patch in ["nullable-bitpacking.patch", "arrow-geometry.patch"]:
+        for patch in ["nullable-bitpacking.patch", "arrow-geometry.patch", "c-api-copy-functions.patch"]:
             artifact = "share/duckdb-sdk/" + patch
             self.assertIn(artifact, pins)
             self.assertEqual(pins[artifact], hashlib.sha256((self.prefix / artifact).read_bytes()).hexdigest())
         self.assertIn("arrow_patch_sha256=", (metadata / "build.txt").read_text())
+        self.assertIn("copy_function_patch_sha256=", (metadata / "build.txt").read_text())
         self.assertEqual(self.builds(), 1)
 
     def test_optimized_python_still_checks_cache_artifacts(self):

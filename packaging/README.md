@@ -48,12 +48,13 @@ SDK through [the shared SDK builders](duckdb/README.md). They do not depend on
 a distribution DuckDB runtime or development package. The source version,
 commit and archive hash are shared in [source.json](duckdb/source.json).
 
-Both [engine patches](duckdb/patches/README.md) are built into the shipped
+All [engine patches](duckdb/patches/README.md) are built into the shipped
 library. The nullable bitpacking patch initializes unused NULL slots; the
 Arrow patch supplies conversion transactions and preserves declared geometry
-CRS metadata. Patches, source pins, build metadata and DuckDB's license
-accompany the SDK under `share/duckdb-sdk/`. Cache verification requires both
-patch artifacts and their checksums. Existing release assets are not replaced;
+CRS metadata; the copy-function patch makes binding of C API COPY formats
+deterministic. Patches, source pins, build metadata and DuckDB's license
+accompany the SDK under `share/duckdb-sdk/`. Cache verification requires every
+patch artifact and its checksum. Existing release assets are not replaced;
 the release workflow builds from its release commit.
 
 Source builds outside these packaging recipes can still link to an external
@@ -172,7 +173,7 @@ version-drift guard. Its `php(api)`/`php(zend-abi)` Requires pin the
 package to the exact PHP ABI used to build it. An RPM built against Remi
 8.4 can therefore install on any other PHP 8.4 build providing that ABI,
 such as AppStream php 8.4 where available. The bundled SDK keeps the engine
-source and both patches consistent across distribution targets.
+source and patches consistent across distribution targets.
 
 CI builds every combination of AlmaLinux 9/10 × Remi PHP
 8.2/8.3/8.4/8.5 × amd64/arm64.
@@ -222,7 +223,7 @@ using its official `public.ecr.aws/amazonlinux/amazonlinux:2027` image and
 [PHP 8.5 runtime](https://docs.aws.amazon.com/linux/al2027/ug/language-runtimes-php.html).
 It is not a production support claim.
 
-The RPM uses the shared pinned source SDK, including both engine patches,
+The RPM uses the shared pinned source SDK, including all engine patches,
 and packages a private engine with its own SONAME. The PHP module has a
 RUNPATH to that engine, so a distribution DuckDB package can coexist with it.
 Builds stage both source archives, run the harness, install the resulting RPM
@@ -477,7 +478,7 @@ Copy the closest existing target and adjust the distro-specific knobs:
 | Extension dir | `%{php_extdir}` macro | `php-config --extension-dir` works everywhere as fallback |
 | Ini drop-in | `/etc/php8/conf.d/*.ini` | Debian: per-SAPI `conf.d` + `phpenmod`, Fedora: `/etc/php.d`, Alpine: `/etc/php8X/conf.d` |
 | ABI runtime deps | `php(api)`/`php(zend-abi)` provides | Debian uses `phpapi-*` virtual packages |
-| libduckdb | patched source SDK | use the shared builders and carry both patches and SDK provenance |
+| libduckdb | patched source SDK | use the shared builders and carry all patches and SDK provenance |
 | libc | glibc | Alpine (musl): DuckDB ships no official musl binaries and musl builds are notably slower — build libduckdb from source there |
 
 Non-negotiables whatever the distro:

@@ -1,7 +1,7 @@
 # DuckDB engine patches
 
-This repository carries two DuckDB source patches. SDK builds apply them
-before compiling `libduckdb`; both are included in the libraries shipped by
+This repository carries three DuckDB source patches. SDK builds apply them
+before compiling `libduckdb`; all are included in the libraries shipped by
 those builds. The PHP extension still links through DuckDB's public C API.
 
 ## Patch inventory
@@ -10,6 +10,7 @@ those builds. The PHP extension still links through DuckDB's public C API.
 | --- | --- | --- | --- |
 | [nullable-bitpacking.patch](nullable-bitpacking.patch) | DuckDB 1.5.6, pinned in [source.json](../source.json) | Initialize NULL slots before frame-of-reference bitpacking | Local fix developed for this repository; no upstream issue, PR or merge reference is recorded here |
 | [arrow-geometry.patch](arrow-geometry.patch) | DuckDB 1.5.6, pinned in [source.json](../source.json) | Run C Arrow conversions in a transaction and preserve declared geometry CRS on import | Local fix developed for this repository; no upstream issue, PR or merge reference is recorded here |
+| [c-api-copy-functions.patch](c-api-copy-functions.patch) | DuckDB 1.5.6, pinned in [source.json](../source.json) | Reject parallel COPY modes and EXPORT DATABASE for C API copy functions; let their bind callbacks decline a binding | Local change developed for this repository; no upstream issue, PR or merge reference is recorded here |
 
 The patches are maintained against this exact source baseline. Their presence does
 not establish whether another DuckDB release contains the same defect or an
@@ -67,21 +68,74 @@ harness passes 92 PHPTs and 91 Memcheck tests, including the
 See [compatibility](../../../docs/compatibility.md) for exact runtime skips
 and the [Arrow conversion contract](../../../docs/arrow.md).
 
+## C API copy functions
+
+The original engine accepts `PARTITION_BY`, `PER_THREAD_OUTPUT` and
+`EXPORT DATABASE` for copy functions registered with
+`duckdb_register_copy_function`. Those modes create several global states or
+run sinks concurrently, which a serial C API format cannot detect at bind
+time. A registered name is also visible to every connection of the database,
+and a bind callback has no way to say that the format does not apply to the
+executing connection.
+
+The patch identifies C API formats without a new flag or layout change:
+`IsCAPICopyToFunction` checks whether a function's COPY TO bind is the C API
+bind adapter, which only `duckdb_register_copy_function` installs. For such a
+format, after its bind callback accepts the binding:
+
+- `PARTITION_BY` raises the Binder Error
+  `PARTITION_BY is not supported for C API copy function "<name>"`.
+- `PER_THREAD_OUTPUT true` raises the matching `PER_THREAD_OUTPUT` Binder
+  Error. `PER_THREAD_OUTPUT false` is accepted.
+- `FILE_SIZE_BYTES` keeps its original "not implemented" error, now raised
+  after the bind callback.
+
+`EXPORT DATABASE` with a C API format raises the Binder Error
+`EXPORT DATABASE is not supported for C API copy function "<name>"` before
+any table is bound. Built-in formats keep all of these modes.
+
+A bind callback declines a binding by calling
+`duckdb_copy_function_bind_set_error` with a message that starts with the
+exact, case-sensitive text `[copy-function-declined]`. The engine releases any
+bind data that the callback set and binds the statement as if the format were
+not in the catalog:
+
+- An explicit `FORMAT <name>` raises the Catalog Error
+  `Copy Function with name <name> does not exist!`. It offers no suggestions
+  and does not autoload an extension.
+- A format inferred from the target's file extension falls back to CSV,
+  including CSV option validation, `PARTITION_BY` and `FILE_SIZE_BYTES`.
+
+Any other bind error, including one that contains the prefix elsewhere,
+remains a Binder Error with the callback's message. A format must therefore
+never begin its bind error with text that a user controls.
+
+The patch adds no exported symbol, so callers still build and run against the
+original 1.5.6 library. There, a decline arrives as
+`Binder Error: [copy-function-declined] ...`, and the parallel modes are
+accepted; such callers need their own runtime detection. The
+[native regression](../../../tests/native/c_api_copy_functions.c) covers the
+rejections, explicit and inferred declines, the prefix position, and built-in
+CSV and Parquet modes. Its header gives compile and Memcheck commands.
+The original 1.5.6 SDK fails 10 of its 24 checks. The patched SDK passes all
+of them, normally and under Valgrind with zero errors or lost allocations.
+
 ## Which builds include them
 
-The POSIX, Windows and Solaris SDK builders apply both patches. Docker images and
-packages that build a vendored SDK consequently ship a patched engine. Builds
-linked to an external or distribution-provided `libduckdb` use that library as
-provided; the PHP extension build does not patch it. See the
-[packaging strategy](../../README.md#libduckdb-strategy) for each package's source.
+The POSIX, Windows and Solaris SDK builders apply all three patches. Docker
+images and packages that build a vendored SDK consequently ship a patched
+engine. Builds linked to an external or distribution-provided `libduckdb` use
+that library as provided; the PHP extension build does not patch it. See the
+[packaging strategy](../../README.md#libduckdb-strategy) for each package's
+source.
 
 The source archive is pinned by hash, and patch application must succeed
 cleanly. Installed SDKs carry `source.json`, `nullable-bitpacking.patch`,
-`arrow-geometry.patch`, build metadata and DuckDB's license under
-`share/duckdb-sdk/`. Both patch hashes enter the SDK identity, and cache
-verification requires both artifacts and their checksums. Use that metadata
-to identify our build: the patches do not change DuckDB's reported `1.5.6`
-version.
+`arrow-geometry.patch`, `c-api-copy-functions.patch`, build metadata and
+DuckDB's license under `share/duckdb-sdk/`. Every patch hash enters the SDK
+identity, and cache verification requires every patch artifact and its
+checksum. Use that metadata to identify our build: the patches do not change
+DuckDB's reported `1.5.6` version.
 
 ## Nullable bitpacking evidence and patch removal
 
