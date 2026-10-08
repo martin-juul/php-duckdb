@@ -48,7 +48,7 @@ $conn = $db->connect();
 $conn->query('SET threads = 2');
 $format = new LinesFormat();
 $conn->registerCopyToFunction('lines', $format);
-$pending = $conn->queryPending($copy('discarded', 200000));
+$pending = $conn->queryPending($copy('discarded', 5000000));
 while (!in_array('write', $format->log, true)) {
     check(!$pending->isReady(), 'The COPY is still running');
 }
@@ -60,9 +60,9 @@ echo "pending discarded\n";
 
 // A newer statement supersedes an undriven COPY, which is then aborted.
 $format->reset();
-$pending = $conn->queryPending($copy('superseded', 200000));
+$pending = $conn->queryPending($copy('superseded', 5000000));
 while (!in_array('write', $format->log, true)) {
-    $pending->isReady();
+    check(!$pending->isReady(), 'The COPY is still running: ' . calls($format));
 }
 $conn->query($copy('newer', 3));
 check(count(array_keys($format->log, 'abort')) === 1 && count(array_keys($format->log, 'close')) === 1, 'Superseded: ' . calls($format));
@@ -72,9 +72,9 @@ echo "pending superseded\n";
 
 // Cancelling a COPY aborts its writer.
 $format->reset();
-$pending = $conn->queryPending($copy('cancelled', 200000));
+$pending = $conn->queryPending($copy('cancelled', 5000000));
 while (!in_array('write', $format->log, true)) {
-    $pending->isReady();
+    check(!$pending->isReady(), 'The COPY is still running: ' . calls($format));
 }
 $pending->cancel();
 check(failure(fn() => $pending->await()) instanceof DuckDB\InterruptedException, 'Cancelled: ' . calls($format));
