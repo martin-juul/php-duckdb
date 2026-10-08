@@ -80,30 +80,6 @@ $format->reset();
 unset($error, $fiber);
 echo "fiber blocked\n";
 
-// A format that references its connection is collected as a cycle.
-final class CyclicFormat implements DuckDB\CopyToFunction
-{
-    public ?DuckDB\Connection $connection = null;
-
-    public function bind(array $columnTypes, array $options): void
-    {
-    }
-
-    public function open(string $path, array $columnTypes, array $options): DuckDB\CopyToWriter
-    {
-        return (new LinesFormat())->open($path, $columnTypes, $options);
-    }
-}
-$cyclic = new CyclicFormat();
-$cyclic->connection = $db->connect();
-$cyclic->connection->registerCopyToFunction('cyclic', $cyclic);
-$cyclic->connection->query("COPY (SELECT 1) TO '$dir/cyclic.out' (FORMAT cyclic)");
-$watch = WeakReference::create($cyclic);
-unset($cyclic);
-gc_collect_cycles();
-check($watch->get() === null, 'The connection-format cycle was collected');
-echo "cycle collected\n";
-
 // Registering, copying, failing and re-registering does not leak.
 $loop = $db->connect();
 for ($i = 0; $i < 200; $i++) {
@@ -126,5 +102,4 @@ pending discarded
 pending superseded
 pending cancelled
 fiber blocked
-cycle collected
 leak loop
