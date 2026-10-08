@@ -19,7 +19,7 @@ RUN apt-get update \
  && apt-get install -y --no-install-recommends build-essential curl ca-certificates cmake ninja-build python3 patch \
  && rm -rf /var/lib/apt/lists/*
 
-# Compile the pinned engine with the nullable-bitpacking and Arrow fixes.
+# Compile the pinned engine with the repository's engine patches.
 COPY packaging/duckdb/build-sdk.sh packaging/duckdb/source.json /opt/duckdb-build-tools/duckdb/
 COPY packaging/duckdb/patches/ /opt/duckdb-build-tools/duckdb/patches/
 COPY packaging/resources/jobs.py /opt/duckdb-build-tools/resources/jobs.py

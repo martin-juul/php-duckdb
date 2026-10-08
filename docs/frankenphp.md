@@ -110,6 +110,10 @@ Things to know:
   state, so it is unaffected by the surrounding request lifecycle.
   `PendingQuery::suspend()` additionally integrates with Swoole/AMPHP/ ReactPHP
   if the worker script runs an event loop — see [async.md](async.md).
+- **PHP COPY formats belong to their connection.** Registering a
+  [COPY TO format](copy.md) on a worker-scope connection keeps it for the
+  worker thread's lifetime; other workers and connections do not see it. Its
+  handlers run on the worker's own thread.
 - **Abandoned async queries are safe.** If a request ends while an async query
   is running, the C++ task completes independently. At server shutdown, the
   driver interrupts and waits for any in-flight workers before PHP may unload

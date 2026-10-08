@@ -11,13 +11,14 @@ sh packaging/duckdb/build-sdk.sh \
 php tests/harness.php --duckdb-dir=/opt/duckdb
 ```
 
-See the [patch inventory](patches/README.md) for both defects, local origin,
-affected builds, regression evidence and removal criteria. Both engine patches
-are part of SDKs built from this checkout. The Arrow patch supplies implicit
-conversion transactions and preserves geometry CRS metadata on import.
+See the [patch inventory](patches/README.md) for each patch's purpose, local
+origin, affected builds, regression evidence and removal criteria. All engine
+patches are part of SDKs built from this checkout. The Arrow patch supplies
+implicit conversion transactions and preserves geometry CRS metadata on import.
+The copy-function patch makes binding of C API COPY formats deterministic.
 
 The builder needs Python 3, curl, tar, patch, CMake, make and C/C++ compilers.
-The source archive is pinned by SHA-256, and both patches apply without fuzz.
+The source archive is pinned by SHA-256, and every patch applies without fuzz.
 Set `DUCKDB_SOURCE_ARCHIVE` to use an already downloaded archive; the same hash
 check applies. `DUCKDB_SDK_PREFIX`, `DUCKDB_BUILD_DIR` and `DUCKDB_BUILD_JOBS`
 provide defaults for the command-line options. Without a worker override,
@@ -35,9 +36,9 @@ On macOS, `MACOSX_DEPLOYMENT_TARGET` defaults to `11.0`.
 compiler and system-library baseline compatible with every target package;
 building on a newer distribution does not ensure that compatibility.
 
-The builder reuses an SDK only when its source, both patches, builder, platform,
+The builder reuses an SDK only when its source, patches, builder, platform,
 compiler and build options match, and installed artifact hashes still verify.
-Build metadata, source pins, both patches and DuckDB's MIT license are installed
+Build metadata, source pins, all patches and DuckDB's MIT license are installed
 under `share/duckdb-sdk/`. Keep that attribution with packaged libraries.
 Use a separate work directory for concurrent builds.
 
@@ -45,10 +46,10 @@ Use a separate work directory for concurrent builds.
 
 The CI action saves the installed SDK as soon as the engine build succeeds,
 before PHP builds and tests run. Its cache key uses the builder's exact
-fingerprint, including the source, both patches, compiler, system libraries and
+fingerprint, including the source, all patches, compiler, system libraries and
 build options. Changing PHP code, PHP versions, worker counts or the Linux
-kernel does not by itself require another engine build. A compiler, either patch
-or SDK build option change does.
+kernel does not by itself require another engine build. A compiler, patch or
+SDK build option change does.
 
 Packaging jobs keep SDK artifacts outside the package source tree, so RPM
 source extraction and Debian cleaning do not remove them. To use the same
@@ -76,7 +77,7 @@ extension tests in that step fail. Cancelling the job before this save can still
 lose a newly built SDK. Main CI and Docker save the SDK before starting PHP
 builds. Distribution-provided DuckDB packages do not use these caches.
 
-Vendored shipping recipes use this builder and carry both engine patches in
+Vendored shipping recipes use this builder and carry all engine patches in
 their libraries. Each packaging job still needs to validate its platform before
 release. Distribution-provided libraries require equivalent fixes or their own
 backports; this builder does not modify them.

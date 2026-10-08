@@ -36,7 +36,8 @@ try {
     $metadata = '{"compiler":"test","patch":"test"}'
     $artifactNames = @('include/duckdb.h', 'lib/duckdb.lib', 'bin/duckdb.dll',
         'share/duckdb-sdk/LICENSE.duckdb', 'share/duckdb-sdk/source.json',
-        'share/duckdb-sdk/nullable-bitpacking.patch', 'share/duckdb-sdk/arrow-geometry.patch')
+        'share/duckdb-sdk/nullable-bitpacking.patch', 'share/duckdb-sdk/arrow-geometry.patch',
+        'share/duckdb-sdk/c-api-copy-functions.patch')
     $hashes = [ordered]@{}
     foreach ($name in $artifactNames) {
         $path = Join-Path $Prefix $name
@@ -63,22 +64,24 @@ try {
     Assert-Cache (!(Test-DuckDBSdk $cacheEntry)) 'Corrupt cached artifact was accepted'
     Save-DuckDBSdk
     Assert-Cache (Test-DuckDBSdk $cacheEntry) 'Corrupt cache was not replaced'
-    'corruption' | Set-Content (Join-Path $cacheEntry 'share/duckdb-sdk/arrow-geometry.patch')
-    Assert-Cache (!(Test-DuckDBSdk $cacheEntry)) 'Corrupt Arrow patch was accepted'
-    Save-DuckDBSdk
-    Assert-Cache (Test-DuckDBSdk $cacheEntry) 'Arrow patch corruption was not replaced'
-    Remove-Item (Join-Path $cacheEntry 'share/duckdb-sdk/arrow-geometry.patch')
-    Assert-Cache (!(Test-DuckDBSdk $cacheEntry)) 'Missing Arrow patch was accepted'
-    Save-DuckDBSdk
-    $withoutArrow = [ordered]@{}
-    foreach ($name in $artifactNames) {
-        if ($name -ne 'share/duckdb-sdk/arrow-geometry.patch') {
-            $withoutArrow[$name] = $hashes[$name]
+    foreach ($patch in 'share/duckdb-sdk/arrow-geometry.patch', 'share/duckdb-sdk/c-api-copy-functions.patch') {
+        'corruption' | Set-Content (Join-Path $cacheEntry $patch)
+        Assert-Cache (!(Test-DuckDBSdk $cacheEntry)) "Corrupt $patch was accepted"
+        Save-DuckDBSdk
+        Assert-Cache (Test-DuckDBSdk $cacheEntry) "$patch corruption was not replaced"
+        Remove-Item (Join-Path $cacheEntry $patch)
+        Assert-Cache (!(Test-DuckDBSdk $cacheEntry)) "Missing $patch was accepted"
+        Save-DuckDBSdk
+        $withoutPatch = [ordered]@{}
+        foreach ($name in $artifactNames) {
+            if ($name -ne $patch) {
+                $withoutPatch[$name] = $hashes[$name]
+            }
         }
+        $withoutPatch | ConvertTo-Json | Set-Content (Join-Path $cacheEntry 'share/duckdb-sdk/artifacts.json')
+        Assert-Cache (!(Test-DuckDBSdk $cacheEntry)) "Missing $patch hash was accepted"
+        Save-DuckDBSdk
     }
-    $withoutArrow | ConvertTo-Json | Set-Content (Join-Path $cacheEntry 'share/duckdb-sdk/artifacts.json')
-    Assert-Cache (!(Test-DuckDBSdk $cacheEntry)) 'Missing Arrow patch hash was accepted'
-    Save-DuckDBSdk
     $hashes.Remove('bin/duckdb.dll')
     $hashes | ConvertTo-Json | Set-Content (Join-Path $cacheEntry 'share/duckdb-sdk/artifacts.json')
     Assert-Cache (!(Test-DuckDBSdk $cacheEntry)) 'Missing artifact hash was accepted'

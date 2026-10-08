@@ -126,6 +126,7 @@ duckdb_error_type duckdb_classify_error_message(const char *msg) {
         {"Missing Extension Error:", DUCKDB_ERROR_MISSING_EXTENSION},
         {"Autoloading Error:", DUCKDB_ERROR_AUTOLOAD},
         {"Interrupted Error:", DUCKDB_ERROR_INTERRUPT},
+        {"INTERRUPT Error:", DUCKDB_ERROR_INTERRUPT},
         {"INTERNAL Error:", DUCKDB_ERROR_INTERNAL},
         {"FATAL Error:", DUCKDB_ERROR_FATAL},
         {"Invalid Error:", DUCKDB_ERROR_INVALID_INPUT},

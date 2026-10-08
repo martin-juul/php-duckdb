@@ -18,6 +18,8 @@
 
 #include "php_duckdb_cxx_compat.h"
 #include "php_duckdb.h"
+#include "copy.h"
+#include "copy_session.h"
 
 #if defined(ZTS) && defined(COMPILE_DL_DUCKDB)
 #define DUCKDB_TSRMLS_CACHE_UPDATE() ZEND_TSRMLS_CACHE_UPDATE()
@@ -239,7 +241,10 @@ static void duckdb_statement_bind_impl(INTERNAL_FUNCTION_PARAMETERS, bool as_blo
     {
         /* The whole resolve+bind sequence runs under the connection mutex:
          * an async worker may currently be executing this same statement. */
-        std::lock_guard<std::mutex> lk(intern->inner->conn->mutex);
+        std::unique_lock<std::mutex> lk;
+        if (!duckdb_conn_enter(*intern->inner->conn, lk)) {
+            RETURN_THROWS();
+        }
         if (!duckdb_resolve_param_index(intern->inner->stmt, param, &index)) {
             RETURN_THROWS();
         }
@@ -314,7 +319,10 @@ PHP_METHOD(DuckDB_Statement, clearBindings) {
     }
     HashTable *retired = nullptr;
     {
-        std::lock_guard<std::mutex> lk(intern->inner->conn->mutex);
+        std::unique_lock<std::mutex> lk;
+        if (!duckdb_conn_enter(*intern->inner->conn, lk)) {
+            RETURN_THROWS();
+        }
         duckdb_clear_bindings(intern->inner->stmt);
         if (intern->deferred_bindings && zend_hash_num_elements(intern->deferred_bindings)) {
             retired = intern->deferred_bindings;
@@ -492,7 +500,10 @@ static void duckdb_statement_execute_impl(INTERNAL_FUNCTION_PARAMETERS, bool str
     duckdb_statement_retained retained;
     duckdb_result res = {};
     {
-        std::lock_guard<std::mutex> lk(intern->inner->conn->mutex);
+        std::unique_lock<std::mutex> lk;
+        if (!duckdb_conn_enter(*intern->inner->conn, lk)) {
+            RETURN_THROWS();
+        }
         if (!duckdb_statement_bind_execution(intern, params, retained)) {
             RETURN_THROWS();
         }
@@ -507,23 +518,37 @@ static void duckdb_statement_execute_impl(INTERNAL_FUNCTION_PARAMETERS, bool str
              * surfaces at execute time instead of mid-fetch). Kept
              * deliberately until upstream ships the promised replacement
              * (duckdb/duckdb#13384); isolated to this call site. */
-            duckdb_pending_result pending = nullptr;
-            if (duckdb_pending_prepared_streaming(intern->inner->stmt, &pending) == DuckDBError) {
-                const char *err = pending ? duckdb_pending_error(pending) : nullptr;
-                std::string msg = (err && err[0]) ? err : "Failed to start streaming query";
-                if (pending) {
-                    duckdb_destroy_pending(&pending);
+            if (duckdb_conn_needs_pump(*intern->inner->conn)) {
+                std::string start_error;
+                st = duckdb_pump_execute(*intern->inner->conn, intern->inner->stmt, /*streaming=*/true, &res,
+                                         start_error);
+                if (!start_error.empty()) {
+                    duckdb_throw_start_error(start_error);
+                    RETURN_THROWS();
                 }
-                duckdb_error_type type = duckdb_classify_error_message(msg.c_str());
-                if (type == DUCKDB_ERROR_INVALID) {
-                    type = DUCKDB_ERROR_INTERNAL;
+            } else {
+                duckdb_pending_result pending = nullptr;
+                if (duckdb_pending_prepared_streaming(intern->inner->stmt, &pending) == DuckDBError) {
+                    const char *err = pending ? duckdb_pending_error(pending) : nullptr;
+                    std::string msg = (err && err[0]) ? err : "Failed to start streaming query";
+                    if (pending) {
+                        duckdb_destroy_pending(&pending);
+                    }
+                    duckdb_throw_start_error(msg);
+                    RETURN_THROWS();
                 }
-                duckdb_throw_error(type, msg.c_str());
+                st = duckdb_execute_pending(pending, &res);
+                /* duckdb_execute_pending does NOT consume the pending handle. */
+                duckdb_destroy_pending(&pending);
+            }
+        } else if (duckdb_conn_needs_pump(*intern->inner->conn)) {
+            std::string start_error;
+            st = duckdb_pump_execute(*intern->inner->conn, intern->inner->stmt, /*streaming=*/false, &res,
+                                     start_error);
+            if (!start_error.empty()) {
+                duckdb_throw_start_error(start_error);
                 RETURN_THROWS();
             }
-            st = duckdb_execute_pending(pending, &res);
-            /* duckdb_execute_pending does NOT consume the pending handle. */
-            duckdb_destroy_pending(&pending);
         } else {
             st = duckdb_execute_prepared(intern->inner->stmt, &res);
         }
@@ -540,11 +565,11 @@ static void duckdb_statement_execute_impl(INTERNAL_FUNCTION_PARAMETERS, bool str
                               streaming ? intern->inner : nullptr, intern->inner->conn);
 }
 
-PHP_METHOD(DuckDB_Statement, execute) {
+DUCKDB_COPY_METHOD(DuckDB_Statement, execute) {
     duckdb_statement_execute_impl(INTERNAL_FUNCTION_PARAM_PASSTHRU, /*streaming=*/false);
 }
 
-PHP_METHOD(DuckDB_Statement, executeStreaming) {
+DUCKDB_COPY_METHOD(DuckDB_Statement, executeStreaming) {
     duckdb_statement_execute_impl(INTERNAL_FUNCTION_PARAM_PASSTHRU, /*streaming=*/true);
 }
 
@@ -564,13 +589,20 @@ PHP_METHOD(DuckDB_Statement, executeAsync) {
     if (!duckdb_connection_guard(intern->inner->conn)) {
         RETURN_THROWS();
     }
+    if (intern->inner->uses_copy_format) {
+        duckdb_throw_msg(duckdb_copy_not_pumped_message);
+        RETURN_THROWS();
+    }
 
     duckdb_statement_retained retained;
     /* Bind on the request thread, under the connection mutex so this cannot
      * interleave with a running async execution of the same statement; the
      * worker thread only executes. */
     {
-        std::lock_guard<std::mutex> lk(intern->inner->conn->mutex);
+        std::unique_lock<std::mutex> lk;
+        if (!duckdb_conn_enter(*intern->inner->conn, lk)) {
+            RETURN_THROWS();
+        }
         if (!duckdb_statement_bind_execution(intern, params, retained)) {
             RETURN_THROWS();
         }

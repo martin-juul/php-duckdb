@@ -722,7 +722,10 @@ static bool duckdb_result_fetch_chunk(result_data *d) {
          * check runs INSIDE the connection mutex: executions bump the
          * epoch under the same mutex, so a checked-fresh epoch cannot
          * become stale before the fetch runs. */
-        std::lock_guard<std::mutex> lk(d->stmt_keepalive->conn->mutex);
+        std::unique_lock<std::mutex> lk;
+        if (!duckdb_conn_enter(*d->stmt_keepalive->conn, lk)) {
+            return false;
+        }
         if (d->epoch != d->stmt_keepalive->conn->execution_epoch.load(std::memory_order_relaxed)) {
             duckdb_throw_msg("This streaming result was invalidated by a newer query on the same "
                              "connection (DuckDB allows one open streaming result per connection). "
@@ -902,7 +905,10 @@ PHP_METHOD(DuckDB_Result, arrowSchema) {
     if (!duckdb_initialized_guard(static_cast<bool>(data), "DuckDB\\Result")) {
         RETURN_THROWS();
     }
-    std::lock_guard<std::mutex> lock(data->conn_keepalive->mutex);
+    std::unique_lock<std::mutex> lock;
+    if (!duckdb_conn_enter(*data->conn_keepalive, lock)) {
+        RETURN_THROWS();
+    }
     duckdb_scoped<duckdb_arrow_options, duckdb_destroy_arrow_options> options(duckdb_result_get_arrow_options(&data->result));
     auto schema = duckdb_result_arrow_schema(data.get(), options.get());
     if (!schema) {
@@ -928,7 +934,10 @@ PHP_METHOD(DuckDB_Result, fetchArrowChunk) {
         }
         RETURN_NULL();
     }
-    std::lock_guard<std::mutex> lock(data->conn_keepalive->mutex);
+    std::unique_lock<std::mutex> lock;
+    if (!duckdb_conn_enter(*data->conn_keepalive, lock)) {
+        RETURN_THROWS();
+    }
     duckdb_scoped<duckdb_arrow_options, duckdb_destroy_arrow_options> options(duckdb_result_get_arrow_options(&data->result));
     auto arrow = std::make_shared<arrow_chunk_data>();
     arrow->schema = duckdb_result_arrow_schema(data.get(), options.get());

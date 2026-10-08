@@ -294,6 +294,24 @@ int main() {
 if (NOT DUCKDB_HAS_VECTOR_APIS)
     message(FATAL_ERROR "DuckDB standalone vector and UTF-8 check APIs are required")
 endif()
+
+unset(DUCKDB_HAS_COPY_FUNCTION_APIS CACHE)
+unset(DUCKDB_HAS_COPY_FUNCTION_APIS)
+check_cxx_source_compiles("#include <duckdb.h>
+int main() {
+    duckdb_copy_function function = duckdb_create_copy_function();
+    duckdb_copy_function_set_finalize(function, nullptr);
+    duckdb_register_copy_function(nullptr, function);
+    duckdb_destroy_copy_function(&function);
+    duckdb_client_context_get_connection_id(nullptr);
+    duckdb_extracted_statements statements = nullptr;
+    duckdb_extract_statements(nullptr, nullptr, &statements);
+    duckdb_destroy_extracted(&statements);
+    return 0;
+}" DUCKDB_HAS_COPY_FUNCTION_APIS)
+if (NOT DUCKDB_HAS_COPY_FUNCTION_APIS)
+    message(FATAL_ERROR "DuckDB COPY function, client context and statement extraction APIs are required")
+endif()
 cmake_pop_check_state()
 
 # ------------------------------------------------------------------ extension
@@ -317,7 +335,9 @@ set(DUCKDB_SOURCES
     src/suspend_reactphp.cpp
     src/appender.cpp
     src/vector.cpp
-    src/selection.cpp)
+    src/selection.cpp
+    src/copy_session.cpp
+    src/copy.cpp)
 
 set(DUCKDB_HEADERS
     php_duckdb.h
@@ -327,6 +347,8 @@ set(DUCKDB_HEADERS
     src/data_chunk.h
     src/vector.h
     src/selection.h
+    src/copy_session.h
+    src/copy.h
     src/bignum_decode.h
     src/variant_decode.h
     src/type_classes.h

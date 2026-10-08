@@ -30,6 +30,7 @@ application example. See the [API reference](../docs/api.md) and
 | [value_rendering.php](value_rendering.php) | Explicit display text, catalog types, timezone settings and binary strings | Extension |
 | [arrow.php](arrow.php) | Streaming Arrow batches copied between connections | Extension; no FFI required |
 | [vectors.php](vectors.php) | Typed column vectors built from PHP, split into native chunks and appended | Extension |
+| [copy_to.php](copy_to.php) | A Markdown table `COPY ... TO` format written in PHP, with options, prepared reuse, bind validation and connection scope | Extension |
 | [selection.php](selection.php) | Streaming batches validated in PHP and routed to two tables, plus row reordering and gathering with selection vectors | Extension |
 | [arrow_c_data.php](arrow_c_data.php) | External buffer access and schema/array ownership across the C Data Interface | Enabled PHP FFI |
 | [errors.php](errors.php) | Typed errors and machine-readable error categories | Extension |
@@ -43,7 +44,7 @@ application example. See the [API reference](../docs/api.md) and
 
 ## Public API audit
 
-The stub currently declares 64 classes and 148 public methods, plus
+The stub currently declares 64 classes, 2 interfaces and 154 public methods, plus
 `DuckDB\version()`, `DuckDB\vectorSize()` and the compatibility alias
 `duckdb_version()`. It also
 exposes the three `FetchMode` cases and 43 `ErrorType` cases. The inventory
@@ -62,6 +63,9 @@ optional FFI and framework paths run only when their requirements are met.
 | `Connection`: background queries | `queryAsync`, `queryPending`, `interrupt`, `queryProgress` | [async_jobs.php](async_jobs.php) |
 | `Connection`: Arrow ingestion | `dataChunkFromArrow` | [arrow.php](arrow.php) |
 | `Connection`: vectors | `createVector` | [vectors.php](vectors.php) |
+| `Connection`: COPY formats | `registerCopyToFunction` | [copy_to.php](copy_to.php) |
+| `CopyToFunction` | `bind`, `open` | [copy_to.php](copy_to.php) |
+| `CopyToWriter` | `write`, `close`, `abort` | [copy_to.php](copy_to.php) |
 | `Statement`: binding and execution | `bindValue`, `bindBlob`, `clearBindings`, `execute`, `executeStreaming` | [api_reference.php](api_reference.php) |
 | `Statement`: introspection | `parameterCount`, `parameterName`, `parameterType`, `statementType`, `columnCount`, `columnName`, `columnType` | [api_reference.php](api_reference.php) |
 | `Statement`: background execution | `executeAsync` | [async_jobs.php](async_jobs.php) |

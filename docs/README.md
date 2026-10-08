@@ -26,6 +26,7 @@ capabilities that are deliberately _not_ exposed and explains why.
 | [Vector](https://duckdb.org/docs/current/clients/c/vector)                       | [vector.md](vector.md)                       |
 | [Selection vectors](https://duckdb.org/docs/current/clients/c/vector)            | [selection.md](selection.md)                 |
 | [Table Functions](https://duckdb.org/docs/current/clients/c/table_functions)     | [table_functions.md](table_functions.md)     |
+| [COPY functions](https://duckdb.org/docs/current/clients/c/api)                  | [copy.md](copy.md)                           |
 | [Replacement Scans](https://duckdb.org/docs/current/clients/c/replacement_scans) | [replacement_scans.md](replacement_scans.md) |
 
 ## PHP-specific topics

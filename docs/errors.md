@@ -65,6 +65,8 @@ Notable categories (full list in [api.md](api.md#errortype-int)): `Parser`,
 | `fetchRow()` mid-stream | the query's deferred error (e.g. `ConversionException`) |
 | `PendingQuery::await()` / `suspend()` | rethrows the background query's failure on the awaiting fiber/thread |
 | `Appender` methods | native submission or flush failures require `clear()` before reuse; conversion failures before submission leave it usable |
+| `COPY ... TO` a [PHP format](copy.md) | `BinderException` when `bind()` throws; `DuckDB\Exception` naming the format and method when `open()`, `write()` or `close()` throws. The handler's exception is the `getPrevious()` |
+| Using a connection inside its own COPY handler | `ConnectionException` ("Connection is busy executing a COPY handler") |
 
 ## Interrupts and cancellation
 

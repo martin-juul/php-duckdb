@@ -59,7 +59,17 @@ std::shared_ptr<data_chunk_data> duckdb_data_chunk_from_zval(zval *value) {
     if (!duckdb_initialized_guard(static_cast<bool>(data), "DuckDB\\DataChunk")) {
         return nullptr;
     }
+    if (data->expired) {
+        zend_throw_error(nullptr, "This COPY batch is only valid during CopyToWriter::write(); "
+                                  "keep a copy with select() or vector()");
+        return nullptr;
+    }
     return data;
+}
+
+void duckdb_data_chunk_wrap(zval *return_value, std::shared_ptr<data_chunk_data> data) {
+    object_init_ex(return_value, duckdb_data_chunk_ce);
+    data_chunk_object(Z_OBJ_P(return_value))->data = std::move(data);
 }
 
 /* DuckDB's importer can borrow some columns while materializing others. Use
@@ -319,7 +329,10 @@ PHP_METHOD(DuckDB_Connection, dataChunkFromArrow) {
     if (!arrow) {
         RETURN_THROWS();
     }
-    std::lock_guard<std::mutex> lock(conn->mutex);
+    std::unique_lock<std::mutex> lock;
+    if (!duckdb_conn_enter(*conn, lock)) {
+        RETURN_THROWS();
+    }
     auto data = duckdb_import_arrow_chunk(conn.get(), arrow);
     if (!data) {
         RETURN_THROWS();
@@ -591,7 +604,10 @@ static void data_chunk_export(INTERNAL_FUNCTION_PARAMETERS, bool with_array) {
     if (!duckdb_connection_guard(conn)) {
         RETURN_THROWS();
     }
-    std::lock_guard<std::mutex> lock(conn->mutex);
+    std::unique_lock<std::mutex> lock;
+    if (!duckdb_conn_enter(*conn, lock)) {
+        RETURN_THROWS();
+    }
     duckdb_scoped<duckdb_arrow_options, duckdb_destroy_arrow_options> options;
     duckdb_connection_get_arrow_options(conn->conn, options.out());
     auto schema = data_chunk_schema(data.get(), options.get());

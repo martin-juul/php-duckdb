@@ -30,6 +30,8 @@ extern "C" {
 #include "src/arrow.h"
 #include "src/data_chunk.h"
 #include "src/vector.h"
+#include "src/copy.h"
+#include "src/copy_session.h"
 #include "src/selection.h"
 #include "duckdb_arginfo.h"
 #include <unordered_map>
@@ -143,8 +145,17 @@ static void duckdb_database_free_object(zend_object *object) {
 
 static void duckdb_connection_free_object(zend_object *object) {
     php_duckdb_connection_object *intern = duckdb_connection_from_obj(object);
+    duckdb_copy_connection_free(intern->inner.get());
     intern->inner.~shared_ptr();
     zend_object_std_dtor(&intern->std);
+}
+
+static HashTable *duckdb_connection_get_gc(zend_object *object, zval **table, int *n) {
+    php_duckdb_connection_object *intern = duckdb_connection_from_obj(object);
+    zend_get_gc_buffer *buffer = zend_get_gc_buffer_create();
+    duckdb_copy_connection_gc(intern->inner.get(), buffer);
+    zend_get_gc_buffer_use(buffer, table, n);
+    return zend_std_get_properties(object);
 }
 
 static void duckdb_statement_free_object(zend_object *object) {
@@ -189,6 +200,18 @@ static void duckdb_pending_free_object(zend_object *object) {
     zend_object_std_dtor(&intern->std);
 }
 
+/* End an undriven COPY session while PHP may still run its writers' abort(). */
+static void duckdb_pending_dtor_object(zend_object *object) {
+    php_duckdb_pending_object *intern = duckdb_pending_from_obj(object);
+    std::shared_ptr<async_task> &task = intern->task;
+    if (task && task->session && task->conn) {
+        auto session = std::move(task->session);
+        duckdb_session_end(*task->conn, session, "PendingQuery discarded", true);
+        duckdb_copy_after_destructor();
+    }
+    zend_objects_destroy_object(object);
+}
+
 static void duckdb_appender_free_object(zend_object *object) {
     php_duckdb_appender_object *intern = duckdb_appender_from_obj(object);
     intern->inner.~shared_ptr(); /* ~appender_inner() closes + destroys */
@@ -217,6 +240,95 @@ bool duckdb_connection_guard(const std::shared_ptr<conn_inner> &conn) {
         return false;
     }
     return true;
+}
+
+bool duckdb_conn_busy_here(const conn_inner &conn) {
+    if (conn.handler_depth.load(std::memory_order_acquire) == 0) {
+        return false;
+    }
+    return conn.handler_thread.load(std::memory_order_acquire) == std::this_thread::get_id();
+}
+
+bool duckdb_conn_check_not_busy(const conn_inner &conn) {
+    if (duckdb_conn_busy_here(conn)) {
+        zend_throw_exception_ex(duckdb_connection_exception_ce, DUCKDB_ERROR_CONNECTION,
+                                "Connection is busy executing a COPY handler; use another connection");
+        return false;
+    }
+    return true;
+}
+
+/* Another operation supersedes an undriven pumped statement. DuckDB
+ * cancels that statement when the connection is used again, so release its
+ * waiting workers before taking the connection mutex. */
+static void duckdb_conn_supersede(conn_inner &conn) {
+    if (conn.session) {
+        conn.session->close("COPY statement superseded by another operation on its connection");
+    }
+}
+
+bool duckdb_conn_enter(conn_inner &conn, std::unique_lock<std::mutex> &lock) {
+    if (!duckdb_conn_check_not_busy(conn)) {
+        return false;
+    }
+    duckdb_conn_supersede(conn);
+    lock = std::unique_lock<std::mutex>(conn.mutex);
+    return true;
+}
+
+/* Connections with cleanup deferred on this thread, drained once their
+ * COPY handlers return. */
+static thread_local std::vector<std::weak_ptr<conn_inner>> duckdb_deferred_connections;
+
+void duckdb_conn_cleanup(const std::shared_ptr<conn_inner> &conn, std::function<void()> work) {
+    if (duckdb_conn_busy_here(*conn)) {
+        {
+            std::lock_guard<std::mutex> lock(conn->deferred_mutex);
+            conn->deferred.push_back(std::move(work));
+        }
+        duckdb_deferred_connections.push_back(conn);
+        return;
+    }
+    duckdb_conn_supersede(*conn);
+    std::lock_guard<std::mutex> lock(conn->mutex);
+    work();
+}
+
+void duckdb_conn_drain_deferred(conn_inner &conn) {
+    std::vector<std::function<void()>> pending;
+    {
+        std::lock_guard<std::mutex> lock(conn.deferred_mutex);
+        pending.swap(conn.deferred);
+    }
+    if (pending.empty()) {
+        return;
+    }
+
+    duckdb_conn_supersede(conn);
+    std::lock_guard<std::mutex> lock(conn.mutex);
+    for (auto &work : pending) {
+        work();
+    }
+}
+
+void duckdb_drain_deferred_connections() {
+    if (duckdb_deferred_connections.empty()) {
+        return;
+    }
+
+    std::vector<std::weak_ptr<conn_inner>> waiting;
+    waiting.swap(duckdb_deferred_connections);
+    for (auto &weak : waiting) {
+        auto conn = weak.lock();
+        if (!conn) {
+            continue;
+        }
+        if (duckdb_conn_busy_here(*conn)) {
+            duckdb_deferred_connections.push_back(conn);
+            continue;
+        }
+        duckdb_conn_drain_deferred(*conn);
+    }
 }
 
 /* Process-wide instance cache for file-backed databases.
@@ -418,7 +530,7 @@ PHP_METHOD(DuckDB_Connection, __construct) {
     zend_throw_error(NULL, "DuckDB\\Connection objects must be created via DuckDB\\Database::connect()");
 }
 
-PHP_METHOD(DuckDB_Connection, query) {
+DUCKDB_COPY_METHOD(DuckDB_Connection, query) {
     DUCKDB_TSRMLS_CACHE_UPDATE();
     char *sql;
     size_t sql_len;
@@ -438,9 +550,16 @@ PHP_METHOD(DuckDB_Connection, query) {
 
     duckdb_result res = {};
     {
-        std::lock_guard<std::mutex> lk(intern->inner->mutex);
+        std::unique_lock<std::mutex> lk;
+        if (!duckdb_conn_enter(*intern->inner, lk)) {
+            RETURN_THROWS();
+        }
         intern->inner->execution_epoch.fetch_add(1, std::memory_order_relaxed);
-        if (duckdb_query(intern->inner->conn, sql, &res) == DuckDBError) {
+        if (duckdb_conn_needs_pump(*intern->inner)) {
+            if (!duckdb_pump_query(*intern->inner, sql, &res)) {
+                RETURN_THROWS();
+            }
+        } else if (duckdb_query(intern->inner->conn, sql, &res) == DuckDBError) {
             duckdb_throw_result_error(&res);
             RETURN_THROWS();
         }
@@ -449,7 +568,7 @@ PHP_METHOD(DuckDB_Connection, query) {
     duckdb_result_instantiate(return_value, &res, /*streaming=*/false, nullptr, intern->inner);
 }
 
-PHP_METHOD(DuckDB_Connection, queryStreaming) {
+DUCKDB_COPY_METHOD(DuckDB_Connection, queryStreaming) {
     DUCKDB_TSRMLS_CACHE_UPDATE();
     char *sql;
     size_t sql_len;
@@ -471,7 +590,10 @@ PHP_METHOD(DuckDB_Connection, queryStreaming) {
     stmt->conn = intern->inner;
     duckdb_result res = {};
     {
-        std::lock_guard<std::mutex> lk(intern->inner->mutex);
+        std::unique_lock<std::mutex> lk;
+        if (!duckdb_conn_enter(*intern->inner, lk)) {
+            RETURN_THROWS();
+        }
         if (duckdb_prepare(intern->inner->conn, sql, &stmt->stmt) == DuckDBError) {
             const char *err = stmt->stmt ? duckdb_prepare_error(stmt->stmt) : nullptr;
             duckdb_throw_prepare_error(err ? err : "Failed to prepare statement");
@@ -485,23 +607,29 @@ PHP_METHOD(DuckDB_Connection, queryStreaming) {
          * scan then surfaces at execute time instead of mid-fetch).
          * Kept deliberately until upstream ships the promised replacement
          * (duckdb/duckdb#13384); isolated to this call site. */
-        duckdb_pending_result pending = nullptr;
-        if (duckdb_pending_prepared_streaming(stmt->stmt, &pending) == DuckDBError) {
-            const char *err = pending ? duckdb_pending_error(pending) : nullptr;
-            std::string msg = (err && err[0]) ? err : "Failed to start streaming query";
-            if (pending) {
-                duckdb_destroy_pending(&pending);
+        duckdb_state st;
+        if (duckdb_conn_needs_pump(*intern->inner)) {
+            std::string start_error;
+            st = duckdb_pump_execute(*intern->inner, stmt->stmt, /*streaming=*/true, &res, start_error);
+            if (!start_error.empty()) {
+                duckdb_throw_start_error(start_error);
+                RETURN_THROWS();
             }
-            duckdb_error_type type = duckdb_classify_error_message(msg.c_str());
-            if (type == DUCKDB_ERROR_INVALID) {
-                type = DUCKDB_ERROR_INTERNAL;
+        } else {
+            duckdb_pending_result pending = nullptr;
+            if (duckdb_pending_prepared_streaming(stmt->stmt, &pending) == DuckDBError) {
+                const char *err = pending ? duckdb_pending_error(pending) : nullptr;
+                std::string msg = (err && err[0]) ? err : "Failed to start streaming query";
+                if (pending) {
+                    duckdb_destroy_pending(&pending);
+                }
+                duckdb_throw_start_error(msg);
+                RETURN_THROWS();
             }
-            duckdb_throw_error(type, msg.c_str());
-            RETURN_THROWS();
+            st = duckdb_execute_pending(pending, &res);
+            /* duckdb_execute_pending does NOT consume the pending handle. */
+            duckdb_destroy_pending(&pending);
         }
-        duckdb_state st = duckdb_execute_pending(pending, &res);
-        /* duckdb_execute_pending does NOT consume the pending handle. */
-        duckdb_destroy_pending(&pending);
         if (st == DuckDBError) {
             duckdb_throw_result_error(&res);
             RETURN_THROWS();
@@ -571,7 +699,7 @@ PHP_METHOD(DuckDB_Connection, queryAsync) {
     p->read_fd = fds[0];
 }
 
-PHP_METHOD(DuckDB_Connection, queryPending) {
+DUCKDB_COPY_METHOD(DuckDB_Connection, queryPending) {
     DUCKDB_TSRMLS_CACHE_UPDATE();
     char *sql;
     size_t sql_len;
@@ -595,7 +723,10 @@ PHP_METHOD(DuckDB_Connection, queryPending) {
     task->sql.assign(sql, sql_len);
 
     {
-        std::lock_guard<std::mutex> lk(task->conn->mutex);
+        std::unique_lock<std::mutex> lk;
+        if (!duckdb_conn_enter(*task->conn, lk)) {
+            RETURN_THROWS();
+        }
         duckdb_prepared_statement ps = nullptr;
         if (duckdb_prepare(task->conn->conn, task->sql.c_str(), &ps) == DuckDBError) {
             const char *err = ps ? duckdb_prepare_error(ps) : nullptr;
@@ -610,7 +741,15 @@ PHP_METHOD(DuckDB_Connection, queryPending) {
          * statement, but the pending result may reference its data - keep it
          * alive on the task, destroyed after the pending result. */
         task->owned_stmt = ps;
+        /* Workers start with the pending query: publish the session first. */
+        if (duckdb_conn_needs_pump(*task->conn)) {
+            task->session = duckdb_session_open(*task->conn);
+        }
         if (duckdb_pending_prepared(ps, &task->pending) == DuckDBError) {
+            if (task->session) {
+                duckdb_session_end(*task->conn, task->session, "Failed to start query", true);
+                task->session.reset();
+            }
             if (task->pending) {
                 const char *err = duckdb_pending_error(task->pending);
                 std::string msg = err ? err : "Failed to start query";
@@ -631,7 +770,7 @@ PHP_METHOD(DuckDB_Connection, queryPending) {
     p->read_fd = DUCKDB_INVALID_NOTIFY_FD; /* polling mode: no worker thread, no notify channel */
 }
 
-PHP_METHOD(DuckDB_Connection, execute) {
+DUCKDB_COPY_METHOD(DuckDB_Connection, execute) {
     DUCKDB_TSRMLS_CACHE_UPDATE();
     char *sql;
     size_t sql_len;
@@ -655,7 +794,10 @@ PHP_METHOD(DuckDB_Connection, execute) {
     duckdb_prepared_statement ps = nullptr;
     duckdb_result res = {};
     {
-        std::lock_guard<std::mutex> lk(intern->inner->mutex);
+        std::unique_lock<std::mutex> lk;
+        if (!duckdb_conn_enter(*intern->inner, lk)) {
+            RETURN_THROWS();
+        }
         if (duckdb_prepare(intern->inner->conn, sql, &ps) == DuckDBError) {
             const char *err = ps ? duckdb_prepare_error(ps) : nullptr;
             std::string msg = err ? err : "Failed to prepare statement";
@@ -669,7 +811,19 @@ PHP_METHOD(DuckDB_Connection, execute) {
             duckdb_destroy_prepare(&ps);
             RETURN_THROWS();
         }
-        if (duckdb_execute_prepared(ps, &res) == DuckDBError) {
+        duckdb_state st;
+        std::string start_error;
+        if (duckdb_conn_needs_pump(*intern->inner)) {
+            st = duckdb_pump_execute(*intern->inner, ps, /*streaming=*/false, &res, start_error);
+        } else {
+            st = duckdb_execute_prepared(ps, &res);
+        }
+        if (!start_error.empty()) {
+            duckdb_destroy_prepare(&ps);
+            duckdb_throw_start_error(start_error);
+            RETURN_THROWS();
+        }
+        if (st == DuckDBError) {
             duckdb_destroy_prepare(&ps);
             duckdb_throw_result_error(&res);
             RETURN_THROWS();
@@ -681,7 +835,7 @@ PHP_METHOD(DuckDB_Connection, execute) {
     duckdb_result_instantiate(return_value, &res, /*streaming=*/false, nullptr, intern->inner);
 }
 
-PHP_METHOD(DuckDB_Connection, prepare) {
+DUCKDB_COPY_METHOD(DuckDB_Connection, prepare) {
     DUCKDB_TSRMLS_CACHE_UPDATE();
     char *sql;
     size_t sql_len;
@@ -702,12 +856,17 @@ PHP_METHOD(DuckDB_Connection, prepare) {
     auto inner = std::make_shared<stmt_inner>();
     inner->conn = intern->inner;
     {
-        std::lock_guard<std::mutex> lk(intern->inner->mutex);
+        std::unique_lock<std::mutex> lk;
+        if (!duckdb_conn_enter(*intern->inner, lk)) {
+            RETURN_THROWS();
+        }
+        duckdb_copy_prepare_begin();
         if (duckdb_prepare(intern->inner->conn, sql, &inner->stmt) == DuckDBError) {
             const char *err = inner->stmt ? duckdb_prepare_error(inner->stmt) : nullptr;
             duckdb_throw_prepare_error(err ? err : "Failed to prepare statement");
             RETURN_THROWS();
         }
+        inner->uses_copy_format = duckdb_copy_prepare_used_format();
     }
 
     object_init_ex(return_value, duckdb_statement_ce);
@@ -745,7 +904,10 @@ PHP_METHOD(DuckDB_Connection, appender) {
     auto inner = std::make_shared<appender_inner>();
     inner->conn = intern->inner;
     {
-        std::lock_guard<std::mutex> lk(intern->inner->mutex);
+        std::unique_lock<std::mutex> lk;
+        if (!duckdb_conn_enter(*intern->inner, lk)) {
+            RETURN_THROWS();
+        }
         /* Appender operations go through the connection context and
          * invalidate any open streaming result on this connection. */
         intern->inner->execution_epoch.fetch_add(1, std::memory_order_relaxed);
@@ -856,7 +1018,11 @@ PHP_METHOD(DuckDB_Connection, getTableNames) {
 
     scoped_duckdb_value names;
     {
-        std::lock_guard<std::mutex> lk(intern->inner->mutex);
+        std::unique_lock<std::mutex> lk;
+        if (!duckdb_conn_enter(*intern->inner, lk)) {
+            RETURN_THROWS();
+        }
+        duckdb_copy_native_bind_scope native;
         names.reset(duckdb_get_table_names(intern->inner->conn, sql, /*qualified=*/false));
     }
     if (!names) {
@@ -892,7 +1058,10 @@ static void duckdb_connection_exec_simple(INTERNAL_FUNCTION_PARAMETERS, const ch
 
     duckdb_result res = {};
     {
-        std::lock_guard<std::mutex> lk(intern->inner->mutex);
+        std::unique_lock<std::mutex> lk;
+        if (!duckdb_conn_enter(*intern->inner, lk)) {
+            RETURN_THROWS();
+        }
         /* BEGIN/COMMIT/ROLLBACK are executions too: they invalidate any
          * open streaming result on this connection. */
         intern->inner->execution_epoch.fetch_add(1, std::memory_order_relaxed);
@@ -1010,6 +1179,8 @@ PHP_MINIT_FUNCTION(duckdb) {
     DUCKDB_REGISTER_CLASS(interval, register_class_DuckDB_Interval, php_json_serializable_ce);
     DUCKDB_REGISTER_CLASS(database, register_class_DuckDB_Database);
     DUCKDB_REGISTER_CLASS(connection, register_class_DuckDB_Connection);
+    duckdb_connection_handlers.get_gc = duckdb_connection_get_gc;
+    duckdb_register_copy_interfaces(register_class_DuckDB_CopyToFunction(), register_class_DuckDB_CopyToWriter());
     DUCKDB_REGISTER_CLASS(statement, register_class_DuckDB_Statement);
     duckdb_statement_handlers.get_gc = duckdb_statement_get_gc;
     duckdb_register_arrow_classes(register_class_DuckDB_ArrowSchema(), register_class_DuckDB_ArrowChunk());
@@ -1019,6 +1190,7 @@ PHP_MINIT_FUNCTION(duckdb) {
     DUCKDB_REGISTER_CLASS(result, register_class_DuckDB_Result, zend_ce_aggregate);
     DUCKDB_REGISTER_CLASS(result_iterator, register_class_DuckDB_ResultIterator, zend_ce_iterator);
     DUCKDB_REGISTER_CLASS(pending, register_class_DuckDB_PendingQuery);
+    duckdb_pending_handlers.dtor_obj = duckdb_pending_dtor_object;
     DUCKDB_REGISTER_CLASS(appender, register_class_DuckDB_Appender);
 
     /* Registered manually (not via ext_functions in duckdb_arginfo.h)
