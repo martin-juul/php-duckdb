@@ -1,0 +1,155 @@
+--- a/src/main/capi/copy_function-c.cpp
++++ b/src/main/capi/copy_function-c.cpp
+@@ -126,6 +126,10 @@
+ //----------------------------------------------------------------------------------------------------------------------
+ namespace duckdb {
+ namespace {
++//! A bind callback declines the binding by passing an error that starts with this exact text to
++//! duckdb_copy_function_bind_set_error. Engines without this handling report the readable message instead.
++constexpr const char *COPY_FUNCTION_DECLINED_PREFIX = "[copy-function-declined]";
++
+ struct CCopyToBindInfo : FunctionData {
+ 	shared_ptr<CopyFunctionInfo> function_info;
+ 	void *bind_data = nullptr;
+@@ -187,6 +191,10 @@
+ 		result->delete_callback = bind_info.delete_callback;
+ 
+ 		if (!bind_info.success) {
++			if (StringUtil::StartsWith(bind_info.error, COPY_FUNCTION_DECLINED_PREFIX)) {
++				// Declined: the COPY binder treats the format as missing
++				return nullptr;
++			}
+ 			throw BinderException(bind_info.error);
+ 		}
+ 	}
+@@ -194,6 +202,11 @@
+ }
+ 
+ } // namespace
++
++bool IsCAPICopyToFunction(const CopyFunction &function) {
++	return function.copy_to_bind == CCopyToBind;
++}
++
+ } // namespace duckdb
+ 
+ void duckdb_copy_function_set_bind(duckdb_copy_function copy_function, duckdb_copy_function_bind_t bind) {
+--- a/src/include/duckdb/function/copy_function.hpp
++++ b/src/include/duckdb/function/copy_function.hpp
+@@ -220,4 +220,8 @@
+ 	shared_ptr<CopyFunctionInfo> function_info;
+ };
+ 
++//! Whether COPY TO runs through a function registered with duckdb_register_copy_function. Its copy_to_bind returns
++//! nullptr when the C bind callback declines the binding; the COPY binder then treats the format as missing.
++DUCKDB_API bool IsCAPICopyToFunction(const CopyFunction &function);
++
+ } // namespace duckdb
+--- a/src/include/duckdb/planner/binder.hpp
++++ b/src/include/duckdb/planner/binder.hpp
+@@ -467,6 +467,7 @@
+ 
+ 	unique_ptr<LogicalOperator> CreatePlan(BoundJoinRef &ref);
+ 
++	BoundStatement BindCopyFunction(CopyStatement &stmt, const CopyFunction &function, CopyToType copy_to_type);
+ 	BoundStatement BindCopyTo(CopyStatement &stmt, const CopyFunction &function, CopyToType copy_to_type);
+ 	BoundStatement BindCopyFrom(CopyStatement &stmt, const CopyFunction &function);
+ 	void BindCopyOptions(CopyInfo &info);
+--- a/src/planner/binder/statement/bind_copy.cpp
++++ b/src/planner/binder/statement/bind_copy.cpp
+@@ -117,6 +117,8 @@
+ 	CopyFunctionReturnType return_type = CopyFunctionReturnType::CHANGED_ROWS;
+ 
+ 	CopyFunctionBindInput bind_input(*stmt.info, function.function_info);
++	// C API copy functions write serially and may decline the binding, so their option checks follow their bind
++	const bool is_capi_function = IsCAPICopyToFunction(function);
+ 
+ 	bind_input.file_extension = function.extension;
+ 
+@@ -164,7 +166,7 @@
+ 			if (option.second.empty()) {
+ 				throw BinderException("FILE_SIZE_BYTES cannot be empty");
+ 			}
+-			if (!function.rotate_files) {
++			if (!function.rotate_files && !is_capi_function) {
+ 				throw NotImplementedException("FILE_SIZE_BYTES not implemented for FORMAT \"%s\"", stmt.info->format);
+ 			}
+ 			if (option.second[0].GetTypeMutable().id() == LogicalTypeId::VARCHAR) {
+@@ -277,6 +279,21 @@
+ 	auto types_to_write =
+ 	    LogicalCopyToFile::GetTypesWithoutPartitions(select_node.types, partition_cols, write_partition_columns);
+ 	auto function_data = function.copy_to_bind(context, bind_input, names_to_write, types_to_write);
++	if (is_capi_function) {
++		if (!function_data) {
++			// Declined: the caller binds as if the format were missing
++			return BoundStatement();
++		}
++		if (!partition_cols.empty()) {
++			throw BinderException("PARTITION_BY is not supported for C API copy function \"%s\"", function.name);
++		}
++		if (per_thread_output) {
++			throw BinderException("PER_THREAD_OUTPUT is not supported for C API copy function \"%s\"", function.name);
++		}
++		if (file_size_bytes.IsValid()) {
++			throw NotImplementedException("FILE_SIZE_BYTES not implemented for FORMAT \"%s\"", stmt.info->format);
++		}
++	}
+ 
+ 	const auto rotate = function.rotate_files && function.rotate_files(*function_data, file_size_bytes);
+ 	if (rotate) {
+@@ -541,7 +558,30 @@
+ 	}
+ 	auto &copy_function = entry->Cast<CopyFunctionCatalogEntry>();
+ 	auto &function = copy_function.function;
++	if (stmt.info->is_from || !IsCAPICopyToFunction(function)) {
++		return BindCopyFunction(stmt, function, copy_to_type);
++	}
++
++	// A C API copy function can decline the binding; its format then behaves as if it were not in the catalog
++	auto bound_options = stmt.info->options;
++	auto result = BindCopyFunction(stmt, function, copy_to_type);
++	if (result.plan) {
++		return result;
++	}
++	if (!stmt.info->is_format_auto_detected) {
++		throw CatalogException::MissingEntry(CatalogType::COPY_FUNCTION_ENTRY, stmt.info->format, string());
++	}
++	IsFormatExtensionKnown(stmt.info->format);
++	auto &csv_entry = catalog.GetEntry(entry_retriever, DEFAULT_SCHEMA, {CatalogType::COPY_FUNCTION_ENTRY, "csv"},
++	                                   OnEntryNotFound::THROW_EXCEPTION)
++	                      ->Cast<CopyFunctionCatalogEntry>();
++	// The declined attempt bound the query in this binder; bind the fallback in a fresh one
++	stmt.info->options = std::move(bound_options);
++	auto csv_binder = Binder::CreateBinder(context, this);
++	return csv_binder->BindCopyFunction(stmt, csv_entry.function, copy_to_type);
++}
+ 
++BoundStatement Binder::BindCopyFunction(CopyStatement &stmt, const CopyFunction &function, CopyToType copy_to_type) {
+ 	if (function.copy_options) {
+ 		// list all copy options - then bind them and offer alternatives
+ 		auto copy_mode = stmt.info->is_from ? CopyOptionMode::READ_ONLY : CopyOptionMode::WRITE_ONLY;
+--- a/src/planner/binder/statement/bind_export.cpp
++++ b/src/planner/binder/statement/bind_export.cpp
+@@ -162,6 +162,10 @@
+ 	if (!copy_function.function.copy_to_bind && !copy_function.function.plan) {
+ 		throw NotImplementedException("COPY TO is not supported for FORMAT \"%s\"", stmt.info->format);
+ 	}
++	if (IsCAPICopyToFunction(copy_function.function)) {
++		throw BinderException("EXPORT DATABASE is not supported for C API copy function \"%s\"",
++		                      copy_function.function.name);
++	}
+ 
+ 	// gather a list of all the tables
+ 	string catalog = stmt.database.empty() ? INVALID_CATALOG : stmt.database;
+--- a/src/planner/operator/logical_copy_to_file.cpp
++++ b/src/planner/operator/logical_copy_to_file.cpp
+@@ -130,6 +130,9 @@
+ 		auto names_to_write = GetNamesWithoutPartitions(names, partition_columns, write_partition_columns);
+ 		auto types_to_write = GetTypesWithoutPartitions(expected_types, partition_columns, write_partition_columns);
+ 		bind_data = function.copy_to_bind(context, function_bind_input, names_to_write, types_to_write);
++		if (!bind_data) {
++			throw BinderException("Copy function \"%s\" declined to bind", function.name);
++		}
+ 	}
+ 
+ 	auto result = make_uniq<LogicalCopyToFile>(function, std::move(bind_data), std::move(copy_info));

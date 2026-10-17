@@ -17,10 +17,13 @@ import/export, reusable native chunks and batch appending.
 [Standalone vectors](vector.md) were merged in
 [PR #11](https://github.com/martin-juul/php-duckdb/pull/11): owned, typed
 vectors that PHP creates, fills, copies and assembles into native chunks.
-[Selection vectors](selection.md) are the current feature: reusable lists of
-row indices that pick, reorder and repeat vector and chunk rows. These
+[Selection vectors](selection.md) were merged in
+[PR #12](https://github.com/martin-juul/php-duckdb/pull/12): reusable lists of
+row indices that pick, reorder and repeat vector and chunk rows.
+[Custom COPY TO formats](copy.md) are the current feature: PHP classes that
+receive `COPY ... TO` output batch by batch on the request thread. These
 features are under development in this checkout and are not yet released.
-Custom COPY functions are next.
+Public scalar bind/init callbacks are next.
 
 The intended PR sequence is:
 

@@ -411,6 +411,44 @@ final class Database
 }
 
 /**
+ * A PHP implementation of a `COPY ... TO` format, registered with
+ * {@see Connection::registerCopyToFunction()}. Methods run on the request
+ * thread while the COPY statement executes; they must not suspend.
+ */
+interface CopyToFunction
+{
+    /**
+     * Validate a statement that uses this format. Throw to reject it.
+     *
+     * @param string[] $columnTypes SQL type declarations, one per column.
+     * @param array $options Format options keyed by upper-cased name.
+     */
+    public function bind(array $columnTypes, array $options): void;
+
+    /**
+     * Start one execution. `$path` is the local file DuckDB expects to be
+     * created; it may be a `tmp_` path that DuckDB renames on success.
+     *
+     * @param string[] $columnTypes SQL type declarations, one per column.
+     * @param array $options Format options keyed by upper-cased name.
+     */
+    public function open(string $path, array $columnTypes, array $options): CopyToWriter;
+}
+
+/** Receives the batches of one `COPY ... TO` execution. */
+interface CopyToWriter
+{
+    /** Receive one batch; it is only valid during this call. */
+    public function write(DataChunk $batch): void;
+
+    /** The COPY succeeded. */
+    public function close(): void;
+
+    /** The COPY failed after this writer was opened. */
+    public function abort(\Throwable $reason): void;
+}
+
+/**
  * A connection to a DuckDB database. Created via {@see Database::connect()}.
  *
  * Connections are not safe for concurrent use from multiple threads, so the
@@ -427,6 +465,13 @@ final class Connection
      * The capacity defaults to {@see vectorSize()}.
      */
     public function createVector(string|Value $type, ?int $capacity = null): Vector {}
+
+    /**
+     * Make `$name` a `COPY ... TO` format on this connection, implemented
+     * by `$function`. Names are case-insensitive; registering a name again
+     * replaces its handler. The format is unavailable on other connections.
+     */
+    public function registerCopyToFunction(string $name, CopyToFunction $function): void {}
 
     private function __construct() {}
 

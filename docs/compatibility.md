@@ -59,7 +59,7 @@ exception state on both that layout and the PHP 8.6 runtime without the field.
 
 Earlier local validation before the Arrow changes also covered DuckDB 1.5.5
 and AMPHP/ReactPHP dependencies. Those combinations have not been rerun locally
-for Arrow in this checkout.
+for Arrow in this checkout, and 1.5.5 is no longer supported.
 
 | Packaging target | PHP selection | DuckDB source | Architectures |
 | -------------------- | ---------------------------- | ---------------------- | ------------- |
@@ -116,16 +116,28 @@ Valgrind coverage is claimed.
 | Engine | Status |
 | ------------------------------ | ---------------------------------------------------------------------------------------------------- |
 | 1.5.6 | Current pinned target; matching headers and library required |
-| 1.5.5 | Supported distribution baseline; earlier typed binding, examples and stress checks passed; Arrow not revalidated locally |
+| 1.5.5 and older | Not supported: COPY functions became stable C API in 1.5.6 |
 | External library (manual source builds) | Validate the actual library separately; packaging recipes use the shared patched SDK |
 | Other older or future versions | Unverified; build and run the suite before deployment |
 
-The build checks for the required C API functions. It does not require the
-version macros introduced in DuckDB 1.5.6: DuckDB 1.5.5 already provides the
-expression folding, scalar bind and geometry CRS APIs used by typed binding.
-All packaging recipes use the pinned patched SDK; manual external-library
+The build checks for the required C API functions, including the COPY
+function, client context and statement extraction APIs. It does not rely on
+the version macros introduced in DuckDB 1.5.6, so distribution SDKs without
+them still build when they provide those functions. The minimum supported
+engine is 1.5.6, which stabilized the COPY function API.
+
+All packaging recipes use the pinned patched SDK. Manual external-library
 builds must provide the required APIs and validate Arrow transaction/CRS
-behavior.
+behavior. They also lose two guarantees of [PHP COPY formats](copy.md), which
+the bundled patch adds to DuckDB's binder:
+
+- With the patch, a connection that did not register a format behaves as if
+  it did not exist: `FORMAT name` gets DuckDB's missing-format error and a
+  matching extension falls back to CSV. Without it, those statements fail with
+  a `BinderException` saying the format is not registered on this connection.
+- With the patch, `PARTITION_BY`, `PER_THREAD_OUTPUT` and `EXPORT DATABASE`
+  are rejected when a statement is bound. Without it, they fail at runtime,
+  when a second output file starts.
 
 ## C API audit: 1.5.5 → 1.5.6
 
@@ -150,7 +162,8 @@ structured appender/error reporting.
 | Typed values and value constructors | Full typed input through native PHP value classes; C value handles remain internal |
 | Geometry CRS | Typed geometry preserves CRS metadata; additional CRS APIs are not public |
 | Scalar bind callbacks and expressions | Used internally for typed conversion; no public PHP callback or expression-handle API |
-| COPY functions, scalar init callbacks, table-function metadata, custom logging | No corresponding PHP callback/handle surface |
+| COPY functions | `COPY ... TO` formats exposed through `Connection::registerCopyToFunction()`; `COPY ... FROM` functions are not public |
+| Scalar init callbacks, table-function metadata, custom logging | No corresponding PHP callback/handle surface |
 | Value string rendering | Exposed through `Value::toString(Connection)` for connection-aware display text |
 | Standalone vectors | Exposed through `Vector`, `Connection::createVector()` and `DataChunk::fromVectors()`/`vector()` |
 | Selection vectors | Exposed through `SelectionVector`, `Vector::select()`/`copySelected()` and `DataChunk::select()`; slicing into dictionary vectors is not public |
@@ -166,7 +179,9 @@ is available through `Value::toString(Connection)`. [Arrow conversion](arrow.md)
 provides schema and batch handles with native address exchange.
 [Standalone vectors](vector.md) are owned, typed columns that build native
 chunks; they do not expose raw buffers. [Selection vectors](selection.md)
-pick, reorder and repeat vector and chunk rows by copying them. The remaining
+pick, reorder and repeat vector and chunk rows by copying them.
+[COPY TO formats](copy.md) let PHP classes write `COPY` output, with handlers
+called on the request thread. The remaining
 planned public APIs are listed in the [roadmap](roadmap.md). The PHP surface
 is specified in [the stub](../duckdb.stub.php) and [API reference](api.md).
 

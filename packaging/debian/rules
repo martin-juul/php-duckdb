@@ -1,7 +1,7 @@
 #!/usr/bin/make -f
 
 # Stage the pinned source archive before entering the package build. The
-# shared builder verifies its checksum and both engine patches offline.
+# shared builder verifies its checksum and all engine patches offline.
 DUCKDB_SOURCE_ARCHIVE ?= $(CURDIR)/duckdb-source.tar.gz
 DUCKDB_BUILD_DIR ?= /tmp/php-duckdb-deb-engine
 

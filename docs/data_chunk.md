@@ -17,6 +17,11 @@ in this checkout and are not in the released 1.3.1 archive. See
 [Arrow conversion](arrow.md) and [vectors](vector.md) for the APIs and
 ownership contracts.
 
+A [PHP COPY format](copy.md) receives each result batch as a borrowed
+`DataChunk` that DuckDB owns. It is valid only during
+`CopyToWriter::write()`; afterwards every method throws `Error`. `select()`
+and `vector()` return owned copies that remain valid.
+
 ## Streaming results
 
 `Connection::queryStreaming()` / `Statement::executeStreaming()` fetch one

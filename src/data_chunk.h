@@ -21,9 +21,12 @@ struct data_chunk_data {
     std::shared_ptr<arrow_chunk_data> arrow_owner;
     /* Normalize struct slices without changing producer-owned arrays. */
     std::shared_ptr<arrow_array_facade> arrow_facade;
+    /* A COPY batch DuckDB owns; it is valid only while the handler runs. */
+    bool borrowed = false;
+    bool expired = false;
 
     ~data_chunk_data() {
-        if (chunk) {
+        if (chunk && !borrowed) {
             duckdb_destroy_data_chunk(&chunk);
         }
     }
@@ -32,6 +35,7 @@ struct data_chunk_data {
 extern zend_class_entry *duckdb_data_chunk_ce;
 void duckdb_register_data_chunk_class(zend_class_entry *ce);
 std::shared_ptr<data_chunk_data> duckdb_data_chunk_from_zval(zval *value);
+void duckdb_data_chunk_wrap(zval *return_value, std::shared_ptr<data_chunk_data> data);
 std::shared_ptr<data_chunk_data> duckdb_import_arrow_chunk(conn_inner *conn,
                                                         const std::shared_ptr<arrow_chunk_data> &arrow);
 void duckdb_data_chunk_rows(data_chunk_data *data, zend_object *mode, zval *return_value);

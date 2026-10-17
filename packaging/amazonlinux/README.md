@@ -1,7 +1,7 @@
 # Amazon Linux RPM
 
 This recipe builds against Amazon Linux's native PHP packages and ships the
-repository's pinned DuckDB engine with both patches. It installs the engine
+repository's pinned DuckDB engine with all patches. It installs the engine
 at `/usr/lib64/php-duckdb/libphp-duckdb-engine.so` on x86_64 and aarch64, with
 its own SONAME and an explicit extension dependency. A system `libduckdb.so`
 is neither installed nor replaced.
@@ -52,7 +52,7 @@ cp packaging/amazonlinux/php-pecl-duckdb.spec "$HOME/rpmbuild/SPECS/"
 rpmbuild --define 'php_slot 8.4' -ba "$HOME/rpmbuild/SPECS/php-pecl-duckdb.spec"
 ```
 
-Use a source revision containing the shared SDK builder and both engine
+Use a source revision containing the shared SDK builder and all engine
 patches. Historical release archives through 1.3.1 do not contain the complete
 packaging toolchain. The builder verifies the engine archive SHA-256 before
 applying patches and building. To build AL2027, select `php_slot 8.5`.
@@ -63,7 +63,7 @@ extension and harness workers. Native LTO linking uses the selected worker budge
 for each build stage; GCC's automatic LTO parallelism ignores the container quota.
 `DUCKDB_SDK_CACHE_DIR` enables the shared
 verified SDK cache; cache entries remain specific to the release, compiler,
-flags, source and both patches.
+flags, source and patches.
 
 ## Install and validate
 

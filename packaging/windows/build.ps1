@@ -63,7 +63,7 @@ try {
     Get-PhpDevelBuild -Config $config -BuildDetails $details | Out-Null
     Add-Dependencies -Config $config -Prefix $php
 
-    # Build the hash-pinned source with both engine patches.
+    # Build the hash-pinned source with all engine patches.
     # Engine VS2022 selection is independent of PHP's vs16/vs17 selection.
     $duck = Join-Path $BuildRoot 'duckdb-sdk'
     & "$source/packaging/duckdb/build-sdk.ps1" -Prefix $duck `
@@ -146,6 +146,7 @@ try {
         duckdb_source_sha256 = $duckPins.sha256
         duckdb_patch_sha256 = (Get-FileHash "$duck/share/duckdb-sdk/nullable-bitpacking.patch" -Algorithm SHA256).Hash.ToLowerInvariant()
         duckdb_arrow_patch_sha256 = (Get-FileHash "$duck/share/duckdb-sdk/arrow-geometry.patch" -Algorithm SHA256).Hash.ToLowerInvariant()
+        duckdb_copy_function_patch_sha256 = (Get-FileHash "$duck/share/duckdb-sdk/c-api-copy-functions.patch" -Algorithm SHA256).Hash.ToLowerInvariant()
         duckdb_dll_sha256 = (Get-FileHash "$duck/bin/duckdb.dll" -Algorithm SHA256).Hash.ToLowerInvariant()
     } | ConvertTo-Json | Set-Content "$package/build-info.json" -Encoding utf8
     $output = Join-Path $source 'dist'

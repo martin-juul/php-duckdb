@@ -13,6 +13,10 @@ execution engine, so **you cannot register table functions from PHP**. The
 same restriction applies to the C API's scalar-function, aggregate-function
 and cast registration interfaces.
 
+COPY functions are the exception: a PHP class can implement a `COPY ... TO`
+output format. DuckDB hands each result batch to the request thread, where the
+PHP handler writes it. See [COPY TO formats](copy.md).
+
 ## But: use the entire built-in table-function library via SQL
 
 SQL queries can call every table function shipped with DuckDB or loaded by

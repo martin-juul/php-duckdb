@@ -30,6 +30,8 @@ Feature highlights:
 - **Selection vectors**: pick, reorder and repeat [vector and chunk
   rows](docs/selection.md) natively, for example to filter a batch before
   appending it
+- **COPY TO formats in PHP**: [stream query results](docs/copy.md) to a
+  file format implemented by a PHP class, with `COPY ... TO ... (FORMAT name)`
 - **Asynchronous execution** on background worker threads, with cancellation,
   progress reporting, Fiber suspension, coroutine-native **Swoole 6+**, **True
   Async**, **AMPHP v3** and **ReactPHP** integration, and event-loop support
@@ -96,8 +98,8 @@ For application integration, see the
 - A C++17 compiler
 - The DuckDB C library (`libduckdb` + `duckdb.h`), e.g. from
   <https://duckdb.org/docs/installation/> — this driver is developed and tested
-  against **DuckDB v1.5.6**. Distribution builds also support **v1.5.5**;
-  headers and library must match and provide the required C APIs.
+  against **DuckDB v1.5.6**, the minimum supported version; headers and
+  library must match and provide the required C APIs.
 
 Repository builds that vendor DuckDB use the
 [patched SDK builder](packaging/duckdb/README.md). Its engine patch fixes
@@ -156,7 +158,7 @@ disappears, the next configure retries discovery and automatic setup;
 
 On a fresh checkout, CMake automatically runs the shared SDK builder into
 `<build directory>/duckdb-sdk`. Cold configuration downloads the pinned engine,
-applies both repository patches and compiles it with the resource-aware worker
+applies all repository patches and compiles it with the resource-aware worker
 budget. The builder needs Python 3, CMake, C/C++ compilers, curl, tar, patch and
 make; `DUCKDB_BUILD_JOBS` and `DUCKDB_SDK_CACHE_DIR` retain their usual meanings.
 The first configure can therefore take substantially longer than later reloads.
@@ -378,6 +380,41 @@ $appender->appendChunk($chunk->select($valid));
 
 See [selection vectors](docs/selection.md) and the
 [runnable example](examples/selection.php).
+
+## COPY TO formats
+
+A PHP class can implement a `COPY ... TO` output format. DuckDB streams each
+result batch to the writer that `open()` returns:
+
+```php
+final class JsonLines implements DuckDB\CopyToFunction
+{
+    public function bind(array $columnTypes, array $options): void {}
+
+    public function open(string $path, array $columnTypes, array $options): DuckDB\CopyToWriter
+    {
+        return new class($path) implements DuckDB\CopyToWriter {
+            private $out;
+            public function __construct(string $path) { $this->out = fopen($path, 'w'); }
+            public function write(DuckDB\DataChunk $batch): void
+            {
+                foreach ($batch->toRows() as $row) {
+                    fwrite($this->out, json_encode($row) . "\n");
+                }
+            }
+            public function close(): void { fclose($this->out); }
+            public function abort(Throwable $reason): void { fclose($this->out); }
+        };
+    }
+}
+
+$conn->registerCopyToFunction('jsonl_php', new JsonLines());
+$conn->query("COPY (SELECT * FROM events) TO 'events.jsonl' (FORMAT jsonl_php)");
+```
+
+The format is available only on the registering connection, and its handlers
+run on the request thread. See [COPY TO formats](docs/copy.md) and the
+[runnable example](examples/copy_to.php).
 
 ## Prepared statements
 
@@ -835,6 +872,11 @@ The test suite covers the following input checks and resource-lifecycle rules:
   private to each `Database` object.
 - Worker threads only execute DuckDB calls; all PHP/zval access happens on the
   request thread. Safe under ZTS, `parallel`, FrankenPHP, etc.
+- PHP callbacks such as [COPY TO format](docs/copy.md) handlers also run only
+  on the request thread: DuckDB workers hand their calls to it while it drives
+  the statement. Handlers must not suspend or use the connection running the
+  statement, and `queryAsync()`/`executeAsync()` reject statements that need
+  them.
 - DuckDB interrupt is connection-scoped: `PendingQuery::cancel()` on a threaded
   query interrupts the whole connection (cancelling a finished query is a no-op
   and never disturbs newer work).

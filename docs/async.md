@@ -20,6 +20,12 @@ $pending = $conn->queryPending('SELECT * FROM big_table');
 
 Both return a `DuckDB\PendingQuery`. The result is consumable **exactly once**.
 
+Statements that use a [PHP COPY format](copy.md) need the request thread to run
+their handlers, so they work only in polling mode. `queryAsync()` and
+`executeAsync()` reject them. A polling query that runs a PHP format calls its
+handlers from `isReady()`, `await()` and `suspend()`; the handlers themselves
+must not suspend.
+
 ## Consuming the result
 
 ### Blocking

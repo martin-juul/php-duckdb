@@ -29,7 +29,7 @@ To test without changing php.ini, run from the directory containing php.exe:
 The archive includes `LICENSE.php-duckdb`, `LICENSE.duckdb` and
 `build-info.json` describing the exact PHP patch, extension version, DuckDB
 version, compiler and source commit used. The `duckdb-sdk` directory records the
-engine source digest, both applied patches, build options and artifact hashes.
+engine source digest, all applied patches, build options and artifact hashes.
 These records describe the SDK used to produce the bundled DLL.
 
 ## Maintainer build
@@ -43,16 +43,16 @@ a separate automatically generated artifact.
 
 `build.ps1` calls [the SDK builder](../duckdb/build-sdk.ps1) to compile the
 source pinned in [source.json](../duckdb/source.json). The builder verifies the
-source archive's SHA-256, applies both the nullable-bitpacking and Arrow
-conversion/geometry patches with exact context, and builds a Release DLL with
-Visual Studio 2022 x64. It includes core functions, Parquet, JSON, ICU and
-autocomplete, enables extension autoloading and automatic installation, and
-disables host-specific CPU optimization. It preserves upstream's static CRT and
-unity build defaults. Set `DUCKDB_DISABLE_UNITY=ON` to disable unity builds when
-memory is limited. The installed SDK contains only the C header, DLL, import
-library and build provenance; the PHP extension has no C++ client dependency.
-PHP 8.2/8.3 still use their matching `vs16` extension toolchain, while PHP
-8.4/8.5 use `vs17`.
+source archive's SHA-256, applies the nullable-bitpacking, Arrow
+conversion/geometry and C API copy-function patches with exact context, and
+builds a Release DLL with Visual Studio 2022 x64. It includes core functions,
+Parquet, JSON, ICU and autocomplete, enables extension autoloading and
+automatic installation, and disables host-specific CPU optimization. It
+preserves upstream's static CRT and unity build defaults. Set
+`DUCKDB_DISABLE_UNITY=ON` to disable unity builds when memory is limited. The
+installed SDK contains only the C header, DLL, import library and build
+provenance; the PHP extension has no C++ client dependency. PHP 8.2/8.3 still
+use their matching `vs16` extension toolchain, while PHP 8.4/8.5 use `vs17`.
 
 The Windows builder requires PowerShell, Visual Studio 2022 C++ x64 tools,
 CMake, Git and `tar.exe`, all available on the `windows-2022` packaging runner.
