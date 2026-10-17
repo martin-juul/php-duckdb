@@ -1,5 +1,55 @@
 # Migrations
 
+## Upgrade 1.3.1 → 1.4.0
+
+DuckDB remains pinned to **1.5.6**, with the repository's patched SDK required
+for the documented Arrow conversion and deterministic custom COPY TO binding.
+PHP **8.2–8.5** remain supported. Rebuild or install extension **1.4.0** for
+the target PHP ABI and restart persistent PHP workers. Replace the extension
+and bundled engine library together; retain the previous pair or immutable
+image for rollback.
+
+This minor release adds typed input, columnar and export APIs:
+
+- [Typed values](value.md) for explicit SQL declarations in prepared binding
+  and appending, with connection-aware `Value::toString()` display text.
+- [Arrow schemas and chunks](arrow.md), including native C Data Interface
+  import/export, result batch fetching and conversion to reusable native chunks.
+- [Owned vectors](vector.md), [selection vectors](selection.md) and
+  [data chunks](data_chunk.md) for typed column construction, copying and
+  selection without decoding every row into PHP arrays.
+- [Batch appending](appender.md#arrow-and-native-batches) with
+  `appendArrow()` and `appendChunk()`.
+- [Custom COPY TO formats](copy.md) with PHP handlers that receive borrowed
+  result chunks on the request thread.
+
+Existing query, prepared-statement, row appender and asynchronous entry points
+remain available. No PHP APIs are removed or newly deprecated. Applications
+can adopt the new APIs incrementally. Arrow conversion consumes its Arrow
+input; native chunks remain reusable. COPY callback chunks are valid only
+inside `CopyToWriter::write()`. Review the linked ownership rules before
+retaining or exchanging native addresses.
+
+`Appender::clear()` now allows explicit recovery after a native submission or
+flush failure. It discards buffered rows and any partial row before reuse;
+rows already flushed remain in the table. Use a transaction when the entire
+batch must roll back. A failed appender rejects appends and flushes until
+cleared; `close()` on a failed appender discards pending data. See
+[appender failure semantics](appender.md#flushing-and-failure-semantics).
+
+Update an application's Composer extension requirement to `^1.4.0` when it
+uses these APIs. Source builds need matching headers and library from the
+[patched SDK builder](../packaging/duckdb/README.md); an unpatched upstream
+DuckDB 1.5.6 library does not provide all documented behavior. Test application
+queries, conversions, batch appends and custom formats against a disposable
+copy of production data before deployment. The compatibility tables record
+configured coverage and validation evidence, including optional runtime skips.
+
+For rollback, stop processes using the database, restore the previous PHP
+extension and matching engine library or image, and restart. Restore the
+database backup if required by its state; replacing binaries does not reverse
+database changes. The engine pin is unchanged from 1.3.1.
+
 ## Upgrade 1.3.0 → 1.3.1
 
 DuckDB remains pinned to **1.5.6**. No PHP APIs are removed or newly

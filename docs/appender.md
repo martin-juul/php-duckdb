@@ -22,9 +22,9 @@ $appender->close();   // flush + finish (also happens automatically on destructi
 
 ## Arrow and native batches
 
-The current Arrow feature adds `appendArrow(ArrowChunk $chunk)` and
+Extension 1.4.0 adds `appendArrow(ArrowChunk $chunk)` and
 `appendChunk(DataChunk $chunk)` for compatible columnar batches. These APIs
-are under development in this checkout and are not in released 1.3.1.
+are available starting with extension 1.4.0.
 
 `appendArrow()` converts the batch using the appender connection and consumes
 its Arrow input. `appendChunk()` leaves the native chunk reusable, including

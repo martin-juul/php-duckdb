@@ -12,8 +12,8 @@ extensions can produce/consume data in engine-native batches.
 
 Owning `DuckDB\DataChunk` objects come from `Connection::dataChunkFromArrow()`
 or `DataChunk::fromVectors()`. They decode rows repeatedly, export Arrow
-batches and append without being consumed. These APIs are under development
-in this checkout and are not in the released 1.3.1 archive. See
+batches and append without being consumed. These APIs are available
+starting with extension 1.4.0. See
 [Arrow conversion](arrow.md) and [vectors](vector.md) for the APIs and
 ownership contracts.
 

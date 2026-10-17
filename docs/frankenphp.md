@@ -27,10 +27,10 @@ Choose a PHP version, extension release, or both:
 | ---------------------------------------------- | ---------------------------------------------------------------- |
 | `8.4-frankenphp`, `php8.4-frankenphp`          | Moving PHP 8.4 build; PHP 8.5 is also available                  |
 | `latest-frankenphp`                            | Moving build for the newest supported PHP version, currently 8.5 |
-| `1.3.1-php8.4-frankenphp`                      | Extension release 1.3.1 with PHP 8.4                             |
-| `1.3-php8.4-frankenphp`, `1-php8.4-frankenphp` | Moving minor/major release aliases with PHP 8.4                  |
-| `1.3.1-frankenphp`                             | Extension release 1.3.1 with PHP 8.5                             |
-| `1.3-frankenphp`, `1-frankenphp`               | Moving minor/major release aliases with PHP 8.5                  |
+| `1.4.0-php8.4-frankenphp`                      | Extension release 1.4.0 with PHP 8.4                             |
+| `1.4-php8.4-frankenphp`, `1-php8.4-frankenphp` | Moving minor/major release aliases with PHP 8.4                  |
+| `1.4.0-frankenphp`                             | Extension release 1.4.0 with PHP 8.5                             |
+| `1.4-frankenphp`, `1-frankenphp`               | Moving minor/major release aliases with PHP 8.5                  |
 
 Master pushes and stable release builds update the PHP-only tags. Git tags
 produce the release tags, and minor/major aliases follow the most recently

@@ -207,13 +207,13 @@ Choose how closely to pin the extension and PHP versions:
 | ------------------------ | ---------------------------------------------------------------------------------- |
 | `8.4`, `php8.4`          | Moving build for PHP 8.4; also available for PHP 8.2, 8.3 and 8.5                  |
 | `latest`                 | Moving build for the newest supported PHP version (currently 8.5)                  |
-| `1.3.1-php8.4`           | Extension release 1.3.1 with PHP 8.4                                               |
-| `1.3-php8.4`, `1-php8.4` | Moving extension minor/major release aliases with PHP 8.4                          |
-| `1.3.1`                  | Extension release 1.3.1 with the newest supported PHP version                      |
-| `1.3`, `1`               | Moving extension minor/major release aliases with the newest supported PHP version |
+| `1.4.0-php8.4`           | Extension release 1.4.0 with PHP 8.4                                               |
+| `1.4-php8.4`, `1-php8.4` | Moving extension minor/major release aliases with PHP 8.4                          |
+| `1.4.0`                  | Extension release 1.4.0 with the newest supported PHP version                      |
+| `1.4`, `1`               | Moving extension minor/major release aliases with the newest supported PHP version |
 
 PHP-only aliases update on master pushes and stable release builds. Extension
-release aliases are published on Git tags such as `v1.3.1` or `1.3.1`;
+release aliases are published on Git tags such as `v1.4.0` or `1.4.0`;
 major/minor aliases follow the most recently published matching release build.
 Prereleases such as `1.4.0-rc.1` publish only their full release tags, with and
 without the PHP suffix, and leave stable aliases unchanged. Pull requests build
@@ -241,8 +241,8 @@ docker run --rm --entrypoint php \
 ```
 
 Every tag form above also has a `-frankenphp` variant for PHP 8.4 and 8.5, such
-as `php8.4-frankenphp`, `1.3.1-php8.4-frankenphp`, `1.3-php8.4-frankenphp`,
-`1.3.1-frankenphp` and `1-frankenphp`. Release-only FrankenPHP tags use PHP 8.5.
+as `php8.4-frankenphp`, `1.4.0-php8.4-frankenphp`, `1.4-php8.4-frankenphp`,
+`1.4.0-frankenphp` and `1-frankenphp`. Release-only FrankenPHP tags use PHP 8.5.
 
 They are built from `Dockerfile.frankenphp` in this repository; see
 [docs/frankenphp.md](docs/frankenphp.md) for worker-mode details.
@@ -320,8 +320,7 @@ usable.
 
 ## Arrow batches
 
-These APIs are under development in this checkout and are not included in the
-released 1.3.1 archive.
+These APIs are available starting with extension **1.4.0**.
 
 Fetch columnar batches from buffered or streaming results, inspect their schemas,
 and convert them to reusable native chunks. Lossless Arrow conversion is enabled
@@ -351,8 +350,7 @@ for ownership, mixed row fetching and supported conversion semantics, and the
 
 ## Vectors
 
-These APIs are under development in this checkout and are not included in the
-released 1.3.1 archive.
+These APIs are available starting with extension **1.4.0**.
 
 Build typed native columns from PHP values and assemble them into chunks.
 Writes convert input like typed binding, and a rejected batch leaves the vector

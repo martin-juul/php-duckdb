@@ -7,7 +7,7 @@
 #
 
 %global pecl_name        duckdb
-%global upstream_version 1.3.1
+%global upstream_version 1.4.0
 
 # Build the pinned, patched source SDK used by all packaging targets.
 # Keep the engine patch set consistent with the project SDK.
@@ -152,6 +152,11 @@ export DUCKDB_EXTENSION_PATH="$PWD/modules/duckdb.so"
 %{_libdir}/libduckdb.so
 
 %changelog
+* Sat Oct 17 2026 Martin Juul Christiansen <code@juul.xyz> - 1.4.0-1
+- Release 1.4.0 with typed values, Arrow interoperability and native vectors.
+- Add selection vectors and PHP COPY TO formats.
+- Ship the pinned DuckDB 1.5.6 SDK with the complete engine patch set.
+
 * Sat Oct 03 2026 Martin Juul Christiansen <code@juul.xyz> - 1.3.1-1
 - Add Windows x64 packages and selectable async notifications.
 - Fix Windows build compatibility and retry transient CI downloads.

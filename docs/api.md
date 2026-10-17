@@ -2,9 +2,9 @@
 
 This reference lists every class, method, enum and function exported by the
 extension. [`duckdb.stub.php`](../duckdb.stub.php) is the canonical source and
-also serves as the stub for IDEs and static analysis. This reference follows
-the current checkout; Arrow and vector APIs are under development and are not
-included in the released 1.3.1 archive.
+also serves as the stub for IDEs and static analysis. This reference covers
+extension **1.4.0**, including typed values, Arrow, vectors, selection and
+custom COPY TO APIs.
 
 Namespace: `DuckDB`.
 
@@ -224,7 +224,7 @@ See [types.md](types.md) for the full DuckDB→PHP value mapping.
 ## `final class ArrowSchema`
 
 An owning C Data Interface schema with a private constructor. Arrow APIs are
-under development in this checkout and are not in the released 1.3.1 archive.
+available starting with extension 1.4.0.
 
 | Method | Description |
 | --- | --- |

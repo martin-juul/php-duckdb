@@ -3,7 +3,7 @@
 When deploying an application that uses DuckDB, check both its native
 dependencies and the PHP runtime serving it. This guide covers those checks.
 The [overview](overview.md) covers installation, and the topic pages below
-cover SQL and the PHP API. For extension 1.3.1, the
+cover SQL and the PHP API. For extension 1.4.0, the
 [compatibility matrix](compatibility.md) records the PHP and DuckDB versions;
 read [migrations](migrations.md) before upgrading an existing application.
 
@@ -19,7 +19,7 @@ Add the platform requirement to your application's existing `composer.json`
 ```json
 {
     "php": ">=8.2",
-    "ext-duckdb": "^1.3.1"
+    "ext-duckdb": "^1.4.0"
 }
 ```
 

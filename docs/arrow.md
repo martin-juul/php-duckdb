@@ -1,7 +1,6 @@
 # Arrow conversion
 
-These APIs are under development in this checkout. They are not included in
-the released 1.3.1 archive.
+These APIs are available starting with extension **1.4.0**.
 
 The extension exposes Arrow schemas and record batches through the
 [Arrow C Data Interface](https://arrow.apache.org/docs/format/CDataInterface.html).

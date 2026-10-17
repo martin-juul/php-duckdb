@@ -1,7 +1,6 @@
 # Vectors
 
-These APIs are under development in this checkout. They are not included in
-the released 1.3.1 archive.
+These APIs are available starting with extension **1.4.0**.
 
 A vector is DuckDB's columnar storage for one column: a typed data buffer, a
 validity mask for NULLs and, for nested types, child vectors. `DuckDB\Vector`

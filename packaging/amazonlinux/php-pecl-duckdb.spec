@@ -1,7 +1,7 @@
 # Native Amazon Linux 2023 / 2027 preview PHP extension package.
 # Both releases use namespaced PHP packages and a single active PHP toolchain.
 %global pecl_name duckdb
-%global upstream_version 1.3.1
+%global upstream_version 1.4.0
 %global duckdb_version 1.5.6
 
 %if 0%{?amzn2027}
@@ -173,6 +173,11 @@ export TEST_PHP_ARGS='-d ffi.enable=true'
 %{engine_dir}/%{engine_name}
 
 %changelog
+* Sat Oct 17 2026 Martin Juul Christiansen <code@juul.xyz> - 1.4.0-1
+- Release 1.4.0 with typed values, Arrow interoperability and native vectors.
+- Add selection vectors and PHP COPY TO formats.
+- Ship the pinned DuckDB 1.5.6 SDK with the complete engine patch set.
+
 * Sun Oct 04 2026 Martin Juul Christiansen <code@juul.xyz> - 1.3.1-1
 - Add native Amazon Linux 2023 and Amazon Linux 2027 preview packaging.
 - Ship the pinned patched DuckDB engine privately and validate Arrow conversion.

@@ -20,9 +20,10 @@ vectors that PHP creates, fills, copies and assembles into native chunks.
 [Selection vectors](selection.md) were merged in
 [PR #12](https://github.com/martin-juul/php-duckdb/pull/12): reusable lists of
 row indices that pick, reorder and repeat vector and chunk rows.
-[Custom COPY TO formats](copy.md) are the current feature: PHP classes that
-receive `COPY ... TO` output batch by batch on the request thread. These
-features are under development in this checkout and are not yet released.
+[Custom COPY TO formats](copy.md) were merged in
+[PR #13](https://github.com/martin-juul/php-duckdb/pull/13): PHP classes that
+receive `COPY ... TO` output batch by batch on the request thread. Arrow,
+vector, selection and custom COPY TO APIs are available in extension 1.4.0.
 Public scalar bind/init callbacks are next.
 
 The intended PR sequence is:

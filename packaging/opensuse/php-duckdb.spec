@@ -27,7 +27,7 @@
 %bcond_without tests
 
 Name:           php8-duckdb
-Version:        1.3.1
+Version:        1.4.0
 Release:        0
 Summary:        Native DuckDB driver for PHP
 License:        MIT
@@ -115,6 +115,11 @@ export DUCKDB_EXTENSION_PATH="$PWD/modules/duckdb.so"
 %{_libdir}/libduckdb.so
 
 %changelog
+* Sat Oct 17 2026 Martin Juul Christiansen <code@juul.xyz> - 1.4.0-0
+- Release 1.4.0 with typed values, Arrow interoperability and native vectors.
+- Add selection vectors and PHP COPY TO formats.
+- Ship the pinned DuckDB 1.5.6 SDK with the complete engine patch set.
+
 * Sat Oct 03 2026 Martin Juul Christiansen <code@juul.xyz> - 1.3.1-0
 - Add Windows x64 packages and selectable async notifications.
 - Fix Windows build compatibility and retry transient CI downloads.

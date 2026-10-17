@@ -1,10 +1,10 @@
 # Compatibility
 
 The PHP extension and the embedded DuckDB engine have separate versions. This
-checkout uses extension **1.3.1**, and its pinned build recipes use **DuckDB
-1.5.6**. Arrow APIs documented here are under development in this checkout
-and are not included in the released 1.3.1 archive. Before upgrading, check
-the versions loaded by the actual process:
+release uses extension **1.4.0**, and its pinned build recipes use **DuckDB
+1.5.6**. Typed values, Arrow, vectors, selection and custom COPY TO APIs are
+available starting with extension 1.4.0. Before upgrading, check the versions
+loaded by the actual process:
 
 ```php
 printf("PHP %s; extension %s; DuckDB %s\n",

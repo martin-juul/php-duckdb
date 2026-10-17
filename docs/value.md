@@ -1,5 +1,7 @@
 # Typed values
 
+These APIs are available starting with extension **1.4.0**.
+
 Native PHP classes under `DuckDB` pair an input snapshot with a declared
 DuckDB type. The extension provides these classes directly, so they need no
 Composer package or autoloader:
