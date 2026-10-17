@@ -15,7 +15,7 @@
 extern zend_module_entry duckdb_module_entry;
 #define phpext_duckdb_ptr &duckdb_module_entry
 
-#define PHP_DUCKDB_VERSION "1.4.0"
+#define PHP_DUCKDB_VERSION "1.4.1"
 #define PHP_DUCKDB_NS      "DuckDB"
 
 #if defined(ZTS) && defined(COMPILE_DL_DUCKDB)
@@ -282,8 +282,8 @@ void duckdb_session_end(conn_inner &conn, const std::shared_ptr<copy_session> &s
                         const std::string &failure, bool can_call_php);
 
 /* State of one asynchronous query. Shared between the PHP PendingQuery
- * object and, for THREAD_* modes, the detached worker thread. The worker
- * thread NEVER touches PHP runtime state (zvals, allocators, EG) - only
+ * object and, for THREAD_* modes, the registry-owned worker thread. The
+ * worker NEVER touches PHP runtime state (zvals, allocators, EG) - only
  * DuckDB handles, plain data and the notification fd. */
 struct async_task {
     std::shared_ptr<conn_inner> conn;
@@ -634,19 +634,11 @@ void duckdb_result_instantiate(zval *return_value, duckdb_result *res, bool stre
 bool duckdb_decode_vector_value(duckdb_vector vector, duckdb_logical_type type, idx_t row, zval *out);
 
 /* pending.cpp */
-/* Worker thread entry point for THREAD_* modes. */
-void duckdb_async_run(std::shared_ptr<async_task> task);
-/* Async worker registry. A detached worker outlives its PHP object by
- * design (it only ever touches C++ state, never Zend memory), but at
- * process shutdown PHP dlcloses this module — a worker still in flight
- * would then execute unmapped code (shutdown SIGSEGV).
- * duckdb_async_worker_start() registers a worker BEFORE std::thread
- * creation so duckdb_async_shutdown() can interrupt its connection;
- * duckdb_async_worker_finish() runs after the worker's last touch of
- * task/connection/DuckDB state; duckdb_async_shutdown() interrupts
- * stragglers and blocks until every started worker has finished. */
+/* Start and register a joinable THREAD_* worker. PendingQuery destruction
+ * remains nonblocking: the registry retains the thread handle, reaps
+ * completed workers on subsequent starts, and joins every remaining worker
+ * at MSHUTDOWN before thread-local cleanup can race module unloading. */
 void duckdb_async_worker_start(const std::shared_ptr<async_task> &task);
-void duckdb_async_worker_finish();
 void duckdb_async_shutdown();
 /* Advance a task one step; returns true when finished. For POLLING mode
  * this executes a slice of the DuckDB task graph on the calling thread. */

@@ -677,12 +677,10 @@ PHP_METHOD(DuckDB_Connection, queryAsync) {
     intern->inner->execution_epoch.fetch_add(1, std::memory_order_relaxed);
 
     try {
-        /* Register before creation: MSHUTDOWN may only proceed once every
-         * started worker has also finished. */
+        /* The registry owns the thread until it is joined, including its
+         * thread-local cleanup during shutdown. */
         duckdb_async_worker_start(task);
-        std::thread(duckdb_async_run, task).detach();
     } catch (const std::system_error &e) {
-        duckdb_async_worker_finish();
         /* Thread creation failed (resource exhaustion): no worker owns the
          * write end, so close both fds ourselves. */
         duckdb_notify_fd_close(fds[0]);
@@ -1203,12 +1201,13 @@ PHP_MINIT_FUNCTION(duckdb) {
 }
 
 PHP_MSHUTDOWN_FUNCTION(duckdb) {
-    /* Wait out in-flight async workers BEFORE this module can be
-     * dlclosed: a detached worker still executing our code (or libduckdb's)
+    /* Join async workers BEFORE this module can be dlclosed: a worker
+     * still executing our code (or libduckdb's)
      * when the mapping disappears is a shutdown SIGSEGV (observed under
      * Swoole: the worker of a queryAsync() abandoned at script end started
-     * late and ran into the unmapped module). Workers only touch C++
-     * state — never Zend memory — so waiting here cannot deadlock. */
+     * late and ran into the unmapped module). Joining also waits for
+     * thread-local destruction after query completion. Workers only touch
+     * C++ state — never Zend memory — so waiting here cannot deadlock. */
     duckdb_async_shutdown();
 
     /* Close databases held by the process-wide instance cache while

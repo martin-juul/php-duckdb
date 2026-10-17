@@ -207,15 +207,15 @@ Choose how closely to pin the extension and PHP versions:
 | ------------------------ | ---------------------------------------------------------------------------------- |
 | `8.4`, `php8.4`          | Moving build for PHP 8.4; also available for PHP 8.2, 8.3 and 8.5                  |
 | `latest`                 | Moving build for the newest supported PHP version (currently 8.5)                  |
-| `1.4.0-php8.4`           | Extension release 1.4.0 with PHP 8.4                                               |
+| `1.4.1-php8.4`           | Extension release 1.4.1 with PHP 8.4                                               |
 | `1.4-php8.4`, `1-php8.4` | Moving extension minor/major release aliases with PHP 8.4                          |
-| `1.4.0`                  | Extension release 1.4.0 with the newest supported PHP version                      |
+| `1.4.1`                  | Extension release 1.4.1 with the newest supported PHP version                      |
 | `1.4`, `1`               | Moving extension minor/major release aliases with the newest supported PHP version |
 
 PHP-only aliases update on master pushes and stable release builds. Extension
-release aliases are published on Git tags such as `v1.4.0` or `1.4.0`;
+release aliases are published on Git tags such as `v1.4.1` or `1.4.1`;
 major/minor aliases follow the most recently published matching release build.
-Prereleases such as `1.4.0-rc.1` publish only their full release tags, with and
+Prereleases such as `1.4.1-rc.1` publish only their full release tags, with and
 without the PHP suffix, and leave stable aliases unchanged. Pull requests build
 images without publishing tags.
 
@@ -241,8 +241,8 @@ docker run --rm --entrypoint php \
 ```
 
 Every tag form above also has a `-frankenphp` variant for PHP 8.4 and 8.5, such
-as `php8.4-frankenphp`, `1.4.0-php8.4-frankenphp`, `1.4-php8.4-frankenphp`,
-`1.4.0-frankenphp` and `1-frankenphp`. Release-only FrankenPHP tags use PHP 8.5.
+as `php8.4-frankenphp`, `1.4.1-php8.4-frankenphp`, `1.4-php8.4-frankenphp`,
+`1.4.1-frankenphp` and `1-frankenphp`. Release-only FrankenPHP tags use PHP 8.5.
 
 They are built from `Dockerfile.frankenphp` in this repository; see
 [docs/frankenphp.md](docs/frankenphp.md) for worker-mode details.
@@ -924,6 +924,27 @@ Stages:
   a `--VALGRIND-SKIP--` marker.
 - **stress** runs `tests/stress/*.php`: memory-stability and
   concurrency/cancellation loops.
+
+On x86_64, Valgrind 3.27.1 can crash in its own stack unwinder while testing
+PHP Fibers. The crash is in Valgrind, before Memcheck reports a client error.
+Build that version with [the stack-read guard](tests/valgrind-3.27.1-fiber-unwind.patch)
+to keep the full leak checks enabled:
+
+```bash
+repo_dir=$PWD
+curl -fL https://sourceware.org/pub/valgrind/valgrind-3.27.1.tar.bz2 \
+  -o /tmp/valgrind-3.27.1.tar.bz2
+tar -xf /tmp/valgrind-3.27.1.tar.bz2 -C /tmp
+git -C /tmp/valgrind-3.27.1 apply \
+  "$repo_dir/tests/valgrind-3.27.1-fiber-unwind.patch"
+(
+  cd /tmp/valgrind-3.27.1
+  ./configure --prefix="$HOME/.local/valgrind-3.27.1-fiber" --enable-only64bit
+  make -j"$(python3 "$repo_dir/packaging/resources/jobs.py" --profile extension)"
+  make install
+)
+PATH="$HOME/.local/valgrind-3.27.1-fiber/bin:$PATH" php tests/harness.php --full
+```
 
 Exit codes: `0` all green, `1` a stage failed, `2` environment problem, `3`
 build failure. `--junit=FILE` emits a JUnit report for CI.

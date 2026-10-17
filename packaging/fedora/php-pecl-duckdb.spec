@@ -7,7 +7,7 @@
 #
 
 %global pecl_name        duckdb
-%global upstream_version 1.4.0
+%global upstream_version 1.4.1
 
 # Build the pinned, patched source SDK used by all packaging targets.
 # Keep the engine patch set consistent with the project SDK.
@@ -152,6 +152,10 @@ export DUCKDB_EXTENSION_PATH="$PWD/modules/duckdb.so"
 %{_libdir}/libduckdb.so
 
 %changelog
+* Sat Oct 17 2026 Martin Juul Christiansen <code@juul.xyz> - 1.4.1-1
+- Release 1.4.1; join asynchronous workers before module unload.
+- Add a Valgrind 3.27.1 Fiber stack-unwind patch for development checks.
+
 * Sat Oct 17 2026 Martin Juul Christiansen <code@juul.xyz> - 1.4.0-1
 - Release 1.4.0 with typed values, Arrow interoperability and native vectors.
 - Add selection vectors and PHP COPY TO formats.

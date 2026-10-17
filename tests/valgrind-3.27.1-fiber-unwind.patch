@@ -1,0 +1,13 @@
+--- a/coregrind/m_stacktrace.c
++++ b/coregrind/m_stacktrace.c
+@@ -745,7 +745,9 @@
+            address; instead scan a likely section of stack (eg sp .. sp+256)
+            and use suitable values found there.
+       */
+-      if (fp_min <= uregs.xsp && uregs.xsp < fp_max) {
++      if (fp_min <= uregs.xsp && uregs.xsp < fp_max
++          && VG_(am_is_valid_for_client)(uregs.xsp, sizeof(UWord),
++                                          VKI_PROT_READ)) {
+          uregs.xip = ((UWord*)uregs.xsp)[0];
+          if (0 == uregs.xip || 1 == uregs.xip) break;
+          if (sps) sps[i] = uregs.xsp;

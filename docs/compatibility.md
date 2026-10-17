@@ -1,7 +1,7 @@
 # Compatibility
 
 The PHP extension and the embedded DuckDB engine have separate versions. This
-release uses extension **1.4.0**, and its pinned build recipes use **DuckDB
+release uses extension **1.4.1**, and its pinned build recipes use **DuckDB
 1.5.6**. Typed values, Arrow, vectors, selection and custom COPY TO APIs are
 available starting with extension 1.4.0. Before upgrading, check the versions
 loaded by the actual process:
@@ -23,11 +23,11 @@ for this checkout. The job definitions are in [CI](../.github/workflows/ci.yml),
 | 8.2 | Linux and macOS | amd64 and arm64 | Amazon Linux 2023 x86_64, PHP 8.2.33: native package checks passed; 92 PHPTs passed, 4 optional-runtime tests skipped; 21 examples passed |
 | 8.3 | Linux and macOS | amd64 and arm64 | Amazon Linux 2023 x86_64, PHP 8.3.33: native package checks passed; 92 PHPTs passed, 4 optional-runtime tests skipped; 21 examples passed |
 | 8.4 | Linux and macOS; PIE install smoke test | amd64 and arm64 | Linux x86_64, PHP 8.4.26 NTS, DuckDB 1.5.6: full harness passed; 92 PHPTs passed, 4 optional-runtime tests skipped; 91 Valgrind tests passed |
-| 8.5 | Linux and macOS | amd64 and arm64 | Linux x86_64, PHP 8.5.11 NTS, DuckDB 1.5.6: build and 93 PHPTs passed, 3 optional-runtime tests skipped; full host Valgrind run blocked by its internal Fiber crash |
+| 8.5 | Linux and macOS | amd64 and arm64 | Linux x86_64, PHP 8.5.11 NTS, DuckDB 1.5.6: full harness passed with patched Valgrind 3.27.1; 110 PHPTs passed, 3 optional-runtime tests skipped; 108 Memcheck tests, 24 examples and both stress scripts passed |
 | 8.6-dev | Linux True Async ZTS | CI image only | Exact True Async CI image: build and 93 PHPTs passed, 3 optional-runtime tests skipped; 21 examples passed |
 
-The PHP 8.4 and 8.5 development environments passed all 21 example scripts
-and both stress scripts,
+The PHP 8.4 development environment passed all 21 example scripts, and PHP
+8.5 passed all 24 current examples. Both passed their stress scripts,
 including repeated Arrow ownership transfers. Optional framework examples
 report a skip when their runtime is absent. The PHP 8.4 full run used an
 isolated container with FFI enabled, 12 CPUs and 40 GiB RAM; eight workers
@@ -43,11 +43,13 @@ No new exclusions or suppressions were added. The native geometry C API
 regression passed normally and under Valgrind with zero errors and zero lost
 allocations.
 
-Host Valgrind 3.27.1 crashes internally in its stack unwinder during the
-existing Fiber test. A separate PHP FFI/native-thread reproducer triggers the
-same crash without loading DuckDB. The isolated PHP 8.4 run with Valgrind
-3.19.0 passes the full suite, including that Fiber test. The host full
-Valgrind run is therefore not a pass.
+Unpatched host Valgrind 3.27.1 crashes internally in its stack unwinder during
+the existing Fiber test. A separate PHP FFI/native-thread reproducer triggers
+the same crash without loading DuckDB. The
+[stack-read guard](../tests/valgrind-3.27.1-fiber-unwind.patch) allows the PHP
+8.5 host full run to pass with all 108 Memcheck tests, including the Fiber test,
+and no new suppressions. The isolated PHP 8.4 run with Valgrind 3.19.0 also
+passed its full suite.
 
 The PHP 8.6 reproduction uses `trueasync/php-true-async:0.7.13-php8.6`,
 with its original FFI and True Async extensions, a four-CPU quota and three

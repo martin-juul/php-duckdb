@@ -626,12 +626,10 @@ PHP_METHOD(DuckDB_Statement, executeAsync) {
     intern->inner->conn->execution_epoch.fetch_add(1, std::memory_order_relaxed);
 
     try {
-        /* Register before creation: MSHUTDOWN may only proceed once every
-         * started worker has also finished. */
+        /* The registry owns the thread until it is joined, including its
+         * thread-local cleanup during shutdown. */
         duckdb_async_worker_start(task);
-        std::thread(duckdb_async_run, task).detach();
     } catch (const std::system_error &e) {
-        duckdb_async_worker_finish();
         /* Thread creation failed (resource exhaustion): no worker owns the
          * write end, so close both fds ourselves. */
         duckdb_notify_fd_close(fds[0]);

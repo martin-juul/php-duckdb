@@ -108,24 +108,16 @@ bool duckdb_create_notify_pipe(duckdb_notify_fd fds[2]) {
 }
 
 namespace {
+struct duckdb_async_worker {
+    std::weak_ptr<async_task> task;
+    std::thread thread;
+    bool finished = false;
+};
+
 std::mutex duckdb_async_registry_mu;
 std::condition_variable duckdb_async_registry_cv;
-std::vector<std::weak_ptr<async_task>> duckdb_async_registry;
+std::vector<std::unique_ptr<duckdb_async_worker>> duckdb_async_registry;
 size_t duckdb_async_active = 0;
-}
-
-void duckdb_async_worker_start(const std::shared_ptr<async_task> &task) {
-    std::lock_guard<std::mutex> lk(duckdb_async_registry_mu);
-    duckdb_async_registry.emplace_back(task);
-    duckdb_async_active++;
-}
-
-void duckdb_async_worker_finish() {
-    {
-        std::lock_guard<std::mutex> lk(duckdb_async_registry_mu);
-        duckdb_async_active--;
-    }
-    duckdb_async_registry_cv.notify_all();
 }
 
 void duckdb_async_shutdown() {
@@ -136,17 +128,13 @@ void duckdb_async_shutdown() {
          * at the next DuckDB task boundary. Holding the shared_ptr keeps
          * the connection alive across the interrupt call itself. */
         std::vector<std::shared_ptr<conn_inner>> conns;
-        for (const auto &wp : duckdb_async_registry) {
-            if (auto t = wp.lock()) {
+        for (const auto &worker : duckdb_async_registry) {
+            if (auto t = worker->task.lock()) {
                 if (t->conn) {
                     conns.push_back(t->conn);
                 }
             }
         }
-        duckdb_async_registry.erase(
-            std::remove_if(duckdb_async_registry.begin(), duckdb_async_registry.end(),
-                           [](const std::weak_ptr<async_task> &wp) { return wp.expired(); }),
-            duckdb_async_registry.end());
         lk.unlock();
         for (const auto &conn : conns) {
             duckdb_interrupt(conn->conn);
@@ -156,13 +144,20 @@ void duckdb_async_shutdown() {
             duckdb_async_registry_cv.wait_for(lk, std::chrono::milliseconds(10));
         }
     }
+
+    /* A completion notification precedes the thread's C++ and libc exit
+     * cleanup. Join before PHP unloads the extension or closes DuckDB so
+     * its thread-local destructors cannot race module teardown. */
+    for (const auto &worker : duckdb_async_registry) {
+        worker->thread.join();
+    }
+    duckdb_async_registry.clear();
 }
 
 /* Worker body: everything that touches task/connection/DuckDB state. The
  * parameter's shared_ptr release at this scope's end may run ~async_task
  * (and even ~conn_inner -> duckdb_disconnect), i.e. libduckdb code, so the
- * registry decrement in duckdb_async_run() happens strictly after this
- * returns. */
+ * registry completion is published strictly after this returns. */
 static void duckdb_async_run_task(std::shared_ptr<async_task> task) {
     {
         std::lock_guard<std::mutex> connection_lock(task->conn->mutex);
@@ -238,11 +233,43 @@ static void duckdb_async_run_task(std::shared_ptr<async_task> task) {
     task->cv.notify_all();
 }
 
-void duckdb_async_run(std::shared_ptr<async_task> task) {
-    duckdb_async_run_task(std::move(task));
-    /* Only now — after every use of this module's and libduckdb's code —
-     * may MSHUTDOWN proceed towards dlclose. */
-    duckdb_async_worker_finish();
+void duckdb_async_worker_start(const std::shared_ptr<async_task> &task) {
+    std::lock_guard<std::mutex> lk(duckdb_async_registry_mu);
+
+    /* Bound retained thread handles during long-lived requests. Finished
+     * workers no longer acquire the registry lock, so joining here cannot
+     * block an active query or deadlock its completion notification. */
+    duckdb_async_registry.erase(
+        std::remove_if(duckdb_async_registry.begin(), duckdb_async_registry.end(),
+                       [](const std::unique_ptr<duckdb_async_worker> &worker) {
+                           if (!worker->finished) {
+                               return false;
+                           }
+                           worker->thread.join();
+                           return true;
+                       }),
+        duckdb_async_registry.end());
+
+    auto worker = std::make_unique<duckdb_async_worker>();
+    worker->task = task;
+    duckdb_async_worker *raw_worker = worker.get();
+    duckdb_async_registry.push_back(std::move(worker));
+
+    try {
+        raw_worker->thread = std::thread([task = task, raw_worker]() mutable {
+            duckdb_async_run_task(std::move(task));
+            {
+                std::lock_guard<std::mutex> completion_lock(duckdb_async_registry_mu);
+                raw_worker->finished = true;
+                duckdb_async_active--;
+            }
+            duckdb_async_registry_cv.notify_all();
+        });
+    } catch (...) {
+        duckdb_async_registry.pop_back();
+        throw;
+    }
+    duckdb_async_active++;
 }
 
 /* Advance a task by one step and report completion.

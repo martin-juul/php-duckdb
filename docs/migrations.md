@@ -1,5 +1,18 @@
 # Migrations
 
+## Upgrade 1.4.0 → 1.4.1
+
+This patch release keeps the 1.4.0 PHP API and DuckDB **1.5.6**. It joins
+asynchronous query workers before module unload, so their thread-local cleanup
+cannot race extension shutdown. Destroying a `PendingQuery` remains
+nonblocking. No application code changes are required; replace the extension
+and bundled engine together and restart persistent PHP workers.
+
+For development memory checks on x86_64, this release also includes a
+[Valgrind 3.27.1 stack-unwind patch](../tests/valgrind-3.27.1-fiber-unwind.patch)
+and [build instructions](../README.md#test-harness). The patch changes the
+validator, not the installed PHP extension.
+
 ## Upgrade 1.3.1 → 1.4.0
 
 DuckDB remains pinned to **1.5.6**, with the repository's patched SDK required
