@@ -118,9 +118,16 @@ foreach (['csv', 'Parquet', 'JSON'] as $name) {
     $error = failure(fn() => $conn->registerCopyToFunction($name, new LinesFormat()));
     check($error instanceof ValueError, "$name is rejected");
 }
-foreach (['', '1abc', 'with space', 'semi;colon'] as $name) {
+foreach (['', "bad\0name"] as $name) {
     $error = failure(fn() => $conn->registerCopyToFunction($name, new LinesFormat()));
     check($error instanceof ValueError, "'$name' is rejected");
+}
+foreach (['1abc', 'with space', 'semi;colon', 'say"hi', "single'quote", 'üñicode', 'a.b', 'x"; DROP TABLE t; --'] as $index => $name) {
+    $namedFormat = new LinesFormat();
+    $conn->registerCopyToFunction($name, $namedFormat);
+    $quotedName = '"' . str_replace('"', '""', $name) . '"';
+    $conn->query("COPY (SELECT 1 AS i) TO '$dir/name$index.out' (FORMAT $quotedName)");
+    check(in_array('close', $namedFormat->log, true), "'$name' wrote a COPY");
 }
 echo "names validated\n";
 

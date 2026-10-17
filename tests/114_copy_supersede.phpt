@@ -49,20 +49,40 @@ check(in_array('abort', $format->log, true), 'abort() ran');
 check($statement->execute()->fetchAll() === [['v' => 5]], 'The connection stays usable');
 echo "superseded by bindValue\n";
 
-// Formats cannot be registered while a COPY statement is open.
+// Registration leaves an active COPY on its pinned handler.
+$prepared = $conn->prepare("COPY (SELECT 2 AS i) TO '$dir/prepared.lines' (FORMAT lines)");
 $pending = start_copy($conn, $format, $copy);
-$error = failure(fn() => $conn->registerCopyToFunction('other', new LinesFormat()));
-check(str_contains($error->getMessage(), 'cannot be registered while a COPY statement runs'), $error->getMessage());
+$conn->registerCopyToFunction('other', new LinesFormat());
+$replacement = new LinesFormat();
+$conn->registerCopyToFunction('LINES', $replacement);
 $pending->cancel();
+check(in_array('abort', $format->log, true), 'The active COPY aborted with the old handler');
+check($replacement->log === [], 'The replacement did not handle the active COPY');
 unset($pending);
-echo "registration refused while running\n";
+$error = failure(fn() => $prepared->execute());
+check(str_contains($error->getMessage(), 'prepare it again'), $error->getMessage());
+$conn->query("COPY (SELECT 3 AS i) TO '$dir/replacement.lines' (FORMAT lines)");
+check(in_array('close', $replacement->log, true), 'The replacement handles later COPY statements');
+echo "registration while running\n";
+
+// Replacing before the first batch also preserves the handler bound to COPY.
+$replacement->reset();
+$pending = $conn->queryPending("COPY (SELECT 4 AS i) TO '$dir/before-first-batch.lines' (FORMAT lines)");
+check(!in_array('write', $replacement->log, true), 'No batch was written before replacement');
+$next = new LinesFormat();
+$conn->registerCopyToFunction('lines', $next);
+$pending->await();
+check(in_array('close', $replacement->log, true), 'The bound handler finished the COPY');
+check($next->log === [], 'The next handler did not run for the active COPY');
+unset($pending);
+echo "registration before first batch\n";
 
 // Relative targets are resolved against the process working directory, as
 // DuckDB resolves them. Under ZTS, chdir() only moves PHP's own directory.
-$format->reset();
+$next->reset();
 chdir($dir);
 $conn->query("COPY (SELECT 1 AS i) TO 'relative.lines' (FORMAT lines)");
-$path = $format->paths[0];
+$path = $next->paths[0];
 check(str_ends_with($path, DIRECTORY_SEPARATOR . 'relative.lines') && $path !== 'relative.lines', $path);
 check(PHP_ZTS || $path === getcwd() . DIRECTORY_SEPARATOR . 'relative.lines', $path);
 check(copy_lines($path) === [[1]], 'The file was written where the writer was told');
@@ -72,5 +92,6 @@ echo "relative target\n";
 --EXPECT--
 appender destructor
 superseded by bindValue
-registration refused while running
+registration while running
+registration before first batch
 relative target

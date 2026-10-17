@@ -764,15 +764,7 @@ static void copy_finalize_callback(duckdb_copy_function_finalize_info info) {
 /* ------------------------------------------------------------------ */
 
 static bool valid_name(const std::string &name) {
-    if (name.empty() || !(std::isalpha(static_cast<unsigned char>(name[0])) || name[0] == '_')) {
-        return false;
-    }
-    for (char c : name) {
-        if (!std::isalnum(static_cast<unsigned char>(c)) && c != '_') {
-            return false;
-        }
-    }
-    return true;
+    return !name.empty() && name.find('\0') == std::string::npos;
 }
 
 static bool reserved_name(const std::string &lower) {
@@ -824,7 +816,15 @@ static std::shared_ptr<copy_slot> ensure_slot(db_inner &db, const std::shared_pt
     /* DuckDB keeps an existing function of the same name silently. Bind a
      * probe statement and check that our callback answered for this slot. */
     std::string token = std::to_string(reinterpret_cast<uintptr_t>(slot.get()));
-    std::string sql = "COPY (SELECT 1) TO 'duckdb_php_probe' (FORMAT \"" + lower + "\", DUCKDB_PHP_PROBE '" +
+    std::string quoted_name = "\"";
+    for (char c : lower) {
+        quoted_name += c;
+        if (c == '"') {
+            quoted_name += '"';
+        }
+    }
+    quoted_name += '"';
+    std::string sql = "COPY (SELECT 1) TO 'duckdb_php_probe' (FORMAT " + quoted_name + ", DUCKDB_PHP_PROBE '" +
                       token + "')";
     probe_token = token.c_str();
     probe_answer = nullptr;
@@ -875,22 +875,19 @@ PHP_METHOD(DuckDB_Connection, registerCopyToFunction) {
 
     std::string display(ZSTR_VAL(name), ZSTR_LEN(name));
     if (!valid_name(display)) {
-        zend_argument_value_error(1, "must be a non-empty identifier of letters, digits and underscores");
+        zend_argument_value_error(1, "must be non-empty and contain no NUL byte");
         RETURN_THROWS();
     }
     std::string lower = display;
     for (auto &c : lower) {
-        c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+        if (c >= 'A' && c <= 'Z') {
+            c = static_cast<char>(c - 'A' + 'a');
+        }
     }
     if (reserved_name(lower)) {
         zend_argument_value_error(1, "must not name a built-in COPY format");
         RETURN_THROWS();
     }
-    if (conn.session && conn.session->is_open()) {
-        duckdb_throw_msg("COPY formats cannot be registered while a COPY statement runs on this connection");
-        RETURN_THROWS();
-    }
-
     std::shared_ptr<copy_slot> slot;
     try {
         slot = ensure_slot(*conn.db, conn.db, lower);

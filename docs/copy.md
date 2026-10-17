@@ -32,18 +32,19 @@ See the [runnable example](../examples/copy_to.php) for a complete format.
 $conn->registerCopyToFunction(string $name, DuckDB\CopyToFunction $function): void
 ```
 
-The name selects the format in `FORMAT <name>`. A target whose file extension
-equals the name selects it as well, so `TO 'report.markdown'` uses a format
-named `markdown`. Names are case-insensitive identifiers of letters, digits
-and underscores. Registering a name again on the same connection replaces its
-handler; statements prepared before the change fail and must be prepared
-again.
+The name selects the format in `FORMAT <name>`. Quote names that are not SQL
+identifiers, such as `FORMAT "with space"`; double any `"` inside a quoted
+name. A target whose detected file extension equals the name selects it as
+well, so `TO 'report.markdown'` uses a format named `markdown`. Names are
+case-insensitive for ASCII letters. Registering a name again on the same
+connection replaces its handler for future executions. An active COPY keeps
+the handler it started with; statements prepared before the change fail and
+must be prepared again.
 
-Registration throws `ValueError` for an invalid name or the name of a built-in
-format such as `csv`, `parquet` or `json`. It throws `DuckDB\Exception` when
-DuckDB or a loaded extension already provides a format of that name, when the
-connection is closed, while a COPY runs on the connection, or inside a
-handler.
+Registration throws `ValueError` for an empty name, a name containing a NUL
+byte, or the name of a built-in format such as `csv`, `parquet` or `json`. It
+throws `DuckDB\Exception` when DuckDB or a loaded extension already provides
+a format of that name, when the connection is closed, or inside a handler.
 
 A format belongs to the connection that registered it. Other connections,
 including other connections to the same database, do not see it: there,
