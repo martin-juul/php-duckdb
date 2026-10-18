@@ -168,9 +168,11 @@ structured appender/error reporting.
 | Arrow schema/chunk conversion | Exposed through `ArrowSchema`, `ArrowChunk` and `DataChunk`, with C Data Interface import/export and batch appending |
 | Typed values and value constructors | Full typed input through native PHP value classes; C value handles remain internal |
 | Geometry CRS | Typed geometry preserves CRS metadata; additional CRS APIs are not public |
-| Scalar bind callbacks and expressions | Used internally for typed conversion; no public PHP callback or expression-handle API |
+| Scalar bind/init callbacks | Exposed through `ScalarFunction`, `ScalarBinding` and `ScalarExecutor`; request-thread PHP binding, worker initialization and batch execution |
+| Expressions | Used internally for typed conversion; no public expression-handle API |
 | COPY functions | `COPY ... TO` formats exposed through `Connection::registerCopyToFunction()`; `COPY ... FROM` functions are not public |
-| Scalar init callbacks, table-function metadata, custom logging | No corresponding PHP callback/handle surface |
+| Table-function metadata | `Connection::getTableFunctions()` exposes catalog overloads through `duckdb_functions()`; native bind-info metadata handles are not public |
+| Custom logging | No corresponding PHP callback/handle surface |
 | Value string rendering | Exposed through `Value::toString(Connection)` for connection-aware display text |
 | Standalone vectors | Exposed through `Vector`, `Connection::createVector()` and `DataChunk::fromVectors()`/`vector()` |
 | Selection vectors | Exposed through `SelectionVector`, `Vector::select()`/`copySelected()` and `DataChunk::select()`; slicing into dictionary vectors is not public |

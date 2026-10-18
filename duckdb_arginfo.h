@@ -1,5 +1,5 @@
 /* This is a generated file, edit the .stub.php file instead.
- * Stub hash: 2f9cad9fb3bfad8f3e3b9b5eb1476c0b8be19b4f */
+ * Stub hash: 4cc5d3e1ff11812493e0444b813a24ad6dbf54e7 */
 
 ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_DuckDB_version, 0, 0, IS_STRING, 0)
 ZEND_END_ARG_INFO()
@@ -251,6 +251,10 @@ ZEND_END_ARG_INFO()
 
 ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_class_DuckDB_Connection_getTableNames, 0, 1, IS_ARRAY, 0)
 	ZEND_ARG_TYPE_INFO(0, sql, IS_STRING, 0)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_class_DuckDB_Connection_getTableFunctions, 0, 0, IS_ARRAY, 0)
+	ZEND_ARG_TYPE_INFO_WITH_DEFAULT_VALUE(0, name, IS_STRING, 1, "null")
 ZEND_END_ARG_INFO()
 
 #define arginfo_class_DuckDB_Connection_close arginfo_class_DuckDB_CopyToWriter_close
@@ -596,6 +600,7 @@ ZEND_METHOD(DuckDB_Connection, prepare);
 ZEND_METHOD(DuckDB_Connection, appender);
 ZEND_METHOD(DuckDB_Connection, interrupt);
 ZEND_METHOD(DuckDB_Connection, getTableNames);
+ZEND_METHOD(DuckDB_Connection, getTableFunctions);
 ZEND_METHOD(DuckDB_Connection, close);
 ZEND_METHOD(DuckDB_Connection, isClosed);
 ZEND_METHOD(DuckDB_Connection, queryProgress);
@@ -1074,6 +1079,7 @@ static const zend_function_entry class_DuckDB_Connection_methods[] = {
 	ZEND_ME(DuckDB_Connection, appender, arginfo_class_DuckDB_Connection_appender, ZEND_ACC_PUBLIC)
 	ZEND_ME(DuckDB_Connection, interrupt, arginfo_class_DuckDB_Connection_interrupt, ZEND_ACC_PUBLIC)
 	ZEND_ME(DuckDB_Connection, getTableNames, arginfo_class_DuckDB_Connection_getTableNames, ZEND_ACC_PUBLIC)
+	ZEND_ME(DuckDB_Connection, getTableFunctions, arginfo_class_DuckDB_Connection_getTableFunctions, ZEND_ACC_PUBLIC)
 	ZEND_ME(DuckDB_Connection, close, arginfo_class_DuckDB_Connection_close, ZEND_ACC_PUBLIC)
 	ZEND_ME(DuckDB_Connection, isClosed, arginfo_class_DuckDB_Connection_isClosed, ZEND_ACC_PUBLIC)
 	ZEND_ME(DuckDB_Connection, queryProgress, arginfo_class_DuckDB_Connection_queryProgress, ZEND_ACC_PUBLIC)

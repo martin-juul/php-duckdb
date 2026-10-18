@@ -1049,6 +1049,77 @@ PHP_METHOD(DuckDB_Connection, getTableNames) {
     }
 }
 
+PHP_METHOD(DuckDB_Connection, getTableFunctions) {
+    DUCKDB_TSRMLS_CACHE_UPDATE();
+    char *name = nullptr;
+    size_t name_len = 0;
+
+    ZEND_PARSE_PARAMETERS_START(0, 1)
+        Z_PARAM_OPTIONAL
+        Z_PARAM_STRING_OR_NULL(name, name_len)
+    ZEND_PARSE_PARAMETERS_END();
+
+    if (name && !duckdb_check_no_nul(name, name_len, 1)) {
+        RETURN_THROWS();
+    }
+
+    php_duckdb_connection_object *intern = Z_DUCKDB_CONNECTION_P(ZEND_THIS);
+    if (!duckdb_connection_guard(intern->inner)) {
+        RETURN_THROWS();
+    }
+
+    std::string query =
+        "SELECT database_name AS catalog, schema_name AS schema, "
+        "function_name AS name, description, parameters, "
+        "parameter_types AS parameterTypes, varargs "
+        "FROM duckdb_functions() WHERE function_type = 'table' ";
+    if (name) {
+        query += "AND lower(function_name) = lower(?) ";
+    }
+    query += "ORDER BY 1, 2, 3, 6, 5, 7";
+
+    duckdb_result res = {};
+    {
+        std::unique_lock<std::mutex> lk;
+        if (!duckdb_conn_enter(*intern->inner, lk)) {
+            RETURN_THROWS();
+        }
+
+        scoped_duckdb_prepared prepared;
+        if (duckdb_prepare(intern->inner->conn, query.c_str(), prepared.out()) == DuckDBError) {
+            const char *err = prepared ? duckdb_prepare_error(prepared.get()) : nullptr;
+            duckdb_throw_prepare_error(err ? err : "Failed to prepare table-function metadata query");
+            RETURN_THROWS();
+        }
+        if (name && duckdb_bind_varchar_length(prepared.get(), 1, name, name_len) == DuckDBError) {
+            duckdb_throw_msg("Failed to bind table-function name");
+            RETURN_THROWS();
+        }
+
+        duckdb_state status;
+        std::string start_error;
+        if (duckdb_conn_needs_pump(*intern->inner)) {
+            status = duckdb_pump_execute(*intern->inner, prepared.get(), /*streaming=*/false,
+                                         &res, start_error);
+        } else {
+            status = duckdb_execute_prepared(prepared.get(), &res);
+        }
+        if (!start_error.empty()) {
+            duckdb_throw_start_error(start_error);
+            RETURN_THROWS();
+        }
+        if (status == DuckDBError) {
+            duckdb_throw_result_error(&res);
+            RETURN_THROWS();
+        }
+        intern->inner->execution_epoch.fetch_add(1, std::memory_order_relaxed);
+    }
+
+    if (!duckdb_result_fetch_all_assoc(&res, intern->inner, return_value)) {
+        RETURN_THROWS();
+    }
+}
+
 /* PDO-style transaction control. Thin wrappers over the corresponding SQL
  * statements so errors (e.g. COMMIT without an active transaction) flow
  * through the normal typed-error classification. Transaction state itself is

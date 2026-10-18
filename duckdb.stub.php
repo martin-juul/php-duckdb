@@ -590,6 +590,17 @@ final class Connection
     public function getTableNames(string $sql): array {}
 
     /**
+     * Catalog metadata for visible table-function overloads. An optional name
+     * matches exactly and case-insensitively; an unknown name returns [].
+     * Parameter names and types are parallel lists. Output columns depend on
+     * arguments; inspect a prepared SELECT for the bound result schema.
+     *
+     * @throws \ValueError When the name contains a NUL byte.
+     * @return list<array{catalog: string, schema: string, name: string, description: ?string, parameters: list<string>, parameterTypes: list<string>, varargs: ?string}>
+     */
+    public function getTableFunctions(?string $name = null): array {}
+
+    /**
      * Close the connection.
      *
      * Marks the connection closed: every further use throws
