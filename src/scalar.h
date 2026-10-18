@@ -17,12 +17,13 @@ struct scalar_registration {
 };
 
 extern zend_class_entry *duckdb_scalar_function_ce;
+extern zend_class_entry *duckdb_scalar_expression_function_ce;
 extern zend_class_entry *duckdb_scalar_binding_ce;
 extern zend_class_entry *duckdb_scalar_executor_ce;
 extern const char duckdb_scalar_not_pumped_message[];
 
-void duckdb_register_scalar_interfaces(zend_class_entry *function_ce, zend_class_entry *binding_ce,
-                                      zend_class_entry *executor_ce);
+void duckdb_register_scalar_interfaces(zend_class_entry *function_ce, zend_class_entry *expression_function_ce,
+                                      zend_class_entry *binding_ce, zend_class_entry *executor_ce);
 void duckdb_scalar_connection_gc(conn_inner *conn, zend_get_gc_buffer *buffer);
 void duckdb_scalar_connection_free(conn_inner *conn);
 void duckdb_scalar_session_attach(conn_inner &conn, copy_session &session);

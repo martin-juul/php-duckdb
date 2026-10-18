@@ -462,6 +462,30 @@ interface ScalarFunction
     public function bind(array $argumentTypes): ScalarBinding;
 }
 
+/** Bound SQL argument; valid only during ScalarExpressionFunction::bindExpressions(). */
+final class Expression
+{
+    private function __construct() {}
+
+    /** Resolved SQL type, including nested type parameters. */
+    public function getReturnType(): string {}
+
+    public function isFoldable(): bool {}
+
+    /** Decode a constant using the normal result mappings; nonconstants throw. */
+    public function fold(): mixed {}
+}
+
+/** A scalar function that inspects bound argument expressions instead of type strings. */
+interface ScalarExpressionFunction
+{
+    /**
+     * Handles expire when this callback returns.
+     * @param Expression[] $arguments
+     */
+    public function bindExpressions(array $arguments): ScalarBinding;
+}
+
 /** Bound scalar-function state, shared read-only by its worker initializers. */
 interface ScalarBinding
 {
@@ -511,7 +535,7 @@ final class Connection
      * @param array $parameterTypes List of SQL strings, scalar class names or Value instances.
      * @throws \ValueError On an invalid name or type specification.
      */
-    public function registerScalarFunction(string $name, array $parameterTypes, string|Value $returnType, ScalarFunction $function): void {}
+    public function registerScalarFunction(string $name, array $parameterTypes, string|Value $returnType, ScalarFunction|ScalarExpressionFunction $function): void {}
 
     private function __construct() {}
 

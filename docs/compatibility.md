@@ -169,7 +169,7 @@ structured appender/error reporting.
 | Typed values and value constructors | Full typed input through native PHP value classes; C value handles remain internal |
 | Geometry CRS | Typed geometry preserves CRS metadata; additional CRS APIs are not public |
 | Scalar bind/init callbacks | Exposed through `ScalarFunction`, `ScalarBinding` and `ScalarExecutor`; request-thread PHP binding, worker initialization and batch execution |
-| Expressions | Used internally for typed conversion; no public expression-handle API |
+| Expressions | `ScalarExpressionFunction` receives callback-scoped `Expression` handles for resolved types, foldability and constant folding |
 | COPY functions | `COPY ... TO` formats exposed through `Connection::registerCopyToFunction()`; `COPY ... FROM` functions are not public |
 | Table-function metadata | `Connection::getTableFunctions()` exposes catalog overloads through `duckdb_functions()`; native bind-info metadata handles are not public |
 | Custom logging | No corresponding PHP callback/handle surface |
