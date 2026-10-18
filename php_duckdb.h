@@ -151,6 +151,7 @@ struct copy_registration;
 struct scalar_slot;
 struct scalar_registration;
 struct scalar_registry;
+struct log_storage_state;
 
 /* A DuckDB database instance. Connections hold a shared_ptr to this,
  * so the database outlives its connections. */
@@ -169,6 +170,10 @@ struct db_inner {
     /* One private callback per database; capture values remain operation-scoped. */
     std::mutex typed_capture_mutex;
     std::shared_ptr<void> typed_capture_state;
+    /* Native log buffers outlive PHP wrappers and remain valid through
+     * duckdb_close(), which may invoke logging callbacks. */
+    std::mutex logging_mutex;
+    std::unordered_map<std::string, std::shared_ptr<log_storage_state>> log_storages;
     ~db_inner() {
         if (db) {
             duckdb_close(&db);

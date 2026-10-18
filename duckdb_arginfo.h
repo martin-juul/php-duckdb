@@ -1,5 +1,5 @@
 /* This is a generated file, edit the .stub.php file instead.
- * Stub hash: 333aaf704a39d4432becb01e8fb065a044f3e277 */
+ * Stub hash: dfc8f53480849739dc1902d55a99448a59f17c2b */
 
 ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_DuckDB_version, 0, 0, IS_STRING, 0)
 ZEND_END_ARG_INFO()
@@ -162,6 +162,19 @@ ZEND_END_ARG_INFO()
 
 ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_class_DuckDB_Database_connect, 0, 0, DuckDB\\Connection, 0)
 ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_class_DuckDB_Database_registerLogStorage, 0, 2, IS_VOID, 0)
+	ZEND_ARG_TYPE_INFO(0, name, IS_STRING, 0)
+	ZEND_ARG_OBJ_INFO(0, storage, DuckDB\\LogStorage, 0)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(arginfo_class_DuckDB_LogStorage___construct, 0, 0, 0)
+	ZEND_ARG_TYPE_INFO_WITH_DEFAULT_VALUE(0, capacity, IS_LONG, 0, "1024")
+ZEND_END_ARG_INFO()
+
+#define arginfo_class_DuckDB_LogStorage_drain arginfo_class_DuckDB_Interval_jsonSerialize
+
+#define arginfo_class_DuckDB_LogStorage_droppedCount arginfo_DuckDB_vectorSize
 
 ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_class_DuckDB_CopyToFunction_bind, 0, 2, IS_VOID, 0)
 	ZEND_ARG_TYPE_INFO(0, columnTypes, IS_ARRAY, 0)
@@ -598,6 +611,10 @@ ZEND_METHOD(DuckDB_Geometry, __construct);
 ZEND_METHOD(DuckDB_CatalogValue, __construct);
 ZEND_METHOD(DuckDB_Database, __construct);
 ZEND_METHOD(DuckDB_Database, connect);
+ZEND_METHOD(DuckDB_Database, registerLogStorage);
+ZEND_METHOD(DuckDB_LogStorage, __construct);
+ZEND_METHOD(DuckDB_LogStorage, drain);
+ZEND_METHOD(DuckDB_LogStorage, droppedCount);
 ZEND_METHOD(DuckDB_Expression, __construct);
 ZEND_METHOD(DuckDB_Expression, getReturnType);
 ZEND_METHOD(DuckDB_Expression, isFoldable);
@@ -1043,6 +1060,15 @@ static const zend_function_entry class_DuckDB_CatalogValue_methods[] = {
 static const zend_function_entry class_DuckDB_Database_methods[] = {
 	ZEND_ME(DuckDB_Database, __construct, arginfo_class_DuckDB_Database___construct, ZEND_ACC_PUBLIC)
 	ZEND_ME(DuckDB_Database, connect, arginfo_class_DuckDB_Database_connect, ZEND_ACC_PUBLIC)
+	ZEND_ME(DuckDB_Database, registerLogStorage, arginfo_class_DuckDB_Database_registerLogStorage, ZEND_ACC_PUBLIC)
+	ZEND_FE_END
+};
+
+
+static const zend_function_entry class_DuckDB_LogStorage_methods[] = {
+	ZEND_ME(DuckDB_LogStorage, __construct, arginfo_class_DuckDB_LogStorage___construct, ZEND_ACC_PUBLIC)
+	ZEND_ME(DuckDB_LogStorage, drain, arginfo_class_DuckDB_LogStorage_drain, ZEND_ACC_PUBLIC)
+	ZEND_ME(DuckDB_LogStorage, droppedCount, arginfo_class_DuckDB_LogStorage_droppedCount, ZEND_ACC_PUBLIC)
 	ZEND_FE_END
 };
 
@@ -2016,6 +2042,17 @@ static zend_class_entry *register_class_DuckDB_Database(void)
 	zend_class_entry ce, *class_entry;
 
 	INIT_NS_CLASS_ENTRY(ce, "DuckDB", "Database", class_DuckDB_Database_methods);
+	class_entry = zend_register_internal_class_ex(&ce, NULL);
+	class_entry->ce_flags |= ZEND_ACC_FINAL;
+
+	return class_entry;
+}
+
+static zend_class_entry *register_class_DuckDB_LogStorage(void)
+{
+	zend_class_entry ce, *class_entry;
+
+	INIT_NS_CLASS_ENTRY(ce, "DuckDB", "LogStorage", class_DuckDB_LogStorage_methods);
 	class_entry = zend_register_internal_class_ex(&ce, NULL);
 	class_entry->ce_flags |= ZEND_ACC_FINAL;
 

@@ -408,6 +408,37 @@ final class Database
      * @throws ConnectionException
      */
     public function connect(): Connection {}
+
+    /**
+     * Register a database-wide native log buffer. Activate it with SQL settings.
+     * The database retains the storage after its PHP wrapper is released.
+     *
+     * @throws \ValueError For empty, NUL-containing, reserved or duplicate names.
+     * @throws Exception When native registration fails.
+     */
+    public function registerLogStorage(string $name, LogStorage $storage): void {}
+
+}
+
+/** A bounded native buffer for database log entries; drain explicitly from PHP. */
+final class LogStorage
+{
+    /**
+     * Keep at most `$capacity` records and 8 MiB of native record data.
+     *
+     * @throws \ValueError When capacity is not positive.
+     */
+    public function __construct(int $capacity = 1024) {}
+
+    /**
+     * Remove and return buffered entries. Timestamps are Unix microseconds.
+     *
+     * @return array<int, array{timestamp: int, level: string, type: string, message: string}>
+     */
+    public function drain(): array {}
+
+    /** Cumulative number of entries discarded by limits or buffer contention. */
+    public function droppedCount(): int {}
 }
 
 /**

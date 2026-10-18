@@ -34,6 +34,7 @@ extern "C" {
 #include "src/copy_session.h"
 #include "src/scalar.h"
 #include "src/expression.h"
+#include "src/logging.h"
 #include "src/selection.h"
 #include "duckdb_arginfo.h"
 #include <unordered_map>
@@ -1254,6 +1255,7 @@ PHP_MINIT_FUNCTION(duckdb) {
 
     DUCKDB_REGISTER_CLASS(interval, register_class_DuckDB_Interval, php_json_serializable_ce);
     DUCKDB_REGISTER_CLASS(database, register_class_DuckDB_Database);
+    duckdb_register_log_storage_class(register_class_DuckDB_LogStorage());
     DUCKDB_REGISTER_CLASS(connection, register_class_DuckDB_Connection);
     duckdb_connection_handlers.get_gc = duckdb_connection_get_gc;
     duckdb_register_copy_interfaces(register_class_DuckDB_CopyToFunction(), register_class_DuckDB_CopyToWriter());

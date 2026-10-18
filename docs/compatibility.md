@@ -16,6 +16,11 @@ worker-init callbacks, are under development after extension 1.4.1. They
 require the pinned DuckDB 1.5.6 APIs. Callback support uses the request thread;
 worker-based `queryAsync()` and `executeAsync()` reject PHP scalar execution.
 
+[Custom logging](logging.md) is under development after extension 1.4.1 and
+requires the pinned DuckDB 1.5.6 log-storage APIs. Its callbacks copy entries
+into a bounded native buffer and never execute PHP. Explicit draining works
+with synchronous, pending and background queries.
+
 ## PHP and platform coverage
 
 The tables list configured checks; they do not claim that every job has passed

@@ -32,7 +32,9 @@ binding, worker initialization and batch execution on the request thread.
 catalog overloads, input parameters and descriptions.
 Public expression APIs are under development: `ScalarExpressionFunction`
 inspects bound argument types and folds constants through callback-scoped
-`Expression` handles. Custom logging is next.
+`Expression` handles. [Custom logging](logging.md) is also under development:
+named database-wide storage buffers native log entries for explicit PHP
+draining. UTF-8 checks follow.
 
 The intended PR sequence is:
 

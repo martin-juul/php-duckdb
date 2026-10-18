@@ -315,6 +315,23 @@ if (NOT DUCKDB_HAS_VECTOR_APIS)
     message(FATAL_ERROR "DuckDB standalone vector and UTF-8 check APIs are required")
 endif()
 
+unset(DUCKDB_HAS_LOG_STORAGE_APIS CACHE)
+unset(DUCKDB_HAS_LOG_STORAGE_APIS)
+check_cxx_source_compiles("#include <duckdb.h>
+static void write_entry(void *, duckdb_timestamp *, const char *, const char *, const char *) {}
+int main() {
+    duckdb_log_storage storage = duckdb_create_log_storage();
+    duckdb_log_storage_set_write_log_entry(storage, write_entry);
+    duckdb_log_storage_set_extra_data(storage, nullptr, nullptr);
+    duckdb_log_storage_set_name(storage, \"php_log\");
+    duckdb_register_log_storage(nullptr, storage);
+    duckdb_destroy_log_storage(&storage);
+    return 0;
+}" DUCKDB_HAS_LOG_STORAGE_APIS)
+if (NOT DUCKDB_HAS_LOG_STORAGE_APIS)
+    message(FATAL_ERROR "DuckDB custom log storage APIs are required")
+endif()
+
 unset(DUCKDB_HAS_COPY_FUNCTION_APIS CACHE)
 unset(DUCKDB_HAS_COPY_FUNCTION_APIS)
 check_cxx_source_compiles("#include <duckdb.h>
@@ -359,7 +376,8 @@ set(DUCKDB_SOURCES
     src/copy_session.cpp
     src/copy.cpp
     src/scalar.cpp
-    src/expression.cpp)
+    src/expression.cpp
+    src/logging.cpp)
 
 set(DUCKDB_HEADERS
     php_duckdb.h
@@ -373,6 +391,7 @@ set(DUCKDB_HEADERS
     src/copy.h
     src/scalar.h
     src/expression.h
+    src/logging.h
     src/bignum_decode.h
     src/variant_decode.h
     src/type_classes.h

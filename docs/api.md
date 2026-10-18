@@ -151,6 +151,26 @@ Opens a new connection to this database. One database may have many connections;
 each serializes its own statements. Use one connection per thread/fiber of work.
 Throws `ConnectionException`.
 
+### `registerLogStorage(string $name, LogStorage $storage): void`
+
+Registers a named, database-wide native log buffer. Registration does not enable
+logging; select it with `SET logging_storage = 'name'` and enable logging with
+`SET enable_logging = true`. Invalid or duplicate names throw `ValueError`;
+native registration failures throw `DuckDB\Exception`. See
+[custom logging](logging.md).
+
+## `final class LogStorage`
+
+| Method | Description |
+| --- | --- |
+| `__construct(int $capacity = 1024)` | Create a native buffer bounded by its positive record capacity and 8 MiB of record data |
+| `drain(): array` | Remove and return buffered records as `array{timestamp: int, level: string, type: string, message: string}`; timestamps are Unix microseconds |
+| `droppedCount(): int` | Cumulative number of discarded records, including evictions, oversized entries and buffer contention; draining does not reset it |
+
+Older records are evicted when limits are reached. A record larger than the byte
+limit is discarded. PHP reads the buffer explicitly; native logging never calls
+PHP code. See [logging lifetime and delivery](logging.md).
+
 ## `final class Connection`
 
 Created via `Database::connect()`. Not constructible directly.
