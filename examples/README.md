@@ -35,6 +35,7 @@ application example. See the [API reference](../docs/api.md) and
 | [scalar_functions.php](scalar_functions.php) | PHP scalar bind, per-worker initialization, NULL-aware batch execution and prepared/pending reuse | Development extension after 1.4.1 |
 | [selection.php](selection.php) | Streaming batches validated in PHP and routed to two tables, plus row reordering and gathering with selection vectors | Extension |
 | [arrow_c_data.php](arrow_c_data.php) | External buffer access and schema/array ownership across the C Data Interface | Enabled PHP FFI |
+| [logging.php](logging.php) | Bounded native logging, explicit draining and forwarding to an application sink | Extension |
 | [errors.php](errors.php) | Typed errors and machine-readable error categories | Extension |
 | [async_jobs.php](async_jobs.php) | Reporting deadlines, progress, cancellation, polling and a minimal Fiber scheduler | Extension |
 | [async_concurrent.php](async_concurrent.php) | Concurrent background queries with `stream_select()` | Extension |
@@ -46,7 +47,7 @@ application example. See the [API reference](../docs/api.md) and
 
 ## Public API audit
 
-The stub currently declares 64 classes, 5 interfaces and 159 public methods, plus
+The stub currently declares 65 classes, 5 interfaces and 163 public methods, plus
 `DuckDB\version()`, `DuckDB\vectorSize()` and the compatibility alias
 `duckdb_version()`. It also
 exposes the three `FetchMode` cases and 43 `ErrorType` cases. The inventory
@@ -58,7 +59,8 @@ optional FFI and framework paths run only when their requirements are met.
 
 | Class or group | Public methods or cases | Example |
 | --- | --- | --- |
-| `Database` | `__construct`, `connect` | [sync_basic.php](sync_basic.php), [async_jobs.php](async_jobs.php) (configuration), [persistent_reports.php](persistent_reports.php) (file reopen/read-only) |
+| `Database` | `__construct`, `connect`, `registerLogStorage` | [logging.php](logging.php), [sync_basic.php](sync_basic.php), [async_jobs.php](async_jobs.php) (configuration), [persistent_reports.php](persistent_reports.php) (file reopen/read-only) |
+| `LogStorage` | `__construct`, `drain`, `droppedCount` | [logging.php](logging.php) |
 | `Connection`: synchronous queries | `query`, `queryStreaming`, `execute`, `prepare`, `appender` | [prepared.php](prepared.php), [order_analytics.php](order_analytics.php) |
 | `Connection`: transactions | `beginTransaction`, `commit`, `rollBack` | [transactions.php](transactions.php), [order_analytics.php](order_analytics.php) |
 | `Connection`: metadata and lifecycle | `getTableNames`, `getTableFunctions`, `close`, `isClosed` | [api_reference.php](api_reference.php) |
