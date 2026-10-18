@@ -12,6 +12,7 @@
 #include "copy_session.h"
 #include "data_chunk.h"
 #include "vector.h"
+#include "expression.h"
 
 extern "C" {
 #include "zend_exceptions.h"
@@ -21,6 +22,7 @@ extern "C" {
 #include <cstring>
 
 zend_class_entry *duckdb_scalar_function_ce;
+zend_class_entry *duckdb_scalar_expression_function_ce;
 zend_class_entry *duckdb_scalar_binding_ce;
 zend_class_entry *duckdb_scalar_executor_ce;
 
@@ -63,15 +65,40 @@ struct scalar_bind {
     std::vector<std::string> arguments;
 };
 
+struct scalar_bind_arguments {
+    conn_inner *conn;
+    zval values;
+    std::vector<std::shared_ptr<expression_state>> states;
+
+    explicit scalar_bind_arguments(conn_inner *owner) : conn(owner) {
+        array_init(&values);
+    }
+
+    ~scalar_bind_arguments() {
+        release();
+    }
+
+    void release() {
+        for (auto &state : states) {
+            state->invalidate();
+        }
+        states.clear();
+        if (!Z_ISUNDEF(values)) {
+            duckdb_callback_zval_release(conn, &values);
+        }
+    }
+};
+
 struct scalar_local {
     std::shared_ptr<scalar_registration> registration;
     std::shared_ptr<scalar_token> executor;
     std::weak_ptr<copy_session> session;
 };
 
-void duckdb_register_scalar_interfaces(zend_class_entry *function_ce, zend_class_entry *binding_ce,
-                                      zend_class_entry *executor_ce) {
+void duckdb_register_scalar_interfaces(zend_class_entry *function_ce, zend_class_entry *expression_function_ce,
+                                      zend_class_entry *binding_ce, zend_class_entry *executor_ce) {
     duckdb_scalar_function_ce = function_ce;
+    duckdb_scalar_expression_function_ce = expression_function_ce;
     duckdb_scalar_binding_ce = binding_ce;
     duckdb_scalar_executor_ce = executor_ce;
 }
@@ -126,7 +153,8 @@ static bool invoke(conn_inner &conn, zend_object *object, const std::string &nam
     }
     std::string message;
     zend_object *cause = nullptr;
-    auto outcome = duckdb_callback_call(&conn, object, method, argc, argv, retval, message, &cause,
+    const char *lookup = strcmp(method, "bindExpressions") == 0 ? "bindexpressions" : method;
+    auto outcome = duckdb_callback_call(&conn, object, lookup, argc, argv, retval, message, &cause,
                                         "Scalar function");
     if (outcome == duckdb_callback_outcome::ok) {
         return true;
@@ -199,29 +227,51 @@ static void scalar_bind_callback(duckdb_bind_info info) {
         auto bind = std::make_unique<scalar_bind>();
         bind->registration = registration;
         bind->slot = slot;
-        zval types;
-        array_init(&types);
+        bool with_expressions = instanceof_function(function->ce, duckdb_scalar_expression_function_ce);
+        scalar_bind_arguments arguments(conn.get());
         idx_t count = duckdb_scalar_function_bind_get_argument_count(info);
+        arguments.states.reserve(count);
         for (idx_t i = 0; i < count; i++) {
-            duckdb_expression expression = duckdb_scalar_function_bind_get_argument(info, i);
+            duckdb_scoped<duckdb_expression, duckdb_destroy_expression> expression(
+                duckdb_scalar_function_bind_get_argument(info, i));
             if (!expression) {
-                duckdb_callback_zval_release(conn.get(), &types);
                 duckdb_scalar_function_bind_set_error(info, "Unable to inspect scalar argument type");
                 return;
             }
-            scoped_duckdb_logical_type type(duckdb_expression_return_type(expression));
-            duckdb_destroy_expression(&expression);
+            scoped_duckdb_logical_type type(duckdb_expression_return_type(expression.get()));
             std::string declaration = duckdb_logical_type_sql(type.get());
             bind->arguments.push_back(declaration);
-            add_next_index_stringl(&types, declaration.data(), declaration.size());
+            if (with_expressions) {
+                duckdb_client_context fold_context = nullptr;
+                duckdb_scalar_function_get_client_context(info, &fold_context);
+                zval argument;
+                ZVAL_UNDEF(&argument);
+                auto state = duckdb_expression_wrap(&argument, expression.release(), fold_context);
+                if (!state) {
+                    if (!Z_ISUNDEF(argument)) {
+                        duckdb_callback_zval_release(conn.get(), &argument);
+                    }
+                    std::string error = "Unable to expose scalar argument expression";
+                    capture_exception(error);
+                    duckdb_scalar_function_bind_set_error(info, error.c_str());
+                    return;
+                }
+                arguments.states.push_back(std::move(state));
+                add_next_index_zval(&arguments.values, &argument);
+            } else {
+                add_next_index_stringl(&arguments.values, declaration.data(), declaration.size());
+            }
         }
         scalar_prepared = true;
         zval retval;
         std::string error;
-        bool ok = invoke(*conn, function, registration->name, "bind", 1, &types, &retval, error);
-        duckdb_callback_zval_release(conn.get(), &types);
+        const char *method = with_expressions ? "bindExpressions" : "bind";
+        bool ok = invoke(*conn, function, registration->name, method, 1, &arguments.values, &retval, error);
+        arguments.release();
         if (ok && (Z_TYPE(retval) != IS_OBJECT || !instanceof_function(Z_OBJCE(retval), duckdb_scalar_binding_ce))) {
-            error = "ScalarFunction::bind() must return a DuckDB\\ScalarBinding";
+            error = with_expressions
+                ? "ScalarExpressionFunction::bindExpressions() must return a DuckDB\\ScalarBinding"
+                : "ScalarFunction::bind() must return a DuckDB\\ScalarBinding";
             ok = false;
         }
         if (ok) {
@@ -500,8 +550,14 @@ DUCKDB_COPY_METHOD(DuckDB_Connection, registerScalarFunction) {
         Z_PARAM_STR(name)
         Z_PARAM_ARRAY(parameters)
         Z_PARAM_ZVAL(result)
-        Z_PARAM_OBJECT_OF_CLASS(function, duckdb_scalar_function_ce)
+        Z_PARAM_OBJECT(function)
     ZEND_PARSE_PARAMETERS_END();
+
+    if (!instanceof_function(Z_OBJCE_P(function), duckdb_scalar_function_ce) &&
+        !instanceof_function(Z_OBJCE_P(function), duckdb_scalar_expression_function_ce)) {
+        zend_argument_type_error(4, "must implement DuckDB\\ScalarFunction or DuckDB\\ScalarExpressionFunction");
+        RETURN_THROWS();
+    }
 
     auto conn = Z_DUCKDB_CONNECTION_P(ZEND_THIS)->inner;
     if (!duckdb_connection_guard(conn)) {

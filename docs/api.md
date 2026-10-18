@@ -170,7 +170,7 @@ Created via `Database::connect()`. Not constructible directly.
 | `getTableNames(string $sql): array` | `list<string>` of tables referenced by the query |
 | `getTableFunctions(?string $name = null): array` | Catalog metadata for table-function overloads; exact, case-insensitive optional name filter. See [table functions](table_functions.md) |
 | `registerCopyToFunction(string $name, CopyToFunction $function): void` | Make `$name` a `COPY ... TO` format on this connection, implemented in PHP. See [COPY TO formats](copy.md) |
-| `registerScalarFunction(string $name, array $parameterTypes, string\|Value $returnType, ScalarFunction $function): void` | Register a connection-local, volatile PHP scalar function with special NULL handling. See [scalar functions](scalar_functions.md) |
+| `registerScalarFunction(string $name, array $parameterTypes, string\|Value $returnType, ScalarFunction\|ScalarExpressionFunction $function): void` | Register a connection-local, volatile PHP scalar function with special NULL handling. See [scalar functions](scalar_functions.md) |
 | `close(): void` | Mark the connection closed (idempotent); further use throws `ConnectionException` |
 | `isClosed(): bool` | Whether `close()` has been called |
 | `queryProgress(): array` | `array{percentage: float, rowsProcessed: int, totalRowsToProcess: int}`; `percentage` is -1 when unavailable. Safe to call from another thread/fiber |
@@ -186,11 +186,27 @@ are under development after extension 1.4.1.
 | Interface | Method | Description |
 | --- | --- | --- |
 | `ScalarFunction` | `bind(array $argumentTypes): ScalarBinding` | Validate resolved argument SQL types and return bound state. Binding may repeat. |
+| `ScalarExpressionFunction` | `bindExpressions(array $arguments): ScalarBinding` | Inspect a list of bound `Expression` arguments instead of type strings. Handles expire after this callback. |
 | `ScalarBinding` | `init(): ScalarExecutor` | Initialize one executing DuckDB worker; may run more than once per query. |
 | `ScalarExecutor` | `execute(DataChunk $arguments): array` | Return a list containing one value per input row, of the registered return type. The batch expires when the callback returns. |
 
 See [scalar functions](scalar_functions.md) for registration, lifecycle,
 errors and execution restrictions.
+
+## `final class Expression`
+
+Created only for `ScalarExpressionFunction::bindExpressions()`. Direct
+construction, cloning and serialization are denied. All methods throw `Error`
+after the callback ends.
+
+| Method | Description |
+| --- | --- |
+| `getReturnType(): string` | Resolved SQL return type of this bound argument. |
+| `isFoldable(): bool` | Whether the argument can be evaluated as a constant. |
+| `fold(): mixed` | Decode a constant using normal result mappings; SQL NULL becomes `null`. A nonconstant throws `Exception` with `ErrorType::InvalidInput`. |
+
+See [expression binding](scalar_functions.md#inspect-argument-expressions) for
+lifetime, error and prepared-parameter behavior.
 
 ## `final class Statement`
 

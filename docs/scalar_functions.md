@@ -27,7 +27,7 @@ $conn->registerScalarFunction(
     string $name,
     array $parameterTypes,
     string|DuckDB\Value $returnType,
-    DuckDB\ScalarFunction $function,
+    DuckDB\ScalarFunction|DuckDB\ScalarExpressionFunction $function,
 ): void
 ```
 
@@ -54,6 +54,7 @@ requires a request's PHP handler for use by a different connection or request.
 | Interface | Method | When called |
 | --- | --- | --- |
 | `ScalarFunction` | `bind(array $argumentTypes): ScalarBinding` | While DuckDB binds one use of the function |
+| `ScalarExpressionFunction` | `bindExpressions(array $arguments): ScalarBinding` | While DuckDB binds one use of the function; receives bound expressions instead of type strings |
 | `ScalarBinding` | `init(): ScalarExecutor` | For each DuckDB worker that begins executing that bound function |
 | `ScalarExecutor` | `execute(DataChunk $arguments): array` | For each input batch processed by that worker |
 
@@ -85,6 +86,38 @@ their defaults and can differ from settings on the registering connection.
 Catalog types must be visible on the private connection; types created in an
 uncommitted transaction may be unavailable there.
 
+## Inspect argument expressions
+
+Implement `ScalarExpressionFunction` to receive a list of `Expression` handles
+through `bindExpressions(array $arguments): ScalarBinding`. Register it using
+`registerScalarFunction()` with the same parameter and return type declarations.
+Existing `ScalarFunction` implementations continue to receive type strings.
+
+| Expression method | Result |
+| --- | --- |
+| `getReturnType(): string` | Resolved SQL type in argument order, including nested parameters |
+| `isFoldable(): bool` | Whether DuckDB can evaluate the expression as a constant during binding |
+| `fold(): mixed` | Evaluate a constant and decode it with the normal [result mappings](types.md) |
+
+Constant SQL NULL folds to PHP `null`. Calling `fold()` on a nonconstant throws
+`DuckDB\Exception` with `ErrorType::InvalidInput`. Evaluation failures use the
+normal DuckDB exception hierarchy. Folded values use PHP result representations;
+they are not lossless `DuckDB\Value` inputs for every SQL type.
+
+Handles are valid only during their `bindExpressions()` callback. Every method
+throws `\Error` after that callback ends, including when it throws. Copy type
+strings or folded PHP values into your binding state. Expressions cannot be
+constructed directly, cloned or serialized. This API inspects bound scalar
+arguments; it does not parse arbitrary SQL into expression trees.
+
+Binding may repeat, including when prepared parameters are supplied. Test
+`isFoldable()` on each binding and avoid assuming a parameter is already a
+constant. Folding uses the binding connection's catalog and session settings.
+
+The [expression example](../examples/scalar_expressions.php) folds a constant
+prefix once while binding, then applies it to each input batch. A prefix from
+a table column is rejected because it is not constant.
+
 ## NULLs and volatility
 
 Functions use DuckDB's special NULL handling: rows with NULL inputs are passed
@@ -115,11 +148,11 @@ rejected. Finish the callback promptly so that cancellation can progress.
 
 ## Errors and lifetime
 
-Throw from `bind()`, `init()` or `execute()` to reject the statement. Native
-execution is unwound before the failure reaches the caller, and the original
-PHP exception is retained as the cause of the DuckDB exception. A subsequent
-ordinary query on the connection can run after the failed statement has been
-cleaned up.
+Throw from `bind()`, `bindExpressions()`, `init()` or `execute()` to reject the
+statement. Native execution is unwound before the failure reaches the caller,
+and the original PHP exception is retained as the cause of the DuckDB
+exception. A subsequent ordinary query on the connection can run after the
+failed statement has been cleaned up.
 
 Cancellation, abandoned pending handles, connection closure and request
 shutdown release worker state without running PHP on DuckDB worker threads.

@@ -27,9 +27,12 @@ vector, selection and custom COPY TO APIs are available in extension 1.4.0.
 [Public scalar bind/init callbacks](scalar_functions.md) were merged in
 [PR #15](https://github.com/martin-juul/php-duckdb/pull/15). PHP implements
 binding, worker initialization and batch execution on the request thread.
-[Table-function metadata](table_functions.md) is under development in this
-checkout: connection-visible catalog overloads, input parameters and descriptions.
-Public expression APIs are next.
+[Table-function metadata](table_functions.md) was merged in
+[PR #16](https://github.com/martin-juul/php-duckdb/pull/16): connection-visible
+catalog overloads, input parameters and descriptions.
+Public expression APIs are under development: `ScalarExpressionFunction`
+inspects bound argument types and folds constants through callback-scoped
+`Expression` handles. Custom logging is next.
 
 The intended PR sequence is:
 

@@ -33,6 +33,7 @@ extern "C" {
 #include "src/copy.h"
 #include "src/copy_session.h"
 #include "src/scalar.h"
+#include "src/expression.h"
 #include "src/selection.h"
 #include "duckdb_arginfo.h"
 #include <unordered_map>
@@ -1257,8 +1258,10 @@ PHP_MINIT_FUNCTION(duckdb) {
     duckdb_connection_handlers.get_gc = duckdb_connection_get_gc;
     duckdb_register_copy_interfaces(register_class_DuckDB_CopyToFunction(), register_class_DuckDB_CopyToWriter());
     duckdb_register_scalar_interfaces(register_class_DuckDB_ScalarFunction(),
+                                      register_class_DuckDB_ScalarExpressionFunction(),
                                       register_class_DuckDB_ScalarBinding(),
                                       register_class_DuckDB_ScalarExecutor());
+    duckdb_register_expression_class(register_class_DuckDB_Expression());
     DUCKDB_REGISTER_CLASS(statement, register_class_DuckDB_Statement);
     duckdb_statement_handlers.get_gc = duckdb_statement_get_gc;
     duckdb_register_arrow_classes(register_class_DuckDB_ArrowSchema(), register_class_DuckDB_ArrowChunk());

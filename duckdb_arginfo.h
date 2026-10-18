@@ -1,5 +1,5 @@
 /* This is a generated file, edit the .stub.php file instead.
- * Stub hash: 4cc5d3e1ff11812493e0444b813a24ad6dbf54e7 */
+ * Stub hash: 333aaf704a39d4432becb01e8fb065a044f3e277 */
 
 ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_DuckDB_version, 0, 0, IS_STRING, 0)
 ZEND_END_ARG_INFO()
@@ -189,6 +189,21 @@ ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_class_DuckDB_ScalarFunction_bind,
 	ZEND_ARG_TYPE_INFO(0, argumentTypes, IS_ARRAY, 0)
 ZEND_END_ARG_INFO()
 
+ZEND_BEGIN_ARG_INFO_EX(arginfo_class_DuckDB_Expression___construct, 0, 0, 0)
+ZEND_END_ARG_INFO()
+
+#define arginfo_class_DuckDB_Expression_getReturnType arginfo_DuckDB_version
+
+ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_class_DuckDB_Expression_isFoldable, 0, 0, _IS_BOOL, 0)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_class_DuckDB_Expression_fold, 0, 0, IS_MIXED, 0)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_class_DuckDB_ScalarExpressionFunction_bindExpressions, 0, 1, DuckDB\\ScalarBinding, 0)
+	ZEND_ARG_TYPE_INFO(0, arguments, IS_ARRAY, 0)
+ZEND_END_ARG_INFO()
+
 ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_class_DuckDB_ScalarBinding_init, 0, 0, DuckDB\\ScalarExecutor, 0)
 ZEND_END_ARG_INFO()
 
@@ -214,11 +229,10 @@ ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_class_DuckDB_Connection_register
 	ZEND_ARG_TYPE_INFO(0, name, IS_STRING, 0)
 	ZEND_ARG_TYPE_INFO(0, parameterTypes, IS_ARRAY, 0)
 	ZEND_ARG_OBJ_TYPE_MASK(0, returnType, DuckDB\\Value, MAY_BE_STRING, NULL)
-	ZEND_ARG_OBJ_INFO(0, function, DuckDB\\ScalarFunction, 0)
+	ZEND_ARG_OBJ_TYPE_MASK(0, function, DuckDB\\ScalarFunction|DuckDB\\ScalarExpressionFunction, 0, NULL)
 ZEND_END_ARG_INFO()
 
-ZEND_BEGIN_ARG_INFO_EX(arginfo_class_DuckDB_Connection___construct, 0, 0, 0)
-ZEND_END_ARG_INFO()
+#define arginfo_class_DuckDB_Connection___construct arginfo_class_DuckDB_Expression___construct
 
 ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_class_DuckDB_Connection_query, 0, 1, DuckDB\\Result, 0)
 	ZEND_ARG_TYPE_INFO(0, sql, IS_STRING, 0)
@@ -259,8 +273,7 @@ ZEND_END_ARG_INFO()
 
 #define arginfo_class_DuckDB_Connection_close arginfo_class_DuckDB_CopyToWriter_close
 
-ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_class_DuckDB_Connection_isClosed, 0, 0, _IS_BOOL, 0)
-ZEND_END_ARG_INFO()
+#define arginfo_class_DuckDB_Connection_isClosed arginfo_class_DuckDB_Expression_isFoldable
 
 #define arginfo_class_DuckDB_Connection_queryProgress arginfo_class_DuckDB_Interval_jsonSerialize
 
@@ -270,7 +283,7 @@ ZEND_END_ARG_INFO()
 
 #define arginfo_class_DuckDB_Connection_rollBack arginfo_class_DuckDB_CopyToWriter_close
 
-#define arginfo_class_DuckDB_Statement___construct arginfo_class_DuckDB_Connection___construct
+#define arginfo_class_DuckDB_Statement___construct arginfo_class_DuckDB_Expression___construct
 
 ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_class_DuckDB_Statement_bindValue, 0, 2, DuckDB\\Statement, 0)
 	ZEND_ARG_TYPE_MASK(0, param, MAY_BE_LONG|MAY_BE_STRING, NULL)
@@ -314,7 +327,7 @@ ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_class_DuckDB_Statement_executeAsy
 	ZEND_ARG_TYPE_INFO_WITH_DEFAULT_VALUE(0, params, IS_ARRAY, 0, "[]")
 ZEND_END_ARG_INFO()
 
-#define arginfo_class_DuckDB_ArrowSchema___construct arginfo_class_DuckDB_Connection___construct
+#define arginfo_class_DuckDB_ArrowSchema___construct arginfo_class_DuckDB_Expression___construct
 
 ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_class_DuckDB_ArrowSchema_importFromC, 0, 1, DuckDB\\ArrowSchema, 0)
 	ZEND_ARG_TYPE_INFO(0, address, IS_LONG, 0)
@@ -326,7 +339,7 @@ ZEND_END_ARG_INFO()
 
 #define arginfo_class_DuckDB_ArrowSchema_toArray arginfo_class_DuckDB_Interval_jsonSerialize
 
-#define arginfo_class_DuckDB_ArrowChunk___construct arginfo_class_DuckDB_Connection___construct
+#define arginfo_class_DuckDB_ArrowChunk___construct arginfo_class_DuckDB_Expression___construct
 
 ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_class_DuckDB_ArrowChunk_importFromC, 0, 2, DuckDB\\ArrowChunk, 0)
 	ZEND_ARG_OBJ_INFO(0, schema, DuckDB\\ArrowSchema, 0)
@@ -340,9 +353,9 @@ ZEND_END_ARG_INFO()
 
 #define arginfo_class_DuckDB_ArrowChunk_rowCount arginfo_DuckDB_vectorSize
 
-#define arginfo_class_DuckDB_ArrowChunk_isConsumed arginfo_class_DuckDB_Connection_isClosed
+#define arginfo_class_DuckDB_ArrowChunk_isConsumed arginfo_class_DuckDB_Expression_isFoldable
 
-#define arginfo_class_DuckDB_DataChunk___construct arginfo_class_DuckDB_Connection___construct
+#define arginfo_class_DuckDB_DataChunk___construct arginfo_class_DuckDB_Expression___construct
 
 ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_class_DuckDB_DataChunk_fromVectors, 0, 2, DuckDB\\DataChunk, 0)
 	ZEND_ARG_TYPE_INFO(0, vectors, IS_ARRAY, 0)
@@ -375,7 +388,7 @@ ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_class_DuckDB_DataChunk_toArrow, 0
 	ZEND_ARG_OBJ_INFO(0, connection, DuckDB\\Connection, 0)
 ZEND_END_ARG_INFO()
 
-#define arginfo_class_DuckDB_Vector___construct arginfo_class_DuckDB_Connection___construct
+#define arginfo_class_DuckDB_Vector___construct arginfo_class_DuckDB_Expression___construct
 
 #define arginfo_class_DuckDB_Vector_type arginfo_DuckDB_version
 
@@ -439,7 +452,7 @@ ZEND_END_ARG_INFO()
 
 #define arginfo_class_DuckDB_SelectionVector_toArray arginfo_class_DuckDB_Interval_jsonSerialize
 
-#define arginfo_class_DuckDB_Result___construct arginfo_class_DuckDB_Connection___construct
+#define arginfo_class_DuckDB_Result___construct arginfo_class_DuckDB_Expression___construct
 
 #define arginfo_class_DuckDB_Result_arrowSchema arginfo_class_DuckDB_ArrowChunk_schema
 
@@ -473,10 +486,9 @@ ZEND_END_ARG_INFO()
 ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_class_DuckDB_Result_getIterator, 0, 0, Iterator, 0)
 ZEND_END_ARG_INFO()
 
-#define arginfo_class_DuckDB_ResultIterator___construct arginfo_class_DuckDB_Connection___construct
+#define arginfo_class_DuckDB_ResultIterator___construct arginfo_class_DuckDB_Expression___construct
 
-ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_class_DuckDB_ResultIterator_current, 0, 0, IS_MIXED, 0)
-ZEND_END_ARG_INFO()
+#define arginfo_class_DuckDB_ResultIterator_current arginfo_class_DuckDB_Expression_fold
 
 #define arginfo_class_DuckDB_ResultIterator_key arginfo_DuckDB_vectorSize
 
@@ -484,11 +496,11 @@ ZEND_END_ARG_INFO()
 
 #define arginfo_class_DuckDB_ResultIterator_rewind arginfo_class_DuckDB_CopyToWriter_close
 
-#define arginfo_class_DuckDB_ResultIterator_valid arginfo_class_DuckDB_Connection_isClosed
+#define arginfo_class_DuckDB_ResultIterator_valid arginfo_class_DuckDB_Expression_isFoldable
 
-#define arginfo_class_DuckDB_PendingQuery___construct arginfo_class_DuckDB_Connection___construct
+#define arginfo_class_DuckDB_PendingQuery___construct arginfo_class_DuckDB_Expression___construct
 
-#define arginfo_class_DuckDB_PendingQuery_isReady arginfo_class_DuckDB_Connection_isClosed
+#define arginfo_class_DuckDB_PendingQuery_isReady arginfo_class_DuckDB_Expression_isFoldable
 
 ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_class_DuckDB_PendingQuery_await, 0, 0, DuckDB\\Result, 0)
 ZEND_END_ARG_INFO()
@@ -499,9 +511,9 @@ ZEND_END_ARG_INFO()
 
 #define arginfo_class_DuckDB_PendingQuery_getFd arginfo_DuckDB_vectorSize
 
-#define arginfo_class_DuckDB_PendingQuery_getStream arginfo_class_DuckDB_ResultIterator_current
+#define arginfo_class_DuckDB_PendingQuery_getStream arginfo_class_DuckDB_Expression_fold
 
-#define arginfo_class_DuckDB_Appender___construct arginfo_class_DuckDB_Connection___construct
+#define arginfo_class_DuckDB_Appender___construct arginfo_class_DuckDB_Expression___construct
 
 ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_class_DuckDB_Appender_appendRow, 0, 1, IS_VOID, 0)
 	ZEND_ARG_TYPE_INFO(0, values, IS_ARRAY, 0)
@@ -586,6 +598,10 @@ ZEND_METHOD(DuckDB_Geometry, __construct);
 ZEND_METHOD(DuckDB_CatalogValue, __construct);
 ZEND_METHOD(DuckDB_Database, __construct);
 ZEND_METHOD(DuckDB_Database, connect);
+ZEND_METHOD(DuckDB_Expression, __construct);
+ZEND_METHOD(DuckDB_Expression, getReturnType);
+ZEND_METHOD(DuckDB_Expression, isFoldable);
+ZEND_METHOD(DuckDB_Expression, fold);
 ZEND_METHOD(DuckDB_Connection, dataChunkFromArrow);
 ZEND_METHOD(DuckDB_Connection, createVector);
 ZEND_METHOD(DuckDB_Connection, registerCopyToFunction);
@@ -1048,6 +1064,21 @@ static const zend_function_entry class_DuckDB_CopyToWriter_methods[] = {
 
 static const zend_function_entry class_DuckDB_ScalarFunction_methods[] = {
 	ZEND_ABSTRACT_ME_WITH_FLAGS(DuckDB_ScalarFunction, bind, arginfo_class_DuckDB_ScalarFunction_bind, ZEND_ACC_PUBLIC|ZEND_ACC_ABSTRACT)
+	ZEND_FE_END
+};
+
+
+static const zend_function_entry class_DuckDB_Expression_methods[] = {
+	ZEND_ME(DuckDB_Expression, __construct, arginfo_class_DuckDB_Expression___construct, ZEND_ACC_PRIVATE)
+	ZEND_ME(DuckDB_Expression, getReturnType, arginfo_class_DuckDB_Expression_getReturnType, ZEND_ACC_PUBLIC)
+	ZEND_ME(DuckDB_Expression, isFoldable, arginfo_class_DuckDB_Expression_isFoldable, ZEND_ACC_PUBLIC)
+	ZEND_ME(DuckDB_Expression, fold, arginfo_class_DuckDB_Expression_fold, ZEND_ACC_PUBLIC)
+	ZEND_FE_END
+};
+
+
+static const zend_function_entry class_DuckDB_ScalarExpressionFunction_methods[] = {
+	ZEND_ABSTRACT_ME_WITH_FLAGS(DuckDB_ScalarExpressionFunction, bindExpressions, arginfo_class_DuckDB_ScalarExpressionFunction_bindExpressions, ZEND_ACC_PUBLIC|ZEND_ACC_ABSTRACT)
 	ZEND_FE_END
 };
 
@@ -2016,6 +2047,27 @@ static zend_class_entry *register_class_DuckDB_ScalarFunction(void)
 	zend_class_entry ce, *class_entry;
 
 	INIT_NS_CLASS_ENTRY(ce, "DuckDB", "ScalarFunction", class_DuckDB_ScalarFunction_methods);
+	class_entry = zend_register_internal_interface(&ce);
+
+	return class_entry;
+}
+
+static zend_class_entry *register_class_DuckDB_Expression(void)
+{
+	zend_class_entry ce, *class_entry;
+
+	INIT_NS_CLASS_ENTRY(ce, "DuckDB", "Expression", class_DuckDB_Expression_methods);
+	class_entry = zend_register_internal_class_ex(&ce, NULL);
+	class_entry->ce_flags |= ZEND_ACC_FINAL;
+
+	return class_entry;
+}
+
+static zend_class_entry *register_class_DuckDB_ScalarExpressionFunction(void)
+{
+	zend_class_entry ce, *class_entry;
+
+	INIT_NS_CLASS_ENTRY(ce, "DuckDB", "ScalarExpressionFunction", class_DuckDB_ScalarExpressionFunction_methods);
 	class_entry = zend_register_internal_interface(&ce);
 
 	return class_entry;

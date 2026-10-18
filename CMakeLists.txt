@@ -358,7 +358,8 @@ set(DUCKDB_SOURCES
     src/selection.cpp
     src/copy_session.cpp
     src/copy.cpp
-    src/scalar.cpp)
+    src/scalar.cpp
+    src/expression.cpp)
 
 set(DUCKDB_HEADERS
     php_duckdb.h
@@ -371,6 +372,7 @@ set(DUCKDB_HEADERS
     src/copy_session.h
     src/copy.h
     src/scalar.h
+    src/expression.h
     src/bignum_decode.h
     src/variant_decode.h
     src/type_classes.h
