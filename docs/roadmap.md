@@ -24,7 +24,9 @@ row indices that pick, reorder and repeat vector and chunk rows.
 [PR #13](https://github.com/martin-juul/php-duckdb/pull/13): PHP classes that
 receive `COPY ... TO` output batch by batch on the request thread. Arrow,
 vector, selection and custom COPY TO APIs are available in extension 1.4.0.
-Public scalar bind/init callbacks are next.
+[Public scalar bind/init callbacks](scalar_functions.md) are under development
+in this checkout. PHP implements binding, worker initialization and batch
+execution on the request thread. Table-function metadata is next.
 
 The intended PR sequence is:
 

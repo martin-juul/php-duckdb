@@ -60,7 +60,8 @@ std::shared_ptr<data_chunk_data> duckdb_data_chunk_from_zval(zval *value) {
         return nullptr;
     }
     if (data->expired) {
-        zend_throw_error(nullptr, "This COPY batch is only valid during CopyToWriter::write(); "
+        zend_throw_error(nullptr, "This callback batch is only valid during CopyToWriter::write() "
+                                  "or ScalarExecutor::execute(); "
                                   "keep a copy with select() or vector()");
         return nullptr;
     }

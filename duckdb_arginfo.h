@@ -1,5 +1,5 @@
 /* This is a generated file, edit the .stub.php file instead.
- * Stub hash: 55355f518f06f19c9381f5c97925598f071a2d6e */
+ * Stub hash: 2f9cad9fb3bfad8f3e3b9b5eb1476c0b8be19b4f */
 
 ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_DuckDB_version, 0, 0, IS_STRING, 0)
 ZEND_END_ARG_INFO()
@@ -185,6 +185,17 @@ ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_class_DuckDB_CopyToWriter_abort,
 	ZEND_ARG_OBJ_INFO(0, reason, Throwable, 0)
 ZEND_END_ARG_INFO()
 
+ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_class_DuckDB_ScalarFunction_bind, 0, 1, DuckDB\\ScalarBinding, 0)
+	ZEND_ARG_TYPE_INFO(0, argumentTypes, IS_ARRAY, 0)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_class_DuckDB_ScalarBinding_init, 0, 0, DuckDB\\ScalarExecutor, 0)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_class_DuckDB_ScalarExecutor_execute, 0, 1, IS_ARRAY, 0)
+	ZEND_ARG_OBJ_INFO(0, arguments, DuckDB\\DataChunk, 0)
+ZEND_END_ARG_INFO()
+
 ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_class_DuckDB_Connection_dataChunkFromArrow, 0, 1, DuckDB\\DataChunk, 0)
 	ZEND_ARG_OBJ_INFO(0, chunk, DuckDB\\ArrowChunk, 0)
 ZEND_END_ARG_INFO()
@@ -197,6 +208,13 @@ ZEND_END_ARG_INFO()
 ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_class_DuckDB_Connection_registerCopyToFunction, 0, 2, IS_VOID, 0)
 	ZEND_ARG_TYPE_INFO(0, name, IS_STRING, 0)
 	ZEND_ARG_OBJ_INFO(0, function, DuckDB\\CopyToFunction, 0)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_class_DuckDB_Connection_registerScalarFunction, 0, 4, IS_VOID, 0)
+	ZEND_ARG_TYPE_INFO(0, name, IS_STRING, 0)
+	ZEND_ARG_TYPE_INFO(0, parameterTypes, IS_ARRAY, 0)
+	ZEND_ARG_OBJ_TYPE_MASK(0, returnType, DuckDB\\Value, MAY_BE_STRING, NULL)
+	ZEND_ARG_OBJ_INFO(0, function, DuckDB\\ScalarFunction, 0)
 ZEND_END_ARG_INFO()
 
 ZEND_BEGIN_ARG_INFO_EX(arginfo_class_DuckDB_Connection___construct, 0, 0, 0)
@@ -567,6 +585,7 @@ ZEND_METHOD(DuckDB_Database, connect);
 ZEND_METHOD(DuckDB_Connection, dataChunkFromArrow);
 ZEND_METHOD(DuckDB_Connection, createVector);
 ZEND_METHOD(DuckDB_Connection, registerCopyToFunction);
+ZEND_METHOD(DuckDB_Connection, registerScalarFunction);
 ZEND_METHOD(DuckDB_Connection, __construct);
 ZEND_METHOD(DuckDB_Connection, query);
 ZEND_METHOD(DuckDB_Connection, queryStreaming);
@@ -1022,10 +1041,29 @@ static const zend_function_entry class_DuckDB_CopyToWriter_methods[] = {
 };
 
 
+static const zend_function_entry class_DuckDB_ScalarFunction_methods[] = {
+	ZEND_ABSTRACT_ME_WITH_FLAGS(DuckDB_ScalarFunction, bind, arginfo_class_DuckDB_ScalarFunction_bind, ZEND_ACC_PUBLIC|ZEND_ACC_ABSTRACT)
+	ZEND_FE_END
+};
+
+
+static const zend_function_entry class_DuckDB_ScalarBinding_methods[] = {
+	ZEND_ABSTRACT_ME_WITH_FLAGS(DuckDB_ScalarBinding, init, arginfo_class_DuckDB_ScalarBinding_init, ZEND_ACC_PUBLIC|ZEND_ACC_ABSTRACT)
+	ZEND_FE_END
+};
+
+
+static const zend_function_entry class_DuckDB_ScalarExecutor_methods[] = {
+	ZEND_ABSTRACT_ME_WITH_FLAGS(DuckDB_ScalarExecutor, execute, arginfo_class_DuckDB_ScalarExecutor_execute, ZEND_ACC_PUBLIC|ZEND_ACC_ABSTRACT)
+	ZEND_FE_END
+};
+
+
 static const zend_function_entry class_DuckDB_Connection_methods[] = {
 	ZEND_ME(DuckDB_Connection, dataChunkFromArrow, arginfo_class_DuckDB_Connection_dataChunkFromArrow, ZEND_ACC_PUBLIC)
 	ZEND_ME(DuckDB_Connection, createVector, arginfo_class_DuckDB_Connection_createVector, ZEND_ACC_PUBLIC)
 	ZEND_ME(DuckDB_Connection, registerCopyToFunction, arginfo_class_DuckDB_Connection_registerCopyToFunction, ZEND_ACC_PUBLIC)
+	ZEND_ME(DuckDB_Connection, registerScalarFunction, arginfo_class_DuckDB_Connection_registerScalarFunction, ZEND_ACC_PUBLIC)
 	ZEND_ME(DuckDB_Connection, __construct, arginfo_class_DuckDB_Connection___construct, ZEND_ACC_PRIVATE)
 	ZEND_ME(DuckDB_Connection, query, arginfo_class_DuckDB_Connection_query, ZEND_ACC_PUBLIC)
 	ZEND_ME(DuckDB_Connection, queryStreaming, arginfo_class_DuckDB_Connection_queryStreaming, ZEND_ACC_PUBLIC)
@@ -1962,6 +2000,36 @@ static zend_class_entry *register_class_DuckDB_CopyToWriter(void)
 	zend_class_entry ce, *class_entry;
 
 	INIT_NS_CLASS_ENTRY(ce, "DuckDB", "CopyToWriter", class_DuckDB_CopyToWriter_methods);
+	class_entry = zend_register_internal_interface(&ce);
+
+	return class_entry;
+}
+
+static zend_class_entry *register_class_DuckDB_ScalarFunction(void)
+{
+	zend_class_entry ce, *class_entry;
+
+	INIT_NS_CLASS_ENTRY(ce, "DuckDB", "ScalarFunction", class_DuckDB_ScalarFunction_methods);
+	class_entry = zend_register_internal_interface(&ce);
+
+	return class_entry;
+}
+
+static zend_class_entry *register_class_DuckDB_ScalarBinding(void)
+{
+	zend_class_entry ce, *class_entry;
+
+	INIT_NS_CLASS_ENTRY(ce, "DuckDB", "ScalarBinding", class_DuckDB_ScalarBinding_methods);
+	class_entry = zend_register_internal_interface(&ce);
+
+	return class_entry;
+}
+
+static zend_class_entry *register_class_DuckDB_ScalarExecutor(void)
+{
+	zend_class_entry ce, *class_entry;
+
+	INIT_NS_CLASS_ENTRY(ce, "DuckDB", "ScalarExecutor", class_DuckDB_ScalarExecutor_methods);
 	class_entry = zend_register_internal_interface(&ce);
 
 	return class_entry;

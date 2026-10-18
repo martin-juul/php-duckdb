@@ -19,6 +19,7 @@
 #include "php_duckdb_cxx_compat.h"
 #include "php_duckdb.h"
 #include "copy.h"
+#include "scalar.h"
 #include "copy_session.h"
 
 #if defined(ZTS) && defined(COMPILE_DL_DUCKDB)
@@ -591,6 +592,10 @@ PHP_METHOD(DuckDB_Statement, executeAsync) {
     }
     if (intern->inner->uses_copy_format) {
         duckdb_throw_msg(duckdb_copy_not_pumped_message);
+        RETURN_THROWS();
+    }
+    if (intern->inner->uses_scalar_function) {
+        duckdb_throw_msg(duckdb_scalar_not_pumped_message);
         RETURN_THROWS();
     }
 

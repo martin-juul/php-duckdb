@@ -148,18 +148,24 @@ duckdb_notify_fd duckdb_notify_fd_duplicate(duckdb_notify_fd fd);
 struct copy_session;
 struct copy_slot;
 struct copy_registration;
+struct scalar_slot;
+struct scalar_registration;
+struct scalar_registry;
 
 /* A DuckDB database instance. Connections hold a shared_ptr to this,
  * so the database outlives its connections. */
 struct db_inner {
     duckdb_database db = nullptr;
-    /* Pumped statements by DuckDB connection id, for COPY callbacks that
+    /* Pumped statements by DuckDB connection id, for PHP callbacks that
      * run on DuckDB threads and only know their client context. */
     std::mutex session_mutex;
     std::unordered_map<idx_t, std::weak_ptr<copy_session>> sessions;
     /* PHP COPY formats registered in this instance, by lower-cased name. */
     std::mutex copy_mutex;
     std::unordered_map<std::string, std::shared_ptr<copy_slot>> copy_slots;
+    /* PHP scalar functions registered in this instance, by lower-cased name. */
+    std::mutex scalar_mutex;
+    std::unordered_map<std::string, std::shared_ptr<scalar_slot>> scalar_slots;
     /* One private callback per database; capture values remain operation-scoped. */
     std::mutex typed_capture_mutex;
     std::shared_ptr<void> typed_capture_state;
@@ -174,7 +180,7 @@ struct db_inner {
  * use from multiple threads, so every statement execution (sync or
  * async) holds `mutex` for the duration of the DuckDB call. PHP-thread
  * code acquires it through duckdb_conn_enter() or duckdb_conn_cleanup(),
- * which refuse re-entry from a COPY handler running for this connection. */
+ * which refuse re-entry from a PHP handler running for this connection. */
 struct conn_inner {
     std::shared_ptr<db_inner> db;
     duckdb_connection conn = nullptr;
@@ -189,7 +195,7 @@ struct conn_inner {
      * epoch lets streaming results detect that and fail loudly instead of
      * silently truncating. */
     std::atomic<uint64_t> execution_epoch{0};
-    /* Nonzero while handler_thread runs a COPY handler for this connection.
+    /* Nonzero while handler_thread runs a PHP handler for this connection.
      * Re-entering the connection from that thread would self-deadlock. */
     std::atomic<int> handler_depth{0};
     std::atomic<std::thread::id> handler_thread{};
@@ -200,6 +206,10 @@ struct conn_inner {
     std::atomic<int> copy_registrations{0};
     /* This connection's COPY formats by lower-cased name (request thread). */
     std::unordered_map<std::string, std::shared_ptr<copy_registration>> copy_regs;
+    /* Live scalar functions and their request-thread PHP handlers. */
+    std::atomic<int> scalar_registrations{0};
+    std::unordered_map<std::string, std::shared_ptr<scalar_registration>> scalar_regs;
+    std::shared_ptr<scalar_registry> scalar_state;
     /* The pumped statement on this connection, if any (request thread only). */
     std::shared_ptr<copy_session> session;
     /* DuckDB's id for this connection, resolved when first pumped. */
@@ -219,17 +229,17 @@ struct conn_inner {
     }
 };
 
-/* True while the calling thread runs a COPY handler for this connection. */
+/* True while the calling thread runs a PHP handler for this connection. */
 bool duckdb_conn_busy_here(const conn_inner &conn);
 /* Throw a ConnectionException and return false when the calling thread runs
- * a COPY handler for this connection. */
+ * a PHP handler for this connection. */
 bool duckdb_conn_check_not_busy(const conn_inner &conn);
 /* Acquire conn->mutex into `lock` for a PHP-thread operation. Throws a
  * ConnectionException and returns false instead of locking when the calling
- * thread runs a COPY handler for this connection. */
+ * thread runs a PHP handler for this connection. */
 bool duckdb_conn_enter(conn_inner &conn, std::unique_lock<std::mutex> &lock);
 /* Run native cleanup under conn->mutex, or defer it until the connection's
- * COPY handler returns when the calling thread is inside one. */
+ * PHP handler returns when the calling thread is inside one. */
 void duckdb_conn_cleanup(const std::shared_ptr<conn_inner> &conn, std::function<void()> work);
 /* Run cleanup deferred by duckdb_conn_cleanup(). Caller must not hold
  * conn->mutex and must not be inside a handler for this connection. */
@@ -245,6 +255,8 @@ struct stmt_inner {
     duckdb_prepared_statement stmt = nullptr;
     /* Bound to a PHP COPY format at prepare time. */
     bool uses_copy_format = false;
+    /* Bound to a PHP scalar function at prepare time. */
+    bool uses_scalar_function = false;
     ~stmt_inner() {
         if (stmt) {
             duckdb_destroy_prepare(&stmt);

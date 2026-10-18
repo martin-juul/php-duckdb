@@ -31,6 +31,7 @@ application example. See the [API reference](../docs/api.md) and
 | [arrow.php](arrow.php) | Streaming Arrow batches copied between connections | Extension; no FFI required |
 | [vectors.php](vectors.php) | Typed column vectors built from PHP, split into native chunks and appended | Extension |
 | [copy_to.php](copy_to.php) | A Markdown table `COPY ... TO` format written in PHP, with options, prepared reuse, bind validation and connection scope | Extension |
+| [scalar_functions.php](scalar_functions.php) | PHP scalar bind, per-worker initialization, NULL-aware batch execution and prepared/pending reuse | Development extension after 1.4.1 |
 | [selection.php](selection.php) | Streaming batches validated in PHP and routed to two tables, plus row reordering and gathering with selection vectors | Extension |
 | [arrow_c_data.php](arrow_c_data.php) | External buffer access and schema/array ownership across the C Data Interface | Enabled PHP FFI |
 | [errors.php](errors.php) | Typed errors and machine-readable error categories | Extension |
@@ -44,7 +45,7 @@ application example. See the [API reference](../docs/api.md) and
 
 ## Public API audit
 
-The stub currently declares 64 classes, 2 interfaces and 154 public methods, plus
+The stub currently declares 64 classes, 5 interfaces and 158 public methods, plus
 `DuckDB\version()`, `DuckDB\vectorSize()` and the compatibility alias
 `duckdb_version()`. It also
 exposes the three `FetchMode` cases and 43 `ErrorType` cases. The inventory
@@ -64,6 +65,10 @@ optional FFI and framework paths run only when their requirements are met.
 | `Connection`: Arrow ingestion | `dataChunkFromArrow` | [arrow.php](arrow.php) |
 | `Connection`: vectors | `createVector` | [vectors.php](vectors.php) |
 | `Connection`: COPY formats | `registerCopyToFunction` | [copy_to.php](copy_to.php) |
+| `Connection`: scalar functions | `registerScalarFunction` | [scalar_functions.php](scalar_functions.php) |
+| `ScalarFunction` | `bind` | [scalar_functions.php](scalar_functions.php) |
+| `ScalarBinding` | `init` | [scalar_functions.php](scalar_functions.php) |
+| `ScalarExecutor` | `execute` | [scalar_functions.php](scalar_functions.php) |
 | `CopyToFunction` | `bind`, `open` | [copy_to.php](copy_to.php) |
 | `CopyToWriter` | `write`, `close`, `abort` | [copy_to.php](copy_to.php) |
 | `Statement`: binding and execution | `bindValue`, `bindBlob`, `clearBindings`, `execute`, `executeStreaming` | [api_reference.php](api_reference.php) |

@@ -449,6 +449,38 @@ interface CopyToWriter
 }
 
 /**
+ * A connection-local PHP scalar function. Callbacks run on the request
+ * thread and must not suspend. Registered functions are volatile and receive
+ * NULL inputs; execute() must return NULL explicitly when appropriate.
+ */
+interface ScalarFunction
+{
+    /**
+     * Bind one use of the function. DuckDB may bind prepared SQL repeatedly.
+     * @param string[] $argumentTypes Resolved SQL types, in argument order.
+     */
+    public function bind(array $argumentTypes): ScalarBinding;
+}
+
+/** Bound scalar-function state, shared read-only by its worker initializers. */
+interface ScalarBinding
+{
+    /** Create state for one executing DuckDB worker, not once per query. */
+    public function init(): ScalarExecutor;
+}
+
+/** Receives the batches processed by one scalar-function worker. */
+interface ScalarExecutor
+{
+    /**
+     * The batch is only valid during this call. Return one value for every
+     * input row, including NULLs, in order and with the registered return type.
+     * @return list<mixed>
+     */
+    public function execute(DataChunk $arguments): array;
+}
+
+/**
  * A connection to a DuckDB database. Created via {@see Database::connect()}.
  *
  * Connections are not safe for concurrent use from multiple threads, so the
@@ -473,6 +505,14 @@ final class Connection
      */
     public function registerCopyToFunction(string $name, CopyToFunction $function): void {}
 
+    /**
+     * Register a volatile, NULL-aware PHP scalar function on this connection.
+     * Registering a name again replaces its handler; prepare old SQL again.
+     * @param array $parameterTypes List of SQL strings, scalar class names or Value instances.
+     * @throws \ValueError On an invalid name or type specification.
+     */
+    public function registerScalarFunction(string $name, array $parameterTypes, string|Value $returnType, ScalarFunction $function): void {}
+
     private function __construct() {}
 
     /**
@@ -494,7 +534,8 @@ final class Connection
     public function queryStreaming(string $sql): Result {}
 
     /**
-     * Start the query on a background worker thread.
+     * Start the query on a background worker thread. PHP scalar functions
+     * and COPY TO handlers cannot execute on that thread.
      *
      * The returned handle integrates with event loops: poll
      * {@see PendingQuery::isReady()}, wait on {@see PendingQuery::getStream()}
