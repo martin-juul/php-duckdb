@@ -10,10 +10,14 @@ for that interface.
 DuckDB executes table functions through C callbacks that produce data chunks.
 The driver does not connect PHP callables to these callbacks or the parallel
 execution engine, so **you cannot register table functions from PHP**. The
-same restriction applies to the C API's scalar-function, aggregate-function
-and cast registration interfaces.
+same restriction applies to the C API's aggregate-function and cast
+registration interfaces.
 
-COPY functions are the exception: a PHP class can implement a `COPY ... TO`
+Scalar functions can be implemented in PHP with bind, worker-init and batch
+execution callbacks; see [scalar functions](scalar_functions.md). These APIs
+are under development and are not included in extension 1.4.1.
+
+COPY functions are also supported: a PHP class can implement a `COPY ... TO`
 output format. DuckDB hands each result batch to the request thread, where the
 PHP handler writes it. See [COPY TO formats](copy.md).
 

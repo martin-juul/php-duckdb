@@ -414,6 +414,21 @@ The format is available only on the registering connection, and its handlers
 run on the request thread. See [COPY TO formats](docs/copy.md) and the
 [runnable example](examples/copy_to.php).
 
+## PHP scalar functions
+
+Scalar bind/init callbacks are under development after extension 1.4.1.
+`Connection::registerScalarFunction()` registers a PHP `ScalarFunction` with
+explicit parameter and return types. Its `bind()` returns a `ScalarBinding`,
+whose `init()` creates a `ScalarExecutor` for each executing DuckDB worker.
+The executor receives a `DataChunk` and returns one output value per row.
+
+Callbacks run on the request thread, must not suspend, and receive NULL
+arguments. Functions are volatile and available only on the registering
+connection. Use synchronous, streaming or pending queries; worker-based
+`queryAsync()` and `executeAsync()` reject PHP scalar execution. See
+[scalar functions](docs/scalar_functions.md) and the
+[runnable example](examples/scalar_functions.php).
+
 ## Prepared statements
 
 ```php
@@ -535,8 +550,8 @@ $result = $pending->await();      // block this thread until done
 $pending->cancel();      // interrupt the query (-> InterruptedException)
 ```
 
-- **`queryAsync()` / `Statement::executeAsync()`** run the query on a detached
-  worker thread. Worker threads never touch PHP state; completion is signalled
+- **`queryAsync()` / `Statement::executeAsync()`** run the query on a worker
+  thread. Worker threads never touch PHP state; completion is signalled
   through a socket pair (loopback TCP on Windows): `PendingQuery::getStream()`
   returns a PHP stream usable with `stream_select()`, `getFd()` the raw
   descriptor (a duplicate — closing it is safe) for compatible event loops. On

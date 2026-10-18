@@ -43,6 +43,12 @@ if test "$PHP_DUCKDB" != "no"; then
   PHP_CHECK_LIBRARY([duckdb], [duckdb_scalar_function_set_bind], [],
     [AC_MSG_ERROR([DuckDB scalar bind callbacks are required])],
     [-L$DUCKDB_DIR/lib])
+  PHP_CHECK_LIBRARY([duckdb], [duckdb_scalar_function_set_bind_data_copy], [],
+    [AC_MSG_ERROR([DuckDB scalar bind data copy is required])],
+    [-L$DUCKDB_DIR/lib])
+  PHP_CHECK_LIBRARY([duckdb], [duckdb_scalar_function_set_init], [],
+    [AC_MSG_ERROR([DuckDB scalar init callbacks are required])],
+    [-L$DUCKDB_DIR/lib])
 
   PHP_CHECK_LIBRARY([duckdb], [duckdb_appender_clear], [],
     [AC_MSG_ERROR([DuckDB appender recovery is required (duckdb_appender_clear missing)])],
@@ -75,6 +81,6 @@ if test "$PHP_DUCKDB" != "no"; then
   PHP_SUBST([DUCKDB_SHARED_LIBADD])
   PHP_ADD_BUILD_DIR([$ext_builddir/src])
   PHP_NEW_EXTENSION([duckdb],
-    [duckdb.cpp src/arrow.cpp src/data_chunk.cpp src/typed_value.cpp src/type_classes.cpp src/values.cpp src/bignum_decode.cpp src/variant_decode.cpp src/result.cpp src/statement.cpp src/pending.cpp src/suspend_swoole.cpp src/suspend_true_async.cpp src/suspend_amphp.cpp src/suspend_reactphp.cpp src/appender.cpp src/vector.cpp src/selection.cpp src/copy_session.cpp src/copy.cpp],
+    [duckdb.cpp src/arrow.cpp src/data_chunk.cpp src/typed_value.cpp src/type_classes.cpp src/values.cpp src/bignum_decode.cpp src/variant_decode.cpp src/result.cpp src/statement.cpp src/pending.cpp src/suspend_swoole.cpp src/suspend_true_async.cpp src/suspend_amphp.cpp src/suspend_reactphp.cpp src/appender.cpp src/vector.cpp src/selection.cpp src/copy_session.cpp src/copy.cpp src/scalar.cpp],
     [$ext_shared],, [-DZEND_ENABLE_STATIC_TSRMLS_CACHE=1], [cxx])
 fi

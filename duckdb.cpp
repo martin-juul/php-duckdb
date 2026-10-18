@@ -32,6 +32,7 @@ extern "C" {
 #include "src/vector.h"
 #include "src/copy.h"
 #include "src/copy_session.h"
+#include "src/scalar.h"
 #include "src/selection.h"
 #include "duckdb_arginfo.h"
 #include <unordered_map>
@@ -145,14 +146,17 @@ static void duckdb_database_free_object(zend_object *object) {
 
 static void duckdb_connection_free_object(zend_object *object) {
     php_duckdb_connection_object *intern = duckdb_connection_from_obj(object);
+    duckdb_scalar_connection_free(intern->inner.get());
     duckdb_copy_connection_free(intern->inner.get());
     intern->inner.~shared_ptr();
     zend_object_std_dtor(&intern->std);
+    duckdb_copy_after_destructor();
 }
 
 static HashTable *duckdb_connection_get_gc(zend_object *object, zval **table, int *n) {
     php_duckdb_connection_object *intern = duckdb_connection_from_obj(object);
     zend_get_gc_buffer *buffer = zend_get_gc_buffer_create();
+    duckdb_scalar_connection_gc(intern->inner.get(), buffer);
     duckdb_copy_connection_gc(intern->inner.get(), buffer);
     zend_get_gc_buffer_use(buffer, table, n);
     return zend_std_get_properties(object);
@@ -859,12 +863,14 @@ DUCKDB_COPY_METHOD(DuckDB_Connection, prepare) {
             RETURN_THROWS();
         }
         duckdb_copy_prepare_begin();
+        duckdb_scalar_prepare_begin();
         if (duckdb_prepare(intern->inner->conn, sql, &inner->stmt) == DuckDBError) {
             const char *err = inner->stmt ? duckdb_prepare_error(inner->stmt) : nullptr;
             duckdb_throw_prepare_error(err ? err : "Failed to prepare statement");
             RETURN_THROWS();
         }
         inner->uses_copy_format = duckdb_copy_prepare_used_format();
+        inner->uses_scalar_function = duckdb_scalar_prepare_used_function();
     }
 
     object_init_ex(return_value, duckdb_statement_ce);
@@ -1179,6 +1185,9 @@ PHP_MINIT_FUNCTION(duckdb) {
     DUCKDB_REGISTER_CLASS(connection, register_class_DuckDB_Connection);
     duckdb_connection_handlers.get_gc = duckdb_connection_get_gc;
     duckdb_register_copy_interfaces(register_class_DuckDB_CopyToFunction(), register_class_DuckDB_CopyToWriter());
+    duckdb_register_scalar_interfaces(register_class_DuckDB_ScalarFunction(),
+                                      register_class_DuckDB_ScalarBinding(),
+                                      register_class_DuckDB_ScalarExecutor());
     DUCKDB_REGISTER_CLASS(statement, register_class_DuckDB_Statement);
     duckdb_statement_handlers.get_gc = duckdb_statement_get_gc;
     duckdb_register_arrow_classes(register_class_DuckDB_ArrowSchema(), register_class_DuckDB_ArrowChunk());

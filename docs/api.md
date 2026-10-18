@@ -3,8 +3,9 @@
 This reference lists every class, method, enum and function exported by the
 extension. [`duckdb.stub.php`](../duckdb.stub.php) is the canonical source and
 also serves as the stub for IDEs and static analysis. This reference covers
-extension **1.4.0**, including typed values, Arrow, vectors, selection and
-custom COPY TO APIs.
+extension **1.4.1**, including typed values, Arrow, vectors, selection and
+custom COPY TO APIs. The scalar-function APIs below are under development
+after extension 1.4.1.
 
 Namespace: `DuckDB`.
 
@@ -168,12 +169,27 @@ Created via `Database::connect()`. Not constructible directly.
 | `interrupt(): void` | Interrupt the currently running query on this connection; does not cancel queued work |
 | `getTableNames(string $sql): array` | `list<string>` of tables referenced by the query |
 | `registerCopyToFunction(string $name, CopyToFunction $function): void` | Make `$name` a `COPY ... TO` format on this connection, implemented in PHP. See [COPY TO formats](copy.md) |
+| `registerScalarFunction(string $name, array $parameterTypes, string\|Value $returnType, ScalarFunction $function): void` | Register a connection-local, volatile PHP scalar function with special NULL handling. See [scalar functions](scalar_functions.md) |
 | `close(): void` | Mark the connection closed (idempotent); further use throws `ConnectionException` |
 | `isClosed(): bool` | Whether `close()` has been called |
 | `queryProgress(): array` | `array{percentage: float, rowsProcessed: int, totalRowsToProcess: int}`; `percentage` is -1 when unavailable. Safe to call from another thread/fiber |
 | `beginTransaction(): void` | PDO-style transaction helpers. Throw `TransactionException` on invalid state |
 | `commit(): void` | |
 | `rollBack(): void` | |
+
+## Scalar-function interfaces
+
+These interfaces run on the request thread and must not suspend. Their APIs
+are under development after extension 1.4.1.
+
+| Interface | Method | Description |
+| --- | --- | --- |
+| `ScalarFunction` | `bind(array $argumentTypes): ScalarBinding` | Validate resolved argument SQL types and return bound state. Binding may repeat. |
+| `ScalarBinding` | `init(): ScalarExecutor` | Initialize one executing DuckDB worker; may run more than once per query. |
+| `ScalarExecutor` | `execute(DataChunk $arguments): array` | Return a list containing one value per input row, of the registered return type. The batch expires when the callback returns. |
+
+See [scalar functions](scalar_functions.md) for registration, lifecycle,
+errors and execution restrictions.
 
 ## `final class Statement`
 
@@ -194,7 +210,7 @@ parameters.
 | `columnType(int $index): string` | DuckDB type name of the 0-based column |
 | `execute(array $params = []): Result` | Execute, optionally binding `$params` first |
 | `executeStreaming(array $params = []): Result` | Execute with a streaming result |
-| `executeAsync(array $params = []): PendingQuery` | Execute on a background worker thread; rejects statements that use a PHP COPY format |
+| `executeAsync(array $params = []): PendingQuery` | Execute on a background worker thread; rejects statements that use a PHP COPY format or scalar function |
 
 `bindValue()` throws `\ValueError` for an invalid parameter index or unsupported
 value, and `DuckDB\Exception` subclasses for DuckDB-side errors.

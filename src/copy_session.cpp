@@ -9,6 +9,7 @@
 #include "php_duckdb.h"
 #include "copy_session.h"
 #include "copy.h"
+#include "scalar.h"
 
 #include <cstdlib>
 #include <exception>
@@ -58,7 +59,8 @@ static int64_t stuck_limit_ns() {
 }
 
 bool duckdb_conn_needs_pump(const conn_inner &conn) {
-    return force_pump() || conn.copy_registrations.load(std::memory_order_acquire) > 0;
+    return force_pump() || conn.copy_registrations.load(std::memory_order_acquire) > 0 ||
+           conn.scalar_registrations.load(std::memory_order_acquire) > 0;
 }
 
 void copy_session::service() {
@@ -163,6 +165,7 @@ std::shared_ptr<copy_session> duckdb_session_open(conn_inner &conn) {
     session->db = conn.db;
     session->connection_id = duckdb_conn_connection_id(conn);
     duckdb_copy_session_attach(conn, *session);
+    duckdb_scalar_session_attach(conn, *session);
     {
         std::lock_guard<std::mutex> lock(conn.db->session_mutex);
         conn.db->sessions[session->connection_id] = session;

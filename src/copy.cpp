@@ -14,6 +14,7 @@
 #include "php_duckdb.h"
 #include "copy.h"
 #include "copy_session.h"
+#include "scalar.h"
 #include "data_chunk.h"
 
 extern "C" {
@@ -112,12 +113,7 @@ void duckdb_register_copy_interfaces(zend_class_entry *function_ce, zend_class_e
 /* Handler invocation (request thread)                                */
 /* ------------------------------------------------------------------ */
 
-enum class call_outcome {
-    ok,
-    exception,
-    exit,
-    bailout,
-};
+using call_outcome = duckdb_callback_outcome;
 
 /* Only plain locals: zend_try returns here by longjmp. */
 static bool invoke_method(zend_object *object, const char *method, uint32_t argc, zval *argv, zval *retval) {
@@ -159,8 +155,10 @@ static zend_object *make_exception(const std::string &message) {
 /* Call a handler method with the connection marked busy and Fiber switches
  * blocked. On failure `message` describes it and an ordinary exception is
  * returned through `exception` (owned by the caller). */
-static call_outcome call_handler(conn_inner *conn, zend_object *object, const char *method, uint32_t argc,
-                                 zval *argv, zval *retval, std::string &message, zend_object **exception) {
+duckdb_callback_outcome duckdb_callback_call(conn_inner *conn, zend_object *object, const char *method,
+                                             uint32_t argc, zval *argv, zval *retval,
+                                             std::string &message, zend_object **exception,
+                                             const char *label) {
     if (conn) {
         conn->handler_thread.store(std::this_thread::get_id(), std::memory_order_release);
         conn->handler_depth.fetch_add(1, std::memory_order_acq_rel);
@@ -181,7 +179,7 @@ static call_outcome call_handler(conn_inner *conn, zend_object *object, const ch
         pending_bailout = true;
         zval_ptr_dtor(retval);
         ZVAL_UNDEF(retval);
-        message = "COPY handler stopped by a fatal error";
+        message = std::string(label) + " handler stopped by a fatal error";
         return call_outcome::bailout;
     }
     if (EG(exception)) {
@@ -196,7 +194,7 @@ static call_outcome call_handler(conn_inner *conn, zend_object *object, const ch
             } else {
                 pending_exit = thrown;
             }
-            message = "COPY aborted by exit()";
+            message = std::string(label) + " aborted by exit()";
             return call_outcome::exit;
         }
         message = exception_message(thrown);
@@ -204,6 +202,15 @@ static call_outcome call_handler(conn_inner *conn, zend_object *object, const ch
         return call_outcome::exception;
     }
     return call_outcome::ok;
+}
+
+static call_outcome call_handler(conn_inner *conn, zend_object *object, const char *method, uint32_t argc,
+                                 zval *argv, zval *retval, std::string &message, zend_object **exception) {
+    return duckdb_callback_call(conn, object, method, argc, argv, retval, message, exception, "COPY");
+}
+
+bool duckdb_callback_active() {
+    return handler_depth > 0;
 }
 
 /* Record a handler failure; the first ordinary exception becomes the cause. */
@@ -216,6 +223,87 @@ static void keep_cause(zend_object **slot, zend_object *exception) {
         return;
     }
     *slot = exception;
+}
+
+void duckdb_callback_keep_cause(zend_object *exception) {
+    keep_cause(&pending_cause, exception);
+}
+
+/* As with invoke_method(), a bailout must not jump across C++ locals. */
+static bool release_value(zval *value) {
+    zend_execute_data *const frame = EG(current_execute_data);
+    volatile bool completed = false;
+    zend_try {
+        zval_ptr_dtor(value);
+        completed = true;
+    } zend_catch {
+        EG(current_execute_data) = frame;
+        completed = false;
+    } zend_end_try();
+    return completed;
+}
+
+void duckdb_callback_zval_release(conn_inner *conn, zval *value) {
+    if (Z_ISUNDEF_P(value)) {
+        return;
+    }
+    zval owned;
+    ZVAL_COPY_VALUE(&owned, value);
+    ZVAL_UNDEF(value);
+    /* A SQL error may already be pending. Do not mistake it for an error
+     * thrown by the destructor or let Zend replace it during cleanup. */
+    zend_object *previous = EG(exception);
+    EG(exception) = nullptr;
+    if (conn) {
+        conn->handler_thread.store(std::this_thread::get_id(), std::memory_order_release);
+        conn->handler_depth.fetch_add(1, std::memory_order_acq_rel);
+    }
+    handler_depth++;
+    zend_fiber_switch_block();
+
+    bool completed = release_value(&owned);
+
+    zend_fiber_switch_unblock();
+    handler_depth--;
+    if (conn) {
+        conn->handler_depth.fetch_sub(1, std::memory_order_acq_rel);
+    }
+    if (!completed) {
+        pending_bailout = true;
+    }
+    zend_object *thrown = EG(exception);
+    if (thrown) {
+        GC_ADDREF(thrown);
+        zend_clear_exception();
+    }
+    EG(exception) = previous;
+    if (!thrown) {
+        return;
+    }
+    if (zend_is_unwind_exit(thrown) || zend_is_graceful_exit(thrown)) {
+        if (pending_exit) {
+            OBJ_RELEASE(thrown);
+        } else {
+            pending_exit = thrown;
+        }
+        return;
+    }
+    if (previous || pending_bailout || pending_exit) {
+        duckdb_callback_keep_cause(thrown);
+    } else {
+        /* Cleanup alone can fail: propagate the destructor's own exception
+         * rather than silently dropping it without an outer SQL error. */
+        zend_throw_exception_internal(thrown);
+    }
+}
+
+void duckdb_callback_release(conn_inner *conn, zend_object *object) {
+    if (!object) {
+        return;
+    }
+    zval value;
+    ZVAL_OBJ(&value, object);
+    duckdb_callback_zval_release(conn, &value);
 }
 
 static std::string stale_message(const copy_registration &registration) {
@@ -504,9 +592,14 @@ static bool php_finalize(copy_session &session, copy_exec &exec, std::string &er
 
 /* Run `work` on the session's request thread: directly when DuckDB called
  * us there, otherwise by handing it over and waiting. */
-static bool on_request_thread(copy_session &session, const std::function<bool(std::string &)> &work,
-                              std::string &error) {
+bool duckdb_callback_on_request_thread(copy_session &session,
+                                       const std::function<bool(std::string &)> &work,
+                                       std::string &error) {
     if (std::this_thread::get_id() == session.driver) {
+        if (!session.is_open()) {
+            error = session.closed_reason();
+            return false;
+        }
         return work(error);
     }
 
@@ -520,7 +613,7 @@ static bool on_request_thread(copy_session &session, const std::function<bool(st
         } catch (const std::exception &failure) {
             work_error = failure.what();
         } catch (...) {
-            work_error = "COPY callback failed";
+            work_error = "PHP callback failed";
         }
     };
     if (!session.submit(request, error)) {
@@ -721,7 +814,7 @@ static void run_callback(copy_exec *exec, SetError set_error,
     }
 
     std::string error;
-    bool ok = on_request_thread(
+    bool ok = duckdb_callback_on_request_thread(
         *session,
         [&](std::string &work_error) {
             return work(*session, work_error);
@@ -1005,6 +1098,7 @@ void duckdb_copy_after_method() {
         return;
     }
     duckdb_drain_deferred_connections();
+    duckdb_scalar_after_method();
 
     if (pending_bailout) {
         pending_bailout = false;

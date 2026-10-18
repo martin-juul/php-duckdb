@@ -77,11 +77,11 @@ idx_t duckdb_context_connection_id(duckdb_client_context context);
 /* DuckDB's connection id for `conn`, resolved once (request thread). */
 idx_t duckdb_conn_connection_id(conn_inner &conn);
 
-/* Whether statements on this connection must be pumped: it has live COPY
- * format registrations, or the test-only forced-pump switch is set. */
+/* Whether statements on this connection must be pumped: it has live PHP
+ * callback registrations, or the test-only forced-pump switch is set. */
 bool duckdb_conn_needs_pump(const conn_inner &conn);
 
-/* Open a session for the connection and publish it to COPY callbacks.
+/* Open a session for the connection and publish it to PHP callbacks.
  * Caller holds conn.mutex on the request thread. */
 std::shared_ptr<copy_session> duckdb_session_open(conn_inner &conn);
 /* Close the session if still open, stop publishing it, and run its finish

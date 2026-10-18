@@ -252,6 +252,26 @@ if (NOT DUCKDB_HAS_TYPED_VALUE_APIS)
     message(FATAL_ERROR "DuckDB expression folding, scalar bind and appender clear APIs are required")
 endif()
 
+unset(DUCKDB_HAS_SCALAR_CALLBACK_APIS CACHE)
+unset(DUCKDB_HAS_SCALAR_CALLBACK_APIS)
+check_cxx_source_compiles("#include <duckdb.h>
+int main() {
+    duckdb_scalar_function function = duckdb_create_scalar_function();
+    duckdb_scalar_function_set_bind(function, nullptr);
+    duckdb_scalar_function_set_init(function, nullptr);
+    duckdb_scalar_function_set_special_handling(function);
+    duckdb_scalar_function_set_volatile(function);
+    duckdb_scalar_function_bind_get_argument_count(nullptr);
+    duckdb_scalar_function_bind_get_argument(nullptr, 0);
+    duckdb_scalar_function_set_bind_data_copy(nullptr, nullptr);
+    duckdb_scalar_function_init_get_bind_data(nullptr);
+    duckdb_destroy_scalar_function(&function);
+    return 0;
+}" DUCKDB_HAS_SCALAR_CALLBACK_APIS)
+if (NOT DUCKDB_HAS_SCALAR_CALLBACK_APIS)
+    message(FATAL_ERROR "DuckDB scalar bind, init, worker state and data-copy APIs are required")
+endif()
+
 unset(DUCKDB_HAS_ARROW_APIS CACHE)
 unset(DUCKDB_HAS_ARROW_APIS)
 check_cxx_source_compiles("#include <duckdb.h>
@@ -337,7 +357,8 @@ set(DUCKDB_SOURCES
     src/vector.cpp
     src/selection.cpp
     src/copy_session.cpp
-    src/copy.cpp)
+    src/copy.cpp
+    src/scalar.cpp)
 
 set(DUCKDB_HEADERS
     php_duckdb.h
@@ -349,6 +370,7 @@ set(DUCKDB_HEADERS
     src/selection.h
     src/copy_session.h
     src/copy.h
+    src/scalar.h
     src/bignum_decode.h
     src/variant_decode.h
     src/type_classes.h

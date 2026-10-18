@@ -5,6 +5,36 @@
 
 struct copy_session;
 
+/* Shared PHP callback boundary. These helpers run on the request thread;
+ * dispatch is the only helper that may also be called by a DuckDB worker. */
+enum class duckdb_callback_outcome {
+    ok,
+    exception,
+    exit,
+    bailout,
+};
+
+/* Marks the connection busy, blocks Fiber switching and captures PHP
+ * unwinding until duckdb_copy_after_method() runs. `exception` receives an
+ * owned ordinary exception. `label` identifies fatal/exit error messages. */
+duckdb_callback_outcome duckdb_callback_call(conn_inner *conn, zend_object *object, const char *method,
+                                             uint32_t argc, zval *argv, zval *retval,
+                                             std::string &message, zend_object **exception,
+                                             const char *label = "PHP");
+/* Takes ownership; the first exception becomes the outer error's cause. */
+void duckdb_callback_keep_cause(zend_object *exception);
+/* Drops an owned request-thread reference under the same busy/Fiber/unwind
+ * guards. Destructor exceptions preserve an already pending outer error. */
+void duckdb_callback_release(conn_inner *conn, zend_object *object);
+/* The same for a value, including arrays containing user objects. Consumes
+ * the value and leaves it UNDEF even when a destructor aborts. */
+void duckdb_callback_zval_release(conn_inner *conn, zval *value);
+bool duckdb_callback_active();
+/* Runs PHP work directly on the driver or queues it while the worker waits. */
+bool duckdb_callback_on_request_thread(copy_session &session,
+                                       const std::function<bool(std::string &)> &work,
+                                       std::string &error);
+
 /* A PHP COPY TO format registered on one connection. Callbacks on DuckDB
  * threads read only the atomic and immutable fields; `function` is touched
  * only on `owner`, while the registration is alive or a session pins it. */

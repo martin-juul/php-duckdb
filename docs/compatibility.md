@@ -11,6 +11,11 @@ printf("PHP %s; extension %s; DuckDB %s\n",
     PHP_VERSION, phpversion('duckdb'), DuckDB\version());
 ```
 
+Public PHP [scalar functions](scalar_functions.md), including bind and
+worker-init callbacks, are under development after extension 1.4.1. They
+require the pinned DuckDB 1.5.6 APIs. Callback support uses the request thread;
+worker-based `queryAsync()` and `executeAsync()` reject PHP scalar execution.
+
 ## PHP and platform coverage
 
 The tables list configured checks; they do not claim that every job has passed
