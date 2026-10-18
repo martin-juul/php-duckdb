@@ -983,6 +983,27 @@ void duckdb_result_instantiate(zval *return_value, duckdb_result *res, bool stre
     intern->data = data;
 }
 
+bool duckdb_result_fetch_all_assoc(duckdb_result *res, std::shared_ptr<conn_inner> connection,
+                                   zval *return_value) {
+    zval result;
+    duckdb_result_instantiate(&result, res, /*streaming=*/false, nullptr, std::move(connection));
+    result_data *data = Z_DUCKDB_RESULT_P(&result)->data.get();
+
+    array_init(return_value);
+    zval row;
+    while (duckdb_result_fetch_row_into(data, FETCH_MODE_ASSOC, &row)) {
+        add_next_index_zval(return_value, &row);
+    }
+    zval_ptr_dtor(&result);
+
+    if (EG(exception)) {
+        zval_ptr_dtor(return_value);
+        ZVAL_UNDEF(return_value);
+        return false;
+    }
+    return true;
+}
+
 PHP_METHOD(DuckDB_Result, __construct) {
     DUCKDB_TSRMLS_CACHE_UPDATE();
     ZEND_PARSE_PARAMETERS_START(0, 0)

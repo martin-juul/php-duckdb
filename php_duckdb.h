@@ -641,6 +641,10 @@ bool duckdb_type_spec(zval *spec, std::string &type);
  * results (pass nullptr otherwise). */
 void duckdb_result_instantiate(zval *return_value, duckdb_result *res, bool streaming,
                                std::shared_ptr<stmt_inner> keepalive, std::shared_ptr<conn_inner> connection);
+/* Consume a buffered result and return its rows with associative keys.
+ * Takes ownership of `res`; returns false with an exception pending on error. */
+bool duckdb_result_fetch_all_assoc(duckdb_result *res, std::shared_ptr<conn_inner> connection,
+                                   zval *return_value);
 /* Decode one row of a flat vector with the result type mappings. Returns
  * false and throws on failure. */
 bool duckdb_decode_vector_value(duckdb_vector vector, duckdb_logical_type type, idx_t row, zval *out);

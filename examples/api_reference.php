@@ -26,6 +26,10 @@ $sql = 'SELECT id, title, octet_length(body) AS bytes FROM documents WHERE id >=
 $select = $connection->prepare($sql);
 // Table extraction binds the query, so use concrete values rather than parameters.
 printf("tables: %s\n", implode(', ', $connection->getTableNames('SELECT * FROM documents WHERE id >= 1')));
+foreach ($connection->getTableFunctions('range') as $function) {
+    printf("table function: %s(%s)\n", $function['name'], implode(', ', $function['parameterTypes']));
+}
+
 for ($index = 0; $index < $select->columnCount(); $index++) {
     printf("  %s: %s\n", $select->columnName($index), $select->columnType($index));
 }

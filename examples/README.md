@@ -45,7 +45,7 @@ application example. See the [API reference](../docs/api.md) and
 
 ## Public API audit
 
-The stub currently declares 64 classes, 5 interfaces and 158 public methods, plus
+The stub currently declares 64 classes, 5 interfaces and 159 public methods, plus
 `DuckDB\version()`, `DuckDB\vectorSize()` and the compatibility alias
 `duckdb_version()`. It also
 exposes the three `FetchMode` cases and 43 `ErrorType` cases. The inventory
@@ -60,7 +60,7 @@ optional FFI and framework paths run only when their requirements are met.
 | `Database` | `__construct`, `connect` | [sync_basic.php](sync_basic.php), [async_jobs.php](async_jobs.php) (configuration), [persistent_reports.php](persistent_reports.php) (file reopen/read-only) |
 | `Connection`: synchronous queries | `query`, `queryStreaming`, `execute`, `prepare`, `appender` | [prepared.php](prepared.php), [order_analytics.php](order_analytics.php) |
 | `Connection`: transactions | `beginTransaction`, `commit`, `rollBack` | [transactions.php](transactions.php), [order_analytics.php](order_analytics.php) |
-| `Connection`: metadata and lifecycle | `getTableNames`, `close`, `isClosed` | [api_reference.php](api_reference.php) |
+| `Connection`: metadata and lifecycle | `getTableNames`, `getTableFunctions`, `close`, `isClosed` | [api_reference.php](api_reference.php) |
 | `Connection`: background queries | `queryAsync`, `queryPending`, `interrupt`, `queryProgress` | [async_jobs.php](async_jobs.php) |
 | `Connection`: Arrow ingestion | `dataChunkFromArrow` | [arrow.php](arrow.php) |
 | `Connection`: vectors | `createVector` | [vectors.php](vectors.php) |

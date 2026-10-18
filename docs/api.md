@@ -168,6 +168,7 @@ Created via `Database::connect()`. Not constructible directly.
 | `createVector(string\|Value $type, ?int $capacity = null): Vector` | Create an owned, NULL-initialized vector of a type resolved on this connection |
 | `interrupt(): void` | Interrupt the currently running query on this connection; does not cancel queued work |
 | `getTableNames(string $sql): array` | `list<string>` of tables referenced by the query |
+| `getTableFunctions(?string $name = null): array` | Catalog metadata for table-function overloads; exact, case-insensitive optional name filter. See [table functions](table_functions.md) |
 | `registerCopyToFunction(string $name, CopyToFunction $function): void` | Make `$name` a `COPY ... TO` format on this connection, implemented in PHP. See [COPY TO formats](copy.md) |
 | `registerScalarFunction(string $name, array $parameterTypes, string\|Value $returnType, ScalarFunction $function): void` | Register a connection-local, volatile PHP scalar function with special NULL handling. See [scalar functions](scalar_functions.md) |
 | `close(): void` | Mark the connection closed (idempotent); further use throws `ConnectionException` |
