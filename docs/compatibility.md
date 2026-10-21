@@ -181,7 +181,7 @@ structured appender/error reporting.
 | Value string rendering | Exposed through `Value::toString(Connection)` for connection-aware display text |
 | Standalone vectors | Exposed through `Vector`, `Connection::createVector()` and `DataChunk::fromVectors()`/`vector()` |
 | Selection vectors | Exposed through `SelectionVector`, `Vector::select()`/`copySelected()` and `DataChunk::select()`; slicing into dictionary vectors is not public |
-| UTF-8 checks | Used internally for string writes; no public PHP API |
+| UTF-8 checks | Development APIs `DuckDB\isValidUtf8()` and `DuckDB\checkUtf8()` validate complete byte strings without a connection; see [Functions](api.md#functions) |
 
 [Native typed value classes](value.md) provide complete typed input for
 prepared statements, execution parameter arrays and Appender, including

@@ -30,11 +30,15 @@ binding, worker initialization and batch execution on the request thread.
 [Table-function metadata](table_functions.md) was merged in
 [PR #16](https://github.com/martin-juul/php-duckdb/pull/16): connection-visible
 catalog overloads, input parameters and descriptions.
-Public expression APIs are under development: `ScalarExpressionFunction`
+Public expression APIs were merged in
+[PR #17](https://github.com/martin-juul/php-duckdb/pull/17): `ScalarExpressionFunction`
 inspects bound argument types and folds constants through callback-scoped
-`Expression` handles. [Custom logging](logging.md) is also under development:
+`Expression` handles. [Custom logging](logging.md) was merged in
+[PR #18](https://github.com/martin-juul/php-duckdb/pull/18):
 named database-wide storage buffers native log entries for explicit PHP
-draining. UTF-8 checks follow.
+draining. [UTF-8 checks](api.md#functions) are implemented in this development
+checkout as connection-free `isValidUtf8()` and `checkUtf8()` functions.
+Additional geometry CRS APIs are next.
 
 The intended PR sequence is:
 

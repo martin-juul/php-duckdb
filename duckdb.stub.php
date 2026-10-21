@@ -1226,3 +1226,13 @@ function version(): string {}
 
 /** Rows in a standard DuckDB vector and the maximum rows of a vector-built chunk. */
 function vectorSize(): int {}
+
+/** Check the complete byte string for valid UTF-8 without opening a connection. */
+function isValidUtf8(string $value): bool {}
+
+/**
+ * Require valid UTF-8 without modifying the input or opening a connection.
+ * Empty strings and embedded NUL bytes are valid UTF-8.
+ * @throws Exception With ErrorType::InvalidInput when the string contains invalid UTF-8.
+ */
+function checkUtf8(string $value): void {}

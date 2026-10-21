@@ -22,6 +22,25 @@ Returns the number of rows in a standard DuckDB vector, 2048 for the pinned
 engine. It is the default vector capacity and the maximum row count of
 `DataChunk::fromVectors()` and `DataChunk::select()`.
 
+### `DuckDB\isValidUtf8(string $value): bool`
+
+Available in this development checkout after extension 1.4.1. Returns whether
+the complete PHP string is valid UTF-8 according to DuckDB, without opening a
+database or connection. Empty strings and embedded NUL bytes are valid; bytes
+after a NUL are also checked. Invalid sequences, overlong encodings, surrogate
+code points and values above U+10FFFF return `false`.
+
+### `DuckDB\checkUtf8(string $value): void`
+
+Uses the same validation as `isValidUtf8()`, returning normally for valid input
+and throwing `DuckDB\Exception` with `ErrorType::InvalidInput` (code 32) for
+invalid UTF-8. This function is also available after extension 1.4.1.
+
+Neither function modifies, repairs or normalizes the input. They check encoding
+only, without validating SQL syntax, paths or identifiers. For arbitrary binary
+data, use BLOB binding. See the
+[runnable UTF-8 example](../examples/utf8.php).
+
 ## Enums
 
 ### `FetchMode`

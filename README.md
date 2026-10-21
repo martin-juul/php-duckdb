@@ -48,6 +48,9 @@ The [runnable examples and API map](examples/README.md) cover the public API
 and application workflows: order analytics, typed ingestion, Arrow batch
 exchange and asynchronous reporting. Run them with `php tests/harness.php examples`.
 
+This development checkout also exposes [UTF-8 checks](docs/api.md#functions)
+through `DuckDB\isValidUtf8()` and `DuckDB\checkUtf8()`, without opening a database.
+
 ## Comparison with alternatives
 
 | Approach                        | Trade-offs                                                                                                                                                                            |
