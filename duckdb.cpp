@@ -1182,6 +1182,33 @@ PHP_FUNCTION(DuckDB_version) {
     RETURN_STRING(duckdb_library_version());
 }
 
+PHP_FUNCTION(DuckDB_isValidUtf8) {
+    DUCKDB_TSRMLS_CACHE_UPDATE();
+    zend_string *value;
+    ZEND_PARSE_PARAMETERS_START(1, 1)
+        Z_PARAM_STR(value)
+    ZEND_PARSE_PARAMETERS_END();
+
+    duckdb_scoped<duckdb_error_data, duckdb_destroy_error_data> error(
+        duckdb_valid_utf8_check(ZSTR_VAL(value), ZSTR_LEN(value)));
+    RETURN_BOOL(!duckdb_error_data_has_error(error.get()));
+}
+
+PHP_FUNCTION(DuckDB_checkUtf8) {
+    DUCKDB_TSRMLS_CACHE_UPDATE();
+    zend_string *value;
+    ZEND_PARSE_PARAMETERS_START(1, 1)
+        Z_PARAM_STR(value)
+    ZEND_PARSE_PARAMETERS_END();
+
+    duckdb_scoped<duckdb_error_data, duckdb_destroy_error_data> error(
+        duckdb_valid_utf8_check(ZSTR_VAL(value), ZSTR_LEN(value)));
+    if (duckdb_error_data_has_error(error.get())) {
+        duckdb_throw_error(duckdb_error_data_error_type(error.get()), duckdb_error_data_message(error.get()));
+        RETURN_THROWS();
+    }
+}
+
 /* Global alias kept for backwards compatibility with pre-1.0 releases. */
 ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_duckdb_version_global, 0, 0, IS_STRING, 0)
 ZEND_END_ARG_INFO()

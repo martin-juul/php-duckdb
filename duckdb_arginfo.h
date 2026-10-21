@@ -1,10 +1,18 @@
 /* This is a generated file, edit the .stub.php file instead.
- * Stub hash: dfc8f53480849739dc1902d55a99448a59f17c2b */
+ * Stub hash: a0ab230a9edf8926be6ad44a2122914b12768919 */
 
 ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_DuckDB_version, 0, 0, IS_STRING, 0)
 ZEND_END_ARG_INFO()
 
 ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_DuckDB_vectorSize, 0, 0, IS_LONG, 0)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_DuckDB_isValidUtf8, 0, 1, _IS_BOOL, 0)
+	ZEND_ARG_TYPE_INFO(0, value, IS_STRING, 0)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_DuckDB_checkUtf8, 0, 1, IS_VOID, 0)
+	ZEND_ARG_TYPE_INFO(0, value, IS_STRING, 0)
 ZEND_END_ARG_INFO()
 
 ZEND_BEGIN_ARG_WITH_RETURN_OBJ_INFO_EX(arginfo_class_DuckDB_Exception_getErrorType, 0, 0, DuckDB\\ErrorType, 1)
@@ -559,6 +567,8 @@ ZEND_END_ARG_INFO()
 
 ZEND_FUNCTION(DuckDB_version);
 ZEND_FUNCTION(DuckDB_vectorSize);
+ZEND_FUNCTION(DuckDB_isValidUtf8);
+ZEND_FUNCTION(DuckDB_checkUtf8);
 ZEND_METHOD(DuckDB_Exception, getErrorType);
 ZEND_METHOD(DuckDB_Interval, __construct);
 ZEND_METHOD(DuckDB_Interval, getMonths);
@@ -733,6 +743,8 @@ ZEND_METHOD(DuckDB_Appender, close);
 static const zend_function_entry ext_functions[] = {
 	ZEND_NS_FALIAS("DuckDB", version, DuckDB_version, arginfo_DuckDB_version)
 	ZEND_NS_FALIAS("DuckDB", vectorSize, DuckDB_vectorSize, arginfo_DuckDB_vectorSize)
+	ZEND_NS_FALIAS("DuckDB", isValidUtf8, DuckDB_isValidUtf8, arginfo_DuckDB_isValidUtf8)
+	ZEND_NS_FALIAS("DuckDB", checkUtf8, DuckDB_checkUtf8, arginfo_DuckDB_checkUtf8)
 	ZEND_FE_END
 };
 

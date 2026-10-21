@@ -37,6 +37,7 @@ application example. See the [API reference](../docs/api.md) and
 | [arrow_c_data.php](arrow_c_data.php) | External buffer access and schema/array ownership across the C Data Interface | Enabled PHP FFI |
 | [logging.php](logging.php) | Bounded native logging, explicit draining and forwarding to an application sink | Extension |
 | [errors.php](errors.php) | Typed errors and machine-readable error categories | Extension |
+| [utf8.php](utf8.php) | Validate UTF-8 with a predicate or throwing guard, without a connection | Development extension after 1.4.1 |
 | [async_jobs.php](async_jobs.php) | Reporting deadlines, progress, cancellation, polling and a minimal Fiber scheduler | Extension |
 | [async_concurrent.php](async_concurrent.php) | Concurrent background queries with `stream_select()` | Extension |
 | [amphp.php](amphp.php) | Concurrent analytical queries through AMPHP fibers | AMPHP v3/Revolt |
@@ -48,7 +49,8 @@ application example. See the [API reference](../docs/api.md) and
 ## Public API audit
 
 The stub currently declares 65 classes, 5 interfaces and 163 public methods, plus
-`DuckDB\version()`, `DuckDB\vectorSize()` and the compatibility alias
+`DuckDB\version()`, `DuckDB\vectorSize()`, `DuckDB\isValidUtf8()`,
+`DuckDB\checkUtf8()` and the compatibility alias
 `duckdb_version()`. It also
 exposes the three `FetchMode` cases and 43 `ErrorType` cases. The inventory
 below maps each explicitly declared public method to an executable example.
@@ -99,6 +101,7 @@ optional FFI and framework paths run only when their requirements are met.
 | `Interval` | `__construct`, `getMonths`, `getDays`, `getMicros`, `__toString` through a string cast, `jsonSerialize`, `fromSeconds` | [typed_values.php](typed_values.php) |
 | `Exception` | `getErrorType` | [errors.php](errors.php), [async_jobs.php](async_jobs.php) |
 | Functions | `DuckDB\version`, `duckdb_version` | [api_reference.php](api_reference.php), [sync_basic.php](sync_basic.php) |
+| UTF-8 functions | `DuckDB\isValidUtf8`, `DuckDB\checkUtf8` | [utf8.php](utf8.php) |
 | `FetchMode` | `Assoc`, `Num`, `Both` | [api_reference.php](api_reference.php), [arrow.php](arrow.php) |
 | `ErrorType` | All cases via `cases`, backed lookup via `from` and `tryFrom` | [errors.php](errors.php) |
 
