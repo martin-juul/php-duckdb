@@ -24,6 +24,7 @@ function check(bool $condition, string $message): void
 
 $child = <<<'PHP'
 <?php
+error_reporting(E_ALL & ~E_DEPRECATED);
 register_shutdown_function(function () {
     echo "shutdown\n";
 });
@@ -42,10 +43,10 @@ final class DyingRegistration implements DuckDB\ScalarFunction
         if ($this->failure === 'exit') {
             exit(7);
         }
-        eval('class ScalarRegistrationTwice {} class ScalarRegistrationTwice {}');
+        trigger_error('Scalar registration destructor fatal', E_USER_ERROR);
     }
 }
-$conn = (new DuckDB\Database())->connect();
+$conn = (new DuckDB\Database(':memory:', ['threads' => 1]))->connect();
 $handler = new DyingRegistration($argv[1]);
 $conn->registerScalarFunction('php_dying_registration', ['BIGINT'], 'BIGINT', $handler);
 unset($handler);
@@ -61,11 +62,8 @@ register_shutdown_function(function () use ($path) {
 });
 $args = duckdb_subprocess_args();
 foreach (['exit', 'fatal'] as $failure) {
-    // Match the COPY fatal regression: PHP's abandoned eval frames are
-    // reclaimed by Zend; native allocations still pass through Memcheck.
-    $env = $failure === 'fatal' ? ['USE_ZEND_ALLOC' => '1'] : [];
     $command = array_merge([PHP_BINARY], $args, [$path, $failure]);
-    $process = proc_open($command, [1 => ['pipe', 'w'], 2 => ['redirect', 1]], $pipes, null, $env + getenv());
+    $process = proc_open($command, [1 => ['pipe', 'w'], 2 => ['redirect', 1]], $pipes);
     check(is_resource($process), 'Child process started');
     stream_set_blocking($pipes[1], false);
     $output = '';
@@ -96,7 +94,7 @@ foreach (['exit', 'fatal'] as $failure) {
     if ($failure === 'exit') {
         check($output === "before free\nfunction destructor\nshutdown\n", "exit output: $output");
     } else {
-        check(preg_match('/Cannot (re)?declare class ScalarRegistrationTwice/', $output) === 1,
+        check(str_contains($output, 'Scalar registration destructor fatal'),
             "Original destructor fatal survives: $output");
     }
     echo "$failure\n";

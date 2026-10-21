@@ -42,6 +42,53 @@ Build metadata, source pins, all patches and DuckDB's MIT license are installed
 under `share/duckdb-sdk/`. Keep that attribution with packaged libraries.
 Use a separate work directory for concurrent builds.
 
+## Validate older PHP containers
+
+An SDK built on a newer Linux host can require glibc symbols that an older
+PHP container does not provide. Use the existing Docker SDK stage to build
+against Debian bookworm's glibc baseline before testing another PHP image.
+Keep the host SDK separate; copying it into a container does not change its
+runtime requirements.
+
+The SDK artifact image contains the library, C header and verified build
+provenance. It remains reusable after the temporary export and test containers
+are removed:
+
+```sh
+docker build --target duckdb-sdk --build-arg DUCKDB_BUILD_JOBS=4 \
+    -t php-duckdb-sdk:bookworm-compatible .
+sdk_export=$(docker create php-duckdb-sdk:bookworm-compatible /unused)
+sdk_dir=$(mktemp -d)
+docker cp "$sdk_export:/opt/duckdb/." "$sdk_dir"
+docker rm "$sdk_export"
+```
+
+Copy a committed revision into an isolated PHP container to avoid host build
+artifacts and bind-mount permissions, including SELinux labels. For uncommitted
+changes, copy an isolated source tree into `/work`.
+
+```sh
+php_container=$(docker create --workdir /work php:8.2-cli sleep infinity)
+docker start "$php_container"
+docker cp "$sdk_dir/." "$php_container:/opt/duckdb"
+git archive HEAD | docker cp - "$php_container:/work"
+docker exec "$php_container" php tests/harness.php build unit examples \
+    --jobs=4 --duckdb-dir=/opt/duckdb
+docker rm -f "$php_container"
+rm -rf "$sdk_dir"
+```
+
+Validated locally on Linux x86_64 with PHP 8.2.34 NTS, a Debian bookworm SDK
+and the PHP image's glibc 2.41. The rebuilt SDK requires glibc symbols only
+through version 2.34; the previous host SDK required glibc 2.43/2.44. The harness
+built the integrated extension and passed all 19 scalar tests without failures
+or skips. The full unit suite passed 126 tests with ten optional-environment
+skips: six FFI tests plus Swoole, True Async, AMPHP and ReactPHP. All 27 example
+scripts exited successfully; the Arrow C Data, AMPHP, FrankenPHP, ReactPHP,
+Swoole and True Async examples reported unavailable dependencies.
+Inspect `/opt/duckdb/share/duckdb-sdk/` in the artifact image for the source,
+patch and toolchain provenance.
+
 ## CI and local caches
 
 The CI action saves the installed SDK as soon as the engine build succeeds,

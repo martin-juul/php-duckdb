@@ -30,6 +30,8 @@ void duckdb_callback_release(conn_inner *conn, zend_object *object);
  * the value and leaves it UNDEF even when a destructor aborts. */
 void duckdb_callback_zval_release(conn_inner *conn, zval *value);
 bool duckdb_callback_active();
+/* Register the request-thread fatal-error observer during module startup. */
+void duckdb_callback_observe_errors();
 /* Runs PHP work directly on the driver or queues it while the worker waits. */
 bool duckdb_callback_on_request_thread(copy_session &session,
                                        const std::function<bool(std::string &)> &work,

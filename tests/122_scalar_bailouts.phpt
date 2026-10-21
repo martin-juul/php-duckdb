@@ -24,6 +24,7 @@ function check(bool $condition, string $message): void
 
 $child = <<<'PHP'
 <?php
+error_reporting(E_ALL & ~E_DEPRECATED);
 [$stage, $failure] = [$argv[1], $argv[2]];
 register_shutdown_function(function () {
     echo "shutdown\n";
@@ -41,7 +42,7 @@ final class ExitingScalar implements DuckDB\ScalarFunction, DuckDB\ScalarBinding
         if ($this->failure === 'exit') {
             exit(7);
         }
-        eval('class ScalarTwice {} class ScalarTwice {}');
+        trigger_error('Scalar callback fatal', E_USER_ERROR);
     }
     public function bind(array $argumentTypes): DuckDB\ScalarBinding
     {
@@ -59,8 +60,7 @@ final class ExitingScalar implements DuckDB\ScalarFunction, DuckDB\ScalarBinding
         return array_column($arguments->toRows(DuckDB\FetchMode::Num), 0);
     }
 }
-$conn = (new DuckDB\Database())->connect();
-$conn->query(getenv('DUCKDB_PHP_TEST_PUMP_SERVICE_ONLY') ? 'SET threads = 4' : 'SET threads = 1');
+$conn = (new DuckDB\Database(':memory:', ['threads' => getenv('DUCKDB_PHP_TEST_PUMP_SERVICE_ONLY') ? 4 : 1]))->connect();
 $conn->registerScalarFunction('php_bailout', ['BIGINT'], 'BIGINT', new ExitingScalar($stage, $failure));
 $conn->query('SELECT php_bailout(i) FROM range(5000) t(i)')->fetchAll();
 echo "not reached\n";
@@ -80,12 +80,6 @@ $cases = [
 ];
 foreach ($cases as [$stage, $env]) {
     foreach (['exit', 'fatal'] as $failure) {
-        // PHP retains abandoned fatal-error frames with USE_ZEND_ALLOC=0,
-        // independently of DuckDB. Match the existing COPY fatal regression:
-        // Zend releases those frames while native teardown is still checked.
-        if ($failure === 'fatal') {
-            $env['USE_ZEND_ALLOC'] = '1';
-        }
         $command = array_merge([PHP_BINARY], $args, [$path, $stage, $failure]);
         $process = proc_open($command, [1 => ['pipe', 'w'], 2 => ['redirect', 1]], $pipes, null, $env + getenv());
         check(is_resource($process), 'Child process started');
@@ -98,7 +92,7 @@ foreach ($cases as [$stage, $env]) {
         if ($failure === 'exit') {
             check($output === "shutdown\n", "exit preserves its status and does not resume SQL: $output");
         } else {
-            check(preg_match('/Cannot (re)?declare class ScalarTwice/', $output) === 1,
+            check(str_contains($output, 'Scalar callback fatal'),
                 "Original fatal error survives: $output");
         }
     }

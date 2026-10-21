@@ -1226,6 +1226,7 @@ static int duckdb_unserialize_deny(zval *object, zend_class_entry *ce, const uns
     } while (0)
 
 PHP_MINIT_FUNCTION(duckdb) {
+    duckdb_callback_observe_errors();
     duckdb_register_value_class();
 #define REGISTER_TYPED_CLASS(Class) \
     do { \

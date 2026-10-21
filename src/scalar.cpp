@@ -157,6 +157,10 @@ static bool invoke(conn_inner &conn, zend_object *object, const std::string &nam
     auto outcome = duckdb_callback_call(&conn, object, lookup, argc, argv, retval, message, &cause,
                                         "Scalar function");
     if (outcome == duckdb_callback_outcome::ok) {
+        if (!conn.scalar_state) {
+            error = "Scalar function registration was released during its callback";
+            return false;
+        }
         return true;
     }
     duckdb_callback_keep_cause(cause);

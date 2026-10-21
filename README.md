@@ -942,23 +942,14 @@ Stages:
 
 On x86_64, Valgrind 3.27.1 can crash in its own stack unwinder while testing
 PHP Fibers. The crash is in Valgrind, before Memcheck reports a client error.
-Build that version with [the stack-read guard](tests/valgrind-3.27.1-fiber-unwind.patch)
-to keep the full leak checks enabled:
+Use the [pinned builder](packaging/valgrind/README.md) to apply the
+[stack-read guard](tests/valgrind-3.27.1-fiber-unwind.patch) and keep the full
+leak checks enabled:
 
 ```bash
-repo_dir=$PWD
-curl -fL https://sourceware.org/pub/valgrind/valgrind-3.27.1.tar.bz2 \
-  -o /tmp/valgrind-3.27.1.tar.bz2
-tar -xf /tmp/valgrind-3.27.1.tar.bz2 -C /tmp
-git -C /tmp/valgrind-3.27.1 apply \
-  "$repo_dir/tests/valgrind-3.27.1-fiber-unwind.patch"
-(
-  cd /tmp/valgrind-3.27.1
-  ./configure --prefix="$HOME/.local/valgrind-3.27.1-fiber" --enable-only64bit
-  make -j"$(python3 "$repo_dir/packaging/resources/jobs.py" --profile extension)"
-  make install
-)
-PATH="$HOME/.local/valgrind-3.27.1-fiber/bin:$PATH" php tests/harness.php --full
+packaging/valgrind/build.sh
+valgrind_prefix="${XDG_CACHE_HOME:-$HOME/.cache}/php-duckdb/valgrind-3.27.1-stack-unwind"
+PATH="$valgrind_prefix/bin:$PATH" php tests/harness.php --full
 ```
 
 Exit codes: `0` all green, `1` a stage failed, `2` environment problem, `3`
