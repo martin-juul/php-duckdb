@@ -157,7 +157,7 @@ Created via `Database::connect()`. Not constructible directly.
 | Method | Description |
 | ------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `query(string $sql): Result` | Execute SQL, buffer the full result in memory |
-| `queryStreaming(string $sql): Result` | Execute SQL, produce rows chunk-by-chunk (constant memory). `rowCount()` is not meaningful |
+| `queryStreaming(string $sql): Result` | Execute SQL, produce rows chunk-by-chunk. Connections with PHP scalar registrations buffer the full result; otherwise constant memory. `rowCount()` is not meaningful |
 | `queryAsync(string $sql): PendingQuery` | Run the query on a background worker thread |
 | `queryPending(string $sql): PendingQuery` | Single-threaded async: `isReady()`/`await()` execute the query in slices on the calling thread |
 | `execute(string $sql, array $params = []): Result` | Prepare + bind + execute in one call. List keys bind positionally (`?`/`$1`), string keys bind named parameters (`$name`/`:name`) |
@@ -167,6 +167,7 @@ Created via `Database::connect()`. Not constructible directly.
 | `createVector(string\|Value $type, ?int $capacity = null): Vector` | Create an owned, NULL-initialized vector of a type resolved on this connection |
 | `interrupt(): void` | Interrupt the currently running query on this connection; does not cancel queued work |
 | `getTableNames(string $sql): array` | `list<string>` of tables referenced by the query |
+| `registerScalarFunction(string $name, array $parameterTypes, string\|Value $returnType, ScalarFunction $function): void` | Register a PHP scalar function with a fixed signature; see [scalar callbacks](scalar.md) |
 | `registerCopyToFunction(string $name, CopyToFunction $function): void` | Make `$name` a `COPY ... TO` format on this connection, implemented in PHP. See [COPY TO formats](copy.md) |
 | `close(): void` | Mark the connection closed (idempotent); further use throws `ConnectionException` |
 | `isClosed(): bool` | Whether `close()` has been called |
@@ -262,8 +263,10 @@ vectors and connection.
 | `arrowSchema(Connection $connection): ArrowSchema` | Export a schema using the connection's conversion settings |
 | `toArrow(Connection $connection): ArrowChunk` | Export a new Arrow batch without consuming this chunk |
 
-A batch passed to `CopyToWriter::write()` is only valid during that call; see
-[COPY TO formats](copy.md).
+A batch passed to `CopyToWriter::write()` or
+`ScalarFunctionExecutor::execute()` is borrowed and only valid during that
+call; accessing it later throws `Error`. `vector()` and `select()` return
+owned copies. See [COPY TO formats](copy.md) and [scalar callbacks](scalar.md).
 
 See [Arrow conversion](arrow.md) for ownership, native address requirements,
 FFI examples, mixed row fetching and type conversion semantics. Result and
@@ -314,6 +317,44 @@ Non-integer elements throw `TypeError`; non-list arrays and out-of-range
 indices throw `ValueError`. An index at or beyond the source row count throws
 `ValueError` when the selection is used. See
 [selection vectors](selection.md).
+
+## `interface ScalarFunction`
+
+A PHP scalar function registered with `Connection::registerScalarFunction()`.
+
+| Method | Description |
+| --- | --- |
+| `bind(array $argumentTypes, array $constantArguments): ScalarFunctionBinding` | Receive argument SQL types and zero-based constant argument values; return binding state |
+
+A missing constant key identifies a nonconstant expression. A present key
+with value `null` identifies constant SQL NULL. Registration fixes parameter
+and return types; binding does not choose a new signature. Argument type names
+describe expressions before implicit casts to that signature. Names are
+unique across the database catalog and remain reserved until the database
+closes; only the registering connection may execute the function.
+
+## `interface ScalarFunctionBinding`
+
+Binding state retained by DuckDB for a scalar expression.
+
+| Method | Description |
+| --- | --- |
+| `init(): ScalarFunctionExecutor` | Create execution state for one DuckDB local worker; may run several times per query |
+
+## `interface ScalarFunctionExecutor`
+
+Computes one vector of output values per input batch.
+
+| Method | Description |
+| --- | --- |
+| `execute(DataChunk $arguments): Vector` | Return a vector of the registered return type with capacity for every input row; input expires when the callback returns |
+
+All three interfaces run on the PHP request thread and must not suspend or
+use the executing connection. Use a separate connection to create and fill
+output vectors. NULL inputs reach PHP; the executor chooses their outputs.
+There are no close/abort callbacks. Worker-backed async execution is rejected.
+Streaming methods currently buffer their full results on connections with
+PHP scalar registrations. See [scalar callbacks](scalar.md) for details.
 
 ## `interface CopyToFunction`
 

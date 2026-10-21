@@ -141,7 +141,8 @@ constructor. A `DuckDB\Vector` must not be shared between threads.
 PHP has no raw buffer or validity-mask access. Vectors stay flat: there is no
 public `duckdb_vector_reference_vector()`, constant-vector or slicing API.
 [Selection vectors](selection.md) pick, reorder and repeat rows by copying
-them into new flat vectors and chunks. Vectors are not a user-defined
-function interface; see [table functions](table_functions.md).
+them into new flat vectors and chunks. Vectors also carry the return values of
+[PHP scalar functions](scalar.md). See [table functions](table_functions.md)
+for table-shaped results.
 
 See the runnable [vector example](../examples/vectors.php).

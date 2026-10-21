@@ -58,7 +58,8 @@ static int64_t stuck_limit_ns() {
 }
 
 bool duckdb_conn_needs_pump(const conn_inner &conn) {
-    return force_pump() || conn.copy_registrations.load(std::memory_order_acquire) > 0;
+    return force_pump() || conn.copy_registrations.load(std::memory_order_acquire) > 0 ||
+           conn.scalar_registrations.load(std::memory_order_acquire) > 0;
 }
 
 void copy_session::service() {
@@ -241,6 +242,9 @@ duckdb_state duckdb_pump_execute(conn_inner &conn, duckdb_prepared_statement sta
     auto session = duckdb_session_open(conn);
 
     duckdb_pending_result pending = nullptr;
+    /* Scalar evaluation may continue during streaming fetch, after this
+     * session ends. Materialize while the request thread can serve it. */
+    streaming = streaming && conn.scalar_registrations.load(std::memory_order_acquire) == 0;
     duckdb_state started = streaming ? duckdb_pending_prepared_streaming(statement, &pending)
                                      : duckdb_pending_prepared(statement, &pending);
     if (started == DuckDBError) {

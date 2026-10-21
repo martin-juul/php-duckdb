@@ -32,6 +32,7 @@ extern "C" {
 #include "src/vector.h"
 #include "src/copy.h"
 #include "src/copy_session.h"
+#include "src/scalar.h"
 #include "src/selection.h"
 #include "duckdb_arginfo.h"
 #include <unordered_map>
@@ -145,15 +146,18 @@ static void duckdb_database_free_object(zend_object *object) {
 
 static void duckdb_connection_free_object(zend_object *object) {
     php_duckdb_connection_object *intern = duckdb_connection_from_obj(object);
+    duckdb_scalar_connection_free(intern->inner.get());
     duckdb_copy_connection_free(intern->inner.get());
     intern->inner.~shared_ptr();
     zend_object_std_dtor(&intern->std);
+    duckdb_copy_after_destructor();
 }
 
 static HashTable *duckdb_connection_get_gc(zend_object *object, zval **table, int *n) {
     php_duckdb_connection_object *intern = duckdb_connection_from_obj(object);
     zend_get_gc_buffer *buffer = zend_get_gc_buffer_create();
     duckdb_copy_connection_gc(intern->inner.get(), buffer);
+    duckdb_scalar_connection_gc(intern->inner.get(), buffer);
     zend_get_gc_buffer_use(buffer, table, n);
     return zend_std_get_properties(object);
 }
@@ -1149,6 +1153,7 @@ static int duckdb_unserialize_deny(zval *object, zend_class_entry *ce, const uns
     } while (0)
 
 PHP_MINIT_FUNCTION(duckdb) {
+    duckdb_php_observe_errors();
     duckdb_register_value_class();
 #define REGISTER_TYPED_CLASS(Class) \
     do { \
@@ -1181,6 +1186,9 @@ PHP_MINIT_FUNCTION(duckdb) {
     DUCKDB_REGISTER_CLASS(connection, register_class_DuckDB_Connection);
     duckdb_connection_handlers.get_gc = duckdb_connection_get_gc;
     duckdb_register_copy_interfaces(register_class_DuckDB_CopyToFunction(), register_class_DuckDB_CopyToWriter());
+    duckdb_register_scalar_interfaces(register_class_DuckDB_ScalarFunction(),
+                                      register_class_DuckDB_ScalarFunctionBinding(),
+                                      register_class_DuckDB_ScalarFunctionExecutor());
     DUCKDB_REGISTER_CLASS(statement, register_class_DuckDB_Statement);
     duckdb_statement_handlers.get_gc = duckdb_statement_get_gc;
     duckdb_register_arrow_classes(register_class_DuckDB_ArrowSchema(), register_class_DuckDB_ArrowChunk());

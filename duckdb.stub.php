@@ -448,6 +448,36 @@ interface CopyToWriter
     public function abort(\Throwable $reason): void;
 }
 
+/** A PHP scalar function with a signature fixed at registration. */
+interface ScalarFunction
+{
+    /**
+     * Bind an expression. Constants are keyed by zero-based argument index;
+     * an absent key denotes a nonconstant argument, including parameters.
+     *
+     * @param string[] $argumentTypes SQL expression types before implicit casts.
+     * @param array $constantArguments Foldable argument values.
+     */
+    public function bind(array $argumentTypes, array $constantArguments): ScalarFunctionBinding;
+}
+
+/** State belonging to one bound scalar expression. */
+interface ScalarFunctionBinding
+{
+    /** Create state for one DuckDB local execution context. */
+    public function init(): ScalarFunctionExecutor;
+}
+
+/** Executes batches on the PHP request thread; callbacks must not suspend. */
+interface ScalarFunctionExecutor
+{
+    /**
+     * The input expires on return. Return a vector of the registered type
+     * with capacity for every input row; only those rows are consumed.
+     */
+    public function execute(DataChunk $arguments): Vector;
+}
+
 /**
  * A connection to a DuckDB database. Created via {@see Database::connect()}.
  *
@@ -472,6 +502,16 @@ final class Connection
      * replaces its handler. The format is unavailable on other connections.
      */
     public function registerCopyToFunction(string $name, CopyToFunction $function): void {}
+
+    /**
+     * Register a fixed-signature PHP scalar function. Names are reserved in
+     * the database catalog and cannot be replaced, even after connection disposal. Callbacks run only on this connection's request thread.
+     * Functions receive NULLs and are treated as volatile.
+     *
+     * @param array $parameterTypes SQL declarations or Value type specifications.
+     */
+    public function registerScalarFunction(string $name, array $parameterTypes, string|Value $returnType, ScalarFunction $function): void {}
+
 
     private function __construct() {}
 

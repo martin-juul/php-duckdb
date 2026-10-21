@@ -20,10 +20,11 @@ vectors that PHP creates, fills, copies and assembles into native chunks.
 [Selection vectors](selection.md) were merged in
 [PR #12](https://github.com/martin-juul/php-duckdb/pull/12): reusable lists of
 row indices that pick, reorder and repeat vector and chunk rows.
-[Custom COPY TO formats](copy.md) are the current feature: PHP classes that
-receive `COPY ... TO` output batch by batch on the request thread. These
-features are under development in this checkout and are not yet released.
-Public scalar bind/init callbacks are next.
+[Custom COPY TO formats](copy.md) let PHP classes receive `COPY ... TO`
+output batch by batch on the request thread.
+[Public scalar callbacks](scalar.md) add fixed typed SQL signatures and PHP
+bind/init/execute state. These features are under development in this checkout
+and are not yet released. Table-function metadata is next.
 
 The intended PR sequence is:
 

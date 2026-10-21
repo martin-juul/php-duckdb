@@ -21,6 +21,8 @@ A [PHP COPY format](copy.md) receives each result batch as a borrowed
 `DataChunk` that DuckDB owns. It is valid only during
 `CopyToWriter::write()`; afterwards every method throws `Error`. `select()`
 and `vector()` return owned copies that remain valid.
+[PHP scalar executors](scalar.md) receive the same borrowed chunk contract
+during `ScalarFunctionExecutor::execute()`.
 
 ## Streaming results
 
@@ -49,6 +51,10 @@ Practical guidance:
 | Large/unbounded result, processed row-wise | `queryStreaming()` |
 | Columnar batch interchange or copying to an appender | `queryStreaming()` + `fetchArrowChunk()`; see [Arrow conversion](arrow.md) |
 | Large result needed as one array anyway | `query()`, but mind the memory limit |
+
+Connections with a registered [PHP scalar function](scalar.md) currently
+buffer all streaming results to keep callbacks within a live execution pump.
+Use a separate connection without scalar registrations for true streaming.
 
 Caveats that follow from the chunk-based implementation:
 

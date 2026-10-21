@@ -590,7 +590,11 @@ PHP_METHOD(DuckDB_Statement, executeAsync) {
         RETURN_THROWS();
     }
     if (intern->inner->uses_copy_format) {
-        duckdb_throw_msg(duckdb_copy_not_pumped_message);
+        if (intern->inner->conn->scalar_registrations.load(std::memory_order_acquire) > 0) {
+            duckdb_throw_msg("PHP callbacks require request-thread execution; executeAsync() is not supported");
+        } else {
+            duckdb_throw_msg(duckdb_copy_not_pumped_message);
+        }
         RETURN_THROWS();
     }
 

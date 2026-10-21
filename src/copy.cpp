@@ -13,6 +13,7 @@
 #include "php_duckdb_cxx_compat.h"
 #include "php_duckdb.h"
 #include "copy.h"
+#include "scalar.h"
 #include "copy_session.h"
 #include "data_chunk.h"
 
@@ -20,6 +21,11 @@ extern "C" {
 #include "zend_exceptions.h"
 #include "zend_fibers.h"
 #include "zend_interfaces.h"
+#include "zend_generators.h"
+#include "zend_observer.h"
+#if PHP_VERSION_ID >= 80400
+#include "zend_lazy_objects.h"
+#endif
 }
 
 #include <algorithm>
@@ -119,6 +125,97 @@ enum class call_outcome {
     bailout,
 };
 
+struct callback_boundary {
+    callback_boundary *previous;
+    zend_execute_data *frame;
+    zend_execute_data *volatile fatal_frame;
+    volatile int fatal_type;
+};
+
+static thread_local callback_boundary *active_callback_boundary = nullptr;
+
+static void observe_callback_error(int type, zend_string *, uint32_t, zend_string *) {
+    if (active_callback_boundary && (type & E_FATAL_ERRORS)) {
+        active_callback_boundary->fatal_frame = EG(current_execute_data);
+        active_callback_boundary->fatal_type = type;
+    }
+}
+
+void duckdb_php_observe_errors() {
+    zend_observer_error_register(observe_callback_error);
+}
+
+/* Resume only the abandoned PHP frames. Each TOP_FUNCTION returns to a C
+ * caller that the fatal has discarded, so its frame needs a separate pop. */
+static void unwind_callback(zend_execute_data *current, zend_execute_data *boundary) {
+    while (current && current != boundary) {
+        EG(current_execute_data) = current;
+        if (!current->func) {
+            /* Generator delegation inserts a non-owning backtrace frame. */
+            current = current->prev_execute_data;
+            continue;
+        }
+        if (current->func->type == ZEND_INTERNAL_FUNCTION) {
+            zend_execute_data *previous = current->prev_execute_data;
+            uint32_t call_info = ZEND_CALL_INFO(current);
+            ZEND_OBSERVER_FCALL_END(current, nullptr);
+            zend_vm_stack_free_args(current);
+            if (call_info & ZEND_CALL_HAS_EXTRA_NAMED_PARAMS) {
+                zend_free_extra_named_params(current->extra_named_params);
+            }
+            if (call_info & ZEND_CALL_RELEASE_THIS) {
+                OBJ_RELEASE(Z_OBJ(current->This));
+            }
+            zend_vm_stack_free_call_frame_ex(call_info, current);
+            current = previous;
+            continue;
+        }
+
+        zend_execute_data *root = current;
+        while (root && root != boundary && !(ZEND_CALL_INFO(root) & ZEND_CALL_TOP)) {
+            root = root->prev_execute_data;
+        }
+        if (!root || root == boundary) {
+            break;
+        }
+        zend_execute_data *previous = root->prev_execute_data;
+        uint32_t call_info = ZEND_CALL_INFO(root);
+        zend_generator *generator = nullptr;
+        /* Return slots of callbacks invoked by internal functions can point
+         * into their abandoned C stack. Fatal unwinding produces no result. */
+        if (call_info & ZEND_CALL_GENERATOR) {
+            generator = reinterpret_cast<zend_generator *>(root->return_value);
+            GC_ADDREF(&generator->std);
+        } else {
+            root->return_value = nullptr;
+        }
+        if (EG(exception)) {
+            const zend_op *const opline = current->opline;
+            zend_clear_exception();
+            current->opline = opline;
+        }
+        zend_throw_unwind_exit();
+        zend_execute_ex(current);
+        if (generator) {
+            /* Zend's exception path closes and frees a generator's heap
+             * frame. The abandoned resume caller normally clears these. */
+            generator->flags &= ~(ZEND_GENERATOR_CURRENTLY_RUNNING | ZEND_GENERATOR_IN_FIBER);
+            generator->frozen_call_stack = nullptr;
+            OBJ_RELEASE(&generator->std);
+        } else {
+            if (call_info & ZEND_CALL_RELEASE_THIS) {
+                OBJ_RELEASE(Z_OBJ(root->This));
+            }
+            zend_vm_stack_free_call_frame_ex(call_info, root);
+        }
+        current = previous;
+    }
+    EG(current_execute_data) = boundary;
+    if (EG(exception) && boundary && boundary->func && ZEND_USER_CODE(boundary->func->type)) {
+        zend_rethrow_exception(boundary);
+    }
+}
+
 /* Only plain locals: zend_try returns here by longjmp. */
 static bool invoke_method(zend_object *object, const char *method, uint32_t argc, zval *argv, zval *retval) {
     /* Method names here are lower case, like function table keys. */
@@ -127,14 +224,39 @@ static bool invoke_method(zend_object *object, const char *method, uint32_t argc
     /* A fatal error unwinds to here and leaves the engine pointing at the
      * handler's discarded frames; the calling method is still running. */
     zend_execute_data *const frame = EG(current_execute_data);
+    callback_boundary boundary{active_callback_boundary, frame, nullptr, 0};
+    active_callback_boundary = &boundary;
+    auto *const fake_scope = EG(fake_scope);
+    const uint32_t jit_trace_num = EG(jit_trace_num);
     volatile bool completed = false;
     zend_try {
         zend_call_known_instance_method(fn, object, retval, argc, argv);
         completed = true;
     } zend_catch {
+        zend_execute_data *const fatal_frame = boundary.fatal_frame;
+        const int fatal_type = boundary.fatal_type;
+        boundary.fatal_frame = nullptr;
+        active_callback_boundary = nullptr;
+        /* A runtime E_USER_ERROR leaves valid VM frames. Compile errors,
+         * stack exhaustion and OOM do not offer the same cleanup contract. */
+        if (fatal_type == E_USER_ERROR && fatal_frame) {
+            const bool unclean_shutdown = CG(unclean_shutdown);
+            CG(unclean_shutdown) = false;
+            zend_try {
+                unwind_callback(fatal_frame, boundary.frame);
+            } zend_catch {
+                /* A second fatal during destruction must still leave the
+                 * native owners free to unwind before request termination. */
+                EG(current_execute_data) = frame;
+            } zend_end_try();
+            CG(unclean_shutdown) = unclean_shutdown;
+        }
         EG(current_execute_data) = frame;
+        EG(fake_scope) = fake_scope;
+        EG(jit_trace_num) = jit_trace_num;
         completed = false;
     } zend_end_try();
+    active_callback_boundary = boundary.previous;
     return completed;
 }
 
@@ -169,7 +291,12 @@ static call_outcome call_handler(conn_inner *conn, zend_object *object, const ch
     zend_fiber_switch_block();
 
     ZVAL_UNDEF(retval);
+    /* A callback can release the Connection that owns its registration.
+     * Zend's known-method call does not retain its target for us. */
+    GC_ADDREF(object);
     bool completed = invoke_method(object, method, argc, argv, retval);
+    duckdb_php_release_object(object);
+    completed = completed && !pending_bailout;
 
     zend_fiber_switch_unblock();
     handler_depth--;
@@ -203,6 +330,10 @@ static call_outcome call_handler(conn_inner *conn, zend_object *object, const ch
         *exception = thrown;
         return call_outcome::exception;
     }
+    if (pending_exit) {
+        message = "PHP callback aborted by exit()";
+        return call_outcome::exit;
+    }
     return call_outcome::ok;
 }
 
@@ -216,6 +347,74 @@ static void keep_cause(zend_object **slot, zend_object *exception) {
         return;
     }
     *slot = exception;
+}
+
+bool duckdb_php_call_handler(conn_inner *conn, zend_object *object, const char *method, uint32_t argc,
+                             zval *argv, zval *retval, std::string &error) {
+    zend_object *cause = nullptr;
+    auto outcome = call_handler(conn, object, method, argc, argv, retval, error, &cause);
+    keep_cause(&pending_cause, cause);
+    return outcome == call_outcome::ok;
+}
+
+/* Destructors are PHP callbacks too: defer longjmp until C++ has unwound. */
+void duckdb_php_release_object(zend_object *object) {
+    zend_execute_data *const frame = EG(current_execute_data);
+    zend_object *prior = EG(exception);
+    EG(exception) = nullptr;
+    volatile bool completed = false;
+    handler_depth++;
+    zend_fiber_switch_block();
+    zend_try {
+        if (GC_REFCOUNT(object) == 1 && !(OBJ_FLAGS(object) & IS_OBJ_DESTRUCTOR_CALLED) &&
+            object->handlers->dtor_obj == zend_objects_destroy_object && object->ce->destructor &&
+#if PHP_VERSION_ID >= 80400
+            !zend_object_is_lazy(object) &&
+#endif
+            (object->ce->destructor->common.fn_flags & ZEND_ACC_PUBLIC)) {
+            GC_ADD_FLAGS(object, IS_OBJ_DESTRUCTOR_CALLED);
+            zval retval;
+            ZVAL_UNDEF(&retval);
+            if (!invoke_method(object, "__destruct", 0, nullptr, &retval)) {
+                pending_bailout = true;
+            }
+            zval_ptr_dtor(&retval);
+        }
+        OBJ_RELEASE(object);
+        completed = true;
+    } zend_catch {
+        EG(current_execute_data) = frame;
+        completed = false;
+    } zend_end_try();
+    zend_fiber_switch_unblock();
+    handler_depth--;
+    if (!completed) {
+        pending_bailout = true;
+    }
+    zend_object *thrown = EG(exception);
+    EG(exception) = prior;
+    if (!thrown) {
+        return;
+    }
+    if (zend_is_unwind_exit(thrown) || zend_is_graceful_exit(thrown)) {
+        if (pending_exit) {
+            OBJ_RELEASE(thrown);
+        } else {
+            pending_exit = thrown;
+        }
+    } else if (prior) {
+        zend_exception_set_previous(prior, thrown);
+    } else {
+        EG(exception) = thrown;
+    }
+}
+
+bool duckdb_php_handler_active() {
+    return handler_depth > 0;
+}
+
+void duckdb_php_mark_prepare_callback() {
+    prepare_used_format = true;
 }
 
 static std::string stale_message(const copy_registration &registration) {
@@ -1005,6 +1204,7 @@ void duckdb_copy_after_method() {
         return;
     }
     duckdb_drain_deferred_connections();
+    duckdb_scalar_drain();
 
     if (pending_bailout) {
         pending_bailout = false;
@@ -1013,7 +1213,8 @@ void duckdb_copy_after_method() {
         if (EG(exception)) {
             zend_clear_exception();
         }
-        zend_bailout();
+        zend_throw_unwind_exit();
+        return;
     }
     if (pending_exit) {
         zend_object *exit_object = pending_exit;

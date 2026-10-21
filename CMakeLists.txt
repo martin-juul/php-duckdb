@@ -245,11 +245,12 @@ int main() {
     duckdb_value value = nullptr;
     duckdb_expression_fold(nullptr, nullptr, &value);
     duckdb_scalar_function_set_bind(nullptr, nullptr);
+    duckdb_scalar_function_set_init(nullptr, nullptr);
     duckdb_appender_clear(nullptr);
     return 0;
 }" DUCKDB_HAS_TYPED_VALUE_APIS)
 if (NOT DUCKDB_HAS_TYPED_VALUE_APIS)
-    message(FATAL_ERROR "DuckDB expression folding, scalar bind and appender clear APIs are required")
+    message(FATAL_ERROR "DuckDB expression folding, scalar bind/init and appender clear APIs are required")
 endif()
 
 unset(DUCKDB_HAS_ARROW_APIS CACHE)
@@ -337,7 +338,8 @@ set(DUCKDB_SOURCES
     src/vector.cpp
     src/selection.cpp
     src/copy_session.cpp
-    src/copy.cpp)
+    src/copy.cpp
+    src/scalar.cpp)
 
 set(DUCKDB_HEADERS
     php_duckdb.h
@@ -349,6 +351,7 @@ set(DUCKDB_HEADERS
     src/selection.h
     src/copy_session.h
     src/copy.h
+    src/scalar.h
     src/bignum_decode.h
     src/variant_decode.h
     src/type_classes.h

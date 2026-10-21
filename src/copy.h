@@ -53,6 +53,14 @@ void duckdb_copy_after_method();
  * exception of its own to chain onto. */
 void duckdb_copy_after_destructor();
 
+/* Shared request-thread callback boundary for scalar and COPY handlers. */
+bool duckdb_php_call_handler(conn_inner *conn, zend_object *object, const char *method, uint32_t argc,
+                             zval *argv, zval *retval, std::string &error);
+bool duckdb_php_handler_active();
+void duckdb_php_observe_errors();
+void duckdb_php_release_object(zend_object *object);
+void duckdb_php_mark_prepare_callback();
+
 /* Define a PHP method whose body runs in a helper, so that
  * duckdb_copy_after_method() runs after the body's C++ locals are gone. */
 #define DUCKDB_COPY_METHOD(cls, name)                                   \

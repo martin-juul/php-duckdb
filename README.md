@@ -32,6 +32,8 @@ Feature highlights:
   appending it
 - **COPY TO formats in PHP**: [stream query results](docs/copy.md) to a
   file format implemented by a PHP class, with `COPY ... TO ... (FORMAT name)`
+- **Scalar functions in PHP**: [typed SQL functions](docs/scalar.md) with
+  bind/init state and vectorized batch execution on the request thread
 - **Asynchronous execution** on background worker threads, with cancellation,
   progress reporting, Fiber suspension, coroutine-native **Swoole 6+**, **True
   Async**, **AMPHP v3** and **ReactPHP** integration, and event-loop support
@@ -872,7 +874,8 @@ The test suite covers the following input checks and resource-lifecycle rules:
   private to each `Database` object.
 - Worker threads only execute DuckDB calls; all PHP/zval access happens on the
   request thread. Safe under ZTS, `parallel`, FrankenPHP, etc.
-- PHP callbacks such as [COPY TO format](docs/copy.md) handlers also run only
+- PHP callbacks such as [COPY TO format](docs/copy.md) handlers and
+  [scalar functions](docs/scalar.md) also run only
   on the request thread: DuckDB workers hand their calls to it while it drives
   the statement. Handlers must not suspend or use the connection running the
   statement, and `queryAsync()`/`executeAsync()` reject statements that need
@@ -929,6 +932,10 @@ Stages:
 
 Exit codes: `0` all green, `1` a stage failed, `2` environment problem, `3`
 build failure. `--junit=FILE` emits a JUnit report for CI.
+
+For Valgrind 3.27.1's internal crash while unwinding PHP fiber stacks on
+Linux x86_64, use the [patched Valgrind builder](packaging/valgrind/README.md).
+It preserves the memory checks and selects the private tool through `PATH`.
 
 ### Layout
 

@@ -29,6 +29,10 @@ packaging/
     control, rules, ...    # debhelper — Ubuntu LTS 24.04/26.04 (vendored libduckdb)
 ```
 
+The [Valgrind builder](valgrind/README.md) supplies a private validation tool
+with a fix for the Linux x86_64 fiber stack-unwinding crash; it does not change
+the extension packages.
+
 The extension builds with phpize and `--with-duckdb` across distributions.
 Packaging targets supply the distribution-specific package names, PHP dev
 packages, ini drop-in directories, and libduckdb sources.

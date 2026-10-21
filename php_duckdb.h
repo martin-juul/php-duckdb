@@ -148,6 +148,7 @@ duckdb_notify_fd duckdb_notify_fd_duplicate(duckdb_notify_fd fd);
 struct copy_session;
 struct copy_slot;
 struct copy_registration;
+struct scalar_registration;
 
 /* A DuckDB database instance. Connections hold a shared_ptr to this,
  * so the database outlives its connections. */
@@ -198,6 +199,8 @@ struct conn_inner {
     std::vector<std::function<void()>> deferred;
     /* Live COPY format registrations; statements are pumped while nonzero. */
     std::atomic<int> copy_registrations{0};
+    std::atomic<int> scalar_registrations{0};
+    std::unordered_map<std::string, std::shared_ptr<scalar_registration>> scalar_regs;
     /* This connection's COPY formats by lower-cased name (request thread). */
     std::unordered_map<std::string, std::shared_ptr<copy_registration>> copy_regs;
     /* The pumped statement on this connection, if any (request thread only). */
