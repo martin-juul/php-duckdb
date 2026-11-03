@@ -243,7 +243,7 @@ static void duckdb_statement_bind_impl(INTERNAL_FUNCTION_PARAMETERS, bool as_blo
         /* The whole resolve+bind sequence runs under the connection mutex:
          * an async worker may currently be executing this same statement. */
         std::unique_lock<std::mutex> lk;
-        if (!duckdb_conn_enter(*intern->inner->conn, lk)) {
+        if (!duckdb_conn_enter(*intern->inner->conn, lk, conn_entry::plain)) {
             RETURN_THROWS();
         }
         if (!duckdb_resolve_param_index(intern->inner->stmt, param, &index)) {
@@ -321,7 +321,7 @@ PHP_METHOD(DuckDB_Statement, clearBindings) {
     HashTable *retired = nullptr;
     {
         std::unique_lock<std::mutex> lk;
-        if (!duckdb_conn_enter(*intern->inner->conn, lk)) {
+        if (!duckdb_conn_enter(*intern->inner->conn, lk, conn_entry::plain)) {
             RETURN_THROWS();
         }
         duckdb_clear_bindings(intern->inner->stmt);
@@ -502,7 +502,7 @@ static void duckdb_statement_execute_impl(INTERNAL_FUNCTION_PARAMETERS, bool str
     duckdb_result res = {};
     {
         std::unique_lock<std::mutex> lk;
-        if (!duckdb_conn_enter(*intern->inner->conn, lk)) {
+        if (!duckdb_conn_enter(*intern->inner->conn, lk, conn_entry::statement_start)) {
             RETURN_THROWS();
         }
         if (!duckdb_statement_bind_execution(intern, params, retained)) {
@@ -557,13 +557,11 @@ static void duckdb_statement_execute_impl(INTERNAL_FUNCTION_PARAMETERS, bool str
             duckdb_throw_result_error(&res);
             RETURN_THROWS();
         }
-        /* A new execution on this connection invalidates any open
-         * streaming result. */
-        intern->inner->conn->execution_epoch.fetch_add(1, std::memory_order_relaxed);
-    }
 
-    duckdb_result_instantiate(return_value, &res, streaming,
-                              streaming ? intern->inner : nullptr, intern->inner->conn);
+        /* A stream becomes the connection's open result. */
+        duckdb_result_instantiate(return_value, &res, streaming,
+                                  streaming ? intern->inner : nullptr, intern->inner->conn);
+    }
 }
 
 DUCKDB_COPY_METHOD(DuckDB_Statement, execute) {
@@ -574,7 +572,7 @@ DUCKDB_COPY_METHOD(DuckDB_Statement, executeStreaming) {
     duckdb_statement_execute_impl(INTERNAL_FUNCTION_PARAM_PASSTHRU, /*streaming=*/true);
 }
 
-PHP_METHOD(DuckDB_Statement, executeAsync) {
+DUCKDB_COPY_METHOD(DuckDB_Statement, executeAsync) {
     DUCKDB_TSRMLS_CACHE_UPDATE();
     HashTable *params = NULL;
 
@@ -602,10 +600,11 @@ PHP_METHOD(DuckDB_Statement, executeAsync) {
     duckdb_statement_retained retained;
     /* Bind on the request thread, under the connection mutex so this cannot
      * interleave with a running async execution of the same statement; the
-     * worker thread only executes. */
+     * worker thread only executes. Starting the execution supersedes any
+     * open result on this connection. */
     {
         std::unique_lock<std::mutex> lk;
-        if (!duckdb_conn_enter(*intern->inner->conn, lk)) {
+        if (!duckdb_conn_enter(*intern->inner->conn, lk, conn_entry::statement_start)) {
             RETURN_THROWS();
         }
         if (!duckdb_statement_bind_execution(intern, params, retained)) {
@@ -623,12 +622,6 @@ PHP_METHOD(DuckDB_Statement, executeAsync) {
     task->conn = intern->inner->conn;
     task->stmt = intern->inner; /* keeps the statement alive during execution */
     task->notify_write_fd = fds[1];
-
-    /* Starting a new execution invalidates any open streaming result on
-     * this connection. The bump is sequenced before the thread is
-     * created: thread creation is the happens-before edge that publishes
-     * the task to the worker. */
-    intern->inner->conn->execution_epoch.fetch_add(1, std::memory_order_relaxed);
 
     try {
         /* The registry owns the thread until it is joined, including its

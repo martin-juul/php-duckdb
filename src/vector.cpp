@@ -7,6 +7,7 @@
 
 #include "php_duckdb_cxx_compat.h"
 #include "php_duckdb.h"
+#include "copy.h"
 #include "vector.h"
 
 #include <algorithm>
@@ -420,7 +421,7 @@ static bool write_values(conn_inner *conn, vector_data *data, std::vector<pendin
     std::vector<scoped_duckdb_value> converted;
     if (!inputs.empty()) {
         std::unique_lock<std::mutex> lock;
-        if (!duckdb_conn_enter(*conn, lock)) {
+        if (!duckdb_conn_enter(*conn, lock, conn_entry::statement_start)) {
             return false;
         }
         if (!convert_inputs(conn, data, inputs, converted)) {
@@ -479,7 +480,7 @@ static void throw_native_error(const char *fallback) {
     }
 }
 
-PHP_METHOD(DuckDB_Connection, createVector) {
+DUCKDB_COPY_METHOD(DuckDB_Connection, createVector) {
     DUCKDB_TSRMLS_CACHE_UPDATE();
     zval *type;
     zend_long capacity = 0;
@@ -514,7 +515,7 @@ PHP_METHOD(DuckDB_Connection, createVector) {
         std::vector<scoped_duckdb_value> nulls;
         {
             std::unique_lock<std::mutex> lock;
-            if (!duckdb_conn_enter(*conn, lock)) {
+            if (!duckdb_conn_enter(*conn, lock, conn_entry::statement_start)) {
                 RETURN_THROWS();
             }
             zval wrapper, input;
@@ -661,7 +662,7 @@ PHP_METHOD(DuckDB_Vector, toArray) {
     }
 }
 
-PHP_METHOD(DuckDB_Vector, set) {
+DUCKDB_COPY_METHOD(DuckDB_Vector, set) {
     DUCKDB_TSRMLS_CACHE_UPDATE();
     zval *connection;
     zend_long row;
@@ -693,7 +694,7 @@ PHP_METHOD(DuckDB_Vector, set) {
     }
 }
 
-PHP_METHOD(DuckDB_Vector, setValues) {
+DUCKDB_COPY_METHOD(DuckDB_Vector, setValues) {
     DUCKDB_TSRMLS_CACHE_UPDATE();
     zval *connection;
     HashTable *values;

@@ -181,6 +181,43 @@ struct db_inner {
     }
 };
 
+/* Lifecycle of an open-result record. Every transition happens under the
+ * connection mutex. */
+enum class open_result_state {
+    /* Registered; the native handle is live. */
+    open,
+    /* A fetch failed. Still registered, and the error is kept for re-fetches. */
+    errored,
+    /* Finished cleanly and unregistered; a newer statement leaves it alone. */
+    drained,
+    /* A newer statement destroyed the native handle. */
+    superseded,
+    /* The PHP owner released it. */
+    destroyed,
+};
+
+/* One open streaming or pending result. DuckDB 2.0 refuses a new statement
+ * while one is open, so the extension supersedes it itself before starting
+ * a statement. The connection's registry and the PHP owner (result_data or
+ * async_task) share the record. Only the thread that moves the state under
+ * the connection mutex destroys the native handle, so it is destroyed
+ * exactly once. */
+struct open_result {
+    open_result_state state = open_result_state::open;
+    /* A streaming result's native handle. */
+    duckdb_result result = {};
+    bool streaming = false;
+    /* A pending query's native handle. */
+    duckdb_pending_result pending = nullptr;
+    /* The pumped statement's callback session. Set before the record is
+     * registered and never replaced; ending it is idempotent. */
+    std::shared_ptr<copy_session> session;
+    /* A failed stream's error, kept for re-fetches after a supersede. */
+    bool failed = false;
+    duckdb_error_type error_type = DUCKDB_ERROR_INVALID;
+    std::string error_message;
+};
+
 /* A DuckDB connection. DuckDB connections are not safe for concurrent
  * use from multiple threads, so every statement execution (sync or
  * async) holds `mutex` for the duration of the DuckDB call. PHP-thread
@@ -194,12 +231,9 @@ struct conn_inner {
      * the destructor so statements/results still holding this shared_ptr
      * remain valid. */
     std::atomic<bool> closed{false};
-    /* Monotonic counter bumped every time a statement starts executing on
-     * this connection. DuckDB allows only ONE open streaming result per
-     * connection: a newer execution invalidates the previous stream. The
-     * epoch lets streaming results detect that and fail loudly instead of
-     * silently truncating. */
-    std::atomic<uint64_t> execution_epoch{0};
+    /* Open streaming and pending results, guarded by `mutex`. A statement
+     * start supersedes every record registered here. */
+    std::vector<std::shared_ptr<open_result>> open_results;
     /* Nonzero while handler_thread runs a PHP handler for this connection.
      * Re-entering the connection from that thread would self-deadlock. */
     std::atomic<int> handler_depth{0};
@@ -215,8 +249,6 @@ struct conn_inner {
     std::atomic<int> scalar_registrations{0};
     std::unordered_map<std::string, std::shared_ptr<scalar_registration>> scalar_regs;
     std::shared_ptr<scalar_registry> scalar_state;
-    /* The pumped statement on this connection, if any (request thread only). */
-    std::shared_ptr<copy_session> session;
     /* DuckDB's id for this connection, resolved when first pumped. */
     idx_t connection_id = 0;
     bool connection_id_known = false;
@@ -239,12 +271,32 @@ bool duckdb_conn_busy_here(const conn_inner &conn);
 /* Throw a ConnectionException and return false when the calling thread runs
  * a PHP handler for this connection. */
 bool duckdb_conn_check_not_busy(const conn_inner &conn);
-/* Acquire conn->mutex into `lock` for a PHP-thread operation. Throws a
- * ConnectionException and returns false instead of locking when the calling
- * thread runs a PHP handler for this connection. */
-bool duckdb_conn_enter(conn_inner &conn, std::unique_lock<std::mutex> &lock);
+
+/* What a PHP-thread operation does with the connection. Destructors and
+ * deferred cleanup use duckdb_conn_cleanup() instead. */
+enum class conn_entry {
+    /* Starts a statement: supersedes every open result first. The method
+     * must run duckdb_copy_after_method(), because superseding a pumped
+     * statement runs its writers' abort(). */
+    statement_start,
+    /* Only locks: binding, metadata, Arrow import and registration. */
+    plain,
+    /* Serves an open result's own fetch or Arrow call, which must not end
+     * its own statement. */
+    own_result,
+};
+
+/* Acquire conn->mutex into `lock` for a PHP-thread operation of the given
+ * kind. Throws a ConnectionException and returns false instead of locking
+ * when the calling thread runs a PHP handler for this connection. */
+bool duckdb_conn_enter(conn_inner &conn, std::unique_lock<std::mutex> &lock, conn_entry kind);
+/* Supersede every open result: close its session, destroy its native handle
+ * and unregister it. With `can_call_php`, the sessions' finish hooks run now
+ * and may call PHP; otherwise they stay for the record's owner. Caller holds
+ * conn.mutex. */
+void duckdb_conn_supersede(conn_inner &conn, bool can_call_php);
 /* Run native cleanup under conn->mutex, or defer it until the connection's
- * PHP handler returns when the calling thread is inside one. */
+ * PHP handler returns when the calling thread is inside one. No PHP runs. */
 void duckdb_conn_cleanup(const std::shared_ptr<conn_inner> &conn, std::function<void()> work);
 /* Run cleanup deferred by duckdb_conn_cleanup(). Caller must not hold
  * conn->mutex and must not be inside a handler for this connection. */
@@ -252,6 +304,22 @@ void duckdb_conn_drain_deferred(conn_inner &conn);
 /* Drain every connection whose cleanup this thread deferred and that is no
  * longer busy here. */
 void duckdb_drain_deferred_connections();
+
+/* Register a streaming result, taking ownership of `result`. Caller holds
+ * conn.mutex. */
+std::shared_ptr<open_result> duckdb_open_result_stream(conn_inner &conn, duckdb_result *result);
+/* Register an incomplete pending query and its session, if any, taking
+ * ownership of `pending`. Caller holds conn.mutex. */
+std::shared_ptr<open_result> duckdb_open_result_pending(conn_inner &conn, duckdb_pending_result pending,
+                                                        std::shared_ptr<copy_session> session);
+/* Unregister a record that finished cleanly. Caller holds conn.mutex. */
+void duckdb_open_result_drained(conn_inner &conn, open_result &record);
+/* Release a record its owner no longer needs: close its session and
+ * destroy its native handle unless a newer statement already did. No PHP
+ * runs. Caller holds conn.mutex. */
+void duckdb_open_result_destroy(conn_inner &conn, open_result &record, const std::string &reason);
+/* Why a superseded pending query fails. */
+extern const char duckdb_superseded_message[];
 
 /* A prepared statement, reference-counted so a Statement object may be
  * freed while an asynchronous execution of it is still running. */
@@ -319,20 +387,16 @@ struct async_task {
     duckdb_error_type error_type = DUCKDB_ERROR_INVALID;
     std::string error_msg;
     duckdb_result result = {};
-    duckdb_pending_result pending = nullptr;   /* POLLING, until executed */
+    /* POLLING, until executed: the registered pending query. It owns the
+     * native pending handle and, on a pumped connection, the session that
+     * services COPY callbacks between slices. */
+    std::shared_ptr<open_result> record;
     /* POLLING keeps its prepared statement alive for as long as the pending
      * result may reference it (duckdb_pending_prepared does NOT take
      * ownership). Destroyed after the pending result. */
     duckdb_prepared_statement owned_stmt = nullptr;
-    /* POLLING on a pumped connection: services COPY callbacks between slices. */
-    std::shared_ptr<copy_session> session;
 
     duckdb_notify_fd notify_write_fd = DUCKDB_INVALID_NOTIFY_FD;
-
-    /* Caller holds conn->mutex. Drain interrupted polling work before
-     * destroying it; dropping a partially executed DuckDB pending handle
-     * alone can retain its executor and database allocations. */
-    void discard_pending();
 
     ~async_task() {
         if (cancellation_worker.joinable()) {
@@ -340,18 +404,18 @@ struct async_task {
         }
 
         /* Release waiting COPY workers before DuckDB cancels the statement. */
-        if (session && conn) {
-            duckdb_session_end(*conn, session, "PendingQuery discarded", false);
-            session.reset();
+        if (record && record->session && conn) {
+            duckdb_session_end(*conn, record->session, "PendingQuery discarded", false);
         }
 
         /* The destroy calls below touch connection state; serialize them
          * with any in-flight execution on this connection. Destruction
          * inside a COPY handler for this connection is deferred until the
-         * handler returns, because the handler's thread holds the mutex. */
-        if (conn && (pending || !consumed)) {
-            duckdb_pending_result owned_pending = pending;
-            pending = nullptr;
+         * handler returns, because the handler's thread holds the mutex.
+         * The record destroys its own native handle, unless a newer
+         * statement already did. */
+        if (conn && (record || !consumed)) {
+            std::shared_ptr<open_result> owned_record = std::move(record);
             bool destroy_result = !consumed;
             duckdb_result owned_result = result;
             result = {};
@@ -359,8 +423,10 @@ struct async_task {
             duckdb_prepared_statement statement = owned_stmt;
             owned_stmt = nullptr;
             conn_inner *raw = conn.get();
-            duckdb_conn_cleanup(conn, [raw, owned_pending, destroy_result, owned_result, statement]() mutable {
-                duckdb_discard_pending(*raw, owned_pending);
+            duckdb_conn_cleanup(conn, [raw, owned_record, destroy_result, owned_result, statement]() mutable {
+                if (owned_record) {
+                    duckdb_open_result_destroy(*raw, *owned_record, "PendingQuery discarded");
+                }
                 if (destroy_result) {
                     duckdb_destroy_result(&owned_result);
                 }
@@ -382,12 +448,22 @@ struct async_task {
 /* ================================================================== */
 
 struct result_data {
+    /* A materialized result. A streaming result's handle lives on `record`. */
     duckdb_result result = {};
+    /* The registered streaming result; nullptr for materialized results. */
+    std::shared_ptr<open_result> record;
     /* Arrow export consults the source ClientContext even for materialized
      * results. Logical close remains immediate; defer physical disconnect. */
     std::shared_ptr<conn_inner> conn_keepalive;
     bool streaming = false;
     idx_t column_count = 0;
+    /* Metadata copied at creation, so it stays readable after a newer
+     * statement destroyed a streaming result's native handle. */
+    std::vector<std::string> column_names;
+    duckdb_statement_type statement_type = DUCKDB_STATEMENT_TYPE_INVALID;
+    idx_t row_count = 0;
+    idx_t rows_changed = 0;
+    duckdb_arrow_options arrow_options = nullptr;
     /* Owned logical types, one per column (nullptr for statement types
      * without a result set). Destroyed with the result. */
     duckdb_logical_type *column_types = nullptr;
@@ -404,8 +480,6 @@ struct result_data {
     /* Results are forward-only: a Result may hand out exactly one iterator,
      * and iteration may start only before any row was consumed. */
     bool iterator_taken = false;
-    /* Connection execution epoch at creation (streaming results only). */
-    uint64_t epoch = 0;
 
     ~result_data() {
         if (chunk) {
@@ -419,20 +493,23 @@ struct result_data {
             }
             delete[] column_types;
         }
-        /* Destroying a STREAMING result closes the stream on the
-         * connection, so serialize with other executions. Materialized
-         * results are self-contained and need no lock. */
-        if (streaming && stmt_keepalive) {
-            /* The deferred work keeps the statement until the stream closes. */
-            duckdb_result owned_result = result;
-            result = {};
-            std::shared_ptr<stmt_inner> statement = stmt_keepalive;
-            duckdb_conn_cleanup(stmt_keepalive->conn, [owned_result, statement]() mutable {
-                duckdb_destroy_result(&owned_result);
-            });
-        } else {
-            duckdb_destroy_result(&result);
+        if (arrow_options) {
+            duckdb_destroy_arrow_options(&arrow_options);
         }
+        /* Destroying a STREAMING result closes the stream on the
+         * connection, so serialize with other executions. The record
+         * destroys its handle unless a newer statement already did.
+         * Materialized results are self-contained and need no lock. */
+        if (record && conn_keepalive) {
+            /* The deferred work keeps the statement until the stream closes. */
+            std::shared_ptr<open_result> owned_record = std::move(record);
+            std::shared_ptr<stmt_inner> statement = stmt_keepalive;
+            conn_inner *raw = conn_keepalive.get();
+            duckdb_conn_cleanup(conn_keepalive, [raw, owned_record, statement]() mutable {
+                duckdb_open_result_destroy(*raw, *owned_record, std::string());
+            });
+        }
+        duckdb_destroy_result(&result);
         stmt_keepalive.reset();
     }
 };
@@ -643,7 +720,8 @@ bool duckdb_type_spec(zval *spec, std::string &type);
 /* result.cpp */
 /* Instantiate a DuckDB\Result object wrapping `res`. Takes ownership of
  * `res`. `keepalive` keeps a prepared statement alive for streaming
- * results (pass nullptr otherwise). */
+ * results (pass nullptr otherwise). A streaming result is registered as the
+ * connection's open result, so the caller holds conn.mutex for it. */
 void duckdb_result_instantiate(zval *return_value, duckdb_result *res, bool streaming,
                                std::shared_ptr<stmt_inner> keepalive, std::shared_ptr<conn_inner> connection);
 /* Consume a buffered result and return its rows with associative keys.

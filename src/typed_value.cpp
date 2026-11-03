@@ -14,6 +14,7 @@ extern "C" {
 #include "ext/json/php_json.h"
 }
 #include "php_duckdb.h"
+#include "copy.h"
 
 #if defined(ZTS) && defined(COMPILE_DL_DUCKDB)
 #define DUCKDB_TSRMLS_CACHE_UPDATE() ZEND_TSRMLS_CACHE_UPDATE()
@@ -413,7 +414,7 @@ PHP_METHOD(DuckDB_Value, getType) {
     RETURN_STR_COPY(v->type);
 }
 
-PHP_METHOD(DuckDB_Value, toString) {
+DUCKDB_COPY_METHOD(DuckDB_Value, toString) {
     DUCKDB_TSRMLS_CACHE_UPDATE();
     zval *connection;
 
@@ -433,11 +434,10 @@ PHP_METHOD(DuckDB_Value, toString) {
 
     try {
         std::unique_lock<std::mutex> lock;
-        if (!duckdb_conn_enter(*conn, lock)) {
+        if (!duckdb_conn_enter(*conn, lock, conn_entry::statement_start)) {
             RETURN_THROWS();
         }
         std::vector<scoped_duckdb_value> values;
-        // Conversion advances the execution epoch for the whole operation.
         if (!duckdb_convert_values(conn.get(), {ZEND_THIS}, values)) {
             RETURN_THROWS();
         }
@@ -1011,7 +1011,6 @@ bool duckdb_convert_values(conn_inner *c, const std::vector<zval *> &inputs,
         out = std::move(values);
         return true;
     }
-    c->execution_epoch.fetch_add(1, std::memory_order_acq_rel);
     if (!duckdb_initialize_typed_registry(c->db.get()))
         return false;
     auto state = std::static_pointer_cast<capture_state>(c->db->typed_capture_state);

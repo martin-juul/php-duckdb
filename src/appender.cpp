@@ -18,6 +18,7 @@
 #include "php_duckdb_cxx_compat.h"
 #include "php_duckdb.h"
 #include "data_chunk.h"
+#include "copy.h"
 #include <algorithm>
 
 #if defined(ZTS) && defined(COMPILE_DL_DUCKDB)
@@ -32,7 +33,16 @@ appender_inner::~appender_inner() {
         appender = nullptr;
         bool was_failed = failed;
         bool flush = !closed && !failed;
-        duckdb_conn_cleanup(conn, [owned, was_failed, flush]() mutable {
+        bool supersede = !closed;
+        conn_inner *raw = conn.get();
+        duckdb_conn_cleanup(conn, [raw, owned, was_failed, flush, supersede]() mutable {
+            /* An appender that was never closed closes through the
+             * connection, which DuckDB refuses while a result is open. The
+             * writers of a superseded pumped statement abort when its owner
+             * next runs PHP. */
+            if (supersede) {
+                duckdb_conn_supersede(*raw, /*can_call_php=*/false);
+            }
             /* Native destroy itself closes the handle. Clear failed buffers
              * first so destruction cannot retry an earlier partially submitted
              * batch. */
@@ -118,7 +128,7 @@ PHP_METHOD(DuckDB_Appender, beginRow) {
     }
 
     std::unique_lock<std::mutex> lk;
-    if (!duckdb_conn_enter(*intern->inner->conn, lk)) {
+    if (!duckdb_conn_enter(*intern->inner->conn, lk, conn_entry::plain)) {
         RETURN_THROWS();
     }
     if (duckdb_appender_begin_row(appender) == DuckDBError) {
@@ -128,7 +138,7 @@ PHP_METHOD(DuckDB_Appender, beginRow) {
     intern->inner->row_open = true;
 }
 
-PHP_METHOD(DuckDB_Appender, append) {
+DUCKDB_COPY_METHOD(DuckDB_Appender, append) {
     DUCKDB_TSRMLS_CACHE_UPDATE();
     zval *value;
 
@@ -146,9 +156,11 @@ PHP_METHOD(DuckDB_Appender, append) {
         RETURN_THROWS();
     }
 
-    /* Convert before submitting this column, preserving an open row on failure. */
+    /* Convert before submitting this column, preserving an open row on
+     * failure. Converting a typed value runs a statement on the connection. */
+    conn_entry kind = duckdb_value_contains_typed(value) ? conn_entry::statement_start : conn_entry::plain;
     std::unique_lock<std::mutex> lk;
-    if (!duckdb_conn_enter(*intern->inner->conn, lk)) {
+    if (!duckdb_conn_enter(*intern->inner->conn, lk, kind)) {
         RETURN_THROWS();
     }
     std::vector<zval *> inputs{value};
@@ -179,7 +191,7 @@ PHP_METHOD(DuckDB_Appender, appendDefault) {
     }
 
     std::unique_lock<std::mutex> lk;
-    if (!duckdb_conn_enter(*intern->inner->conn, lk)) {
+    if (!duckdb_conn_enter(*intern->inner->conn, lk, conn_entry::plain)) {
         RETURN_THROWS();
     }
     if (duckdb_append_default(appender) == DuckDBError) {
@@ -188,7 +200,7 @@ PHP_METHOD(DuckDB_Appender, appendDefault) {
     }
 }
 
-PHP_METHOD(DuckDB_Appender, endRow) {
+DUCKDB_COPY_METHOD(DuckDB_Appender, endRow) {
     DUCKDB_TSRMLS_CACHE_UPDATE();
     ZEND_PARSE_PARAMETERS_START(0, 0)
     ZEND_PARSE_PARAMETERS_END();
@@ -204,7 +216,7 @@ PHP_METHOD(DuckDB_Appender, endRow) {
     }
 
     std::unique_lock<std::mutex> lk;
-    if (!duckdb_conn_enter(*intern->inner->conn, lk)) {
+    if (!duckdb_conn_enter(*intern->inner->conn, lk, conn_entry::statement_start)) {
         RETURN_THROWS();
     }
     intern->inner->row_open = false;
@@ -215,7 +227,7 @@ PHP_METHOD(DuckDB_Appender, endRow) {
     }
 }
 
-PHP_METHOD(DuckDB_Appender, appendRow) {
+DUCKDB_COPY_METHOD(DuckDB_Appender, appendRow) {
     DUCKDB_TSRMLS_CACHE_UPDATE();
     HashTable *values;
 
@@ -249,7 +261,7 @@ PHP_METHOD(DuckDB_Appender, appendRow) {
 
     std::vector<scoped_duckdb_value> converted;
     std::unique_lock<std::mutex> lk;
-    if (!duckdb_conn_enter(*intern->inner->conn, lk)) {
+    if (!duckdb_conn_enter(*intern->inner->conn, lk, conn_entry::statement_start)) {
         RETURN_THROWS();
     }
     if (!duckdb_convert_values(intern->inner->conn.get(), inputs, converted)) {
@@ -269,7 +281,7 @@ PHP_METHOD(DuckDB_Appender, appendRow) {
     }
 }
 
-PHP_METHOD(DuckDB_Appender, flush) {
+DUCKDB_COPY_METHOD(DuckDB_Appender, flush) {
     DUCKDB_TSRMLS_CACHE_UPDATE();
     ZEND_PARSE_PARAMETERS_START(0, 0)
     ZEND_PARSE_PARAMETERS_END();
@@ -281,7 +293,7 @@ PHP_METHOD(DuckDB_Appender, flush) {
     }
 
     std::unique_lock<std::mutex> lk;
-    if (!duckdb_conn_enter(*intern->inner->conn, lk)) {
+    if (!duckdb_conn_enter(*intern->inner->conn, lk, conn_entry::statement_start)) {
         RETURN_THROWS();
     }
     if (duckdb_appender_flush(appender) == DuckDBError) {
@@ -308,7 +320,7 @@ static void duckdb_appender_append_chunk(INTERNAL_FUNCTION_PARAMETERS, bool from
     }
 
     std::unique_lock<std::mutex> lock;
-    if (!duckdb_conn_enter(*intern->inner->conn, lock)) {
+    if (!duckdb_conn_enter(*intern->inner->conn, lock, conn_entry::statement_start)) {
         RETURN_THROWS();
     }
     std::shared_ptr<data_chunk_data> data;
@@ -362,12 +374,12 @@ static void duckdb_appender_append_chunk(INTERNAL_FUNCTION_PARAMETERS, bool from
     }
 }
 
-PHP_METHOD(DuckDB_Appender, appendChunk) {
+DUCKDB_COPY_METHOD(DuckDB_Appender, appendChunk) {
     DUCKDB_TSRMLS_CACHE_UPDATE();
     duckdb_appender_append_chunk(INTERNAL_FUNCTION_PARAM_PASSTHRU, false);
 }
 
-PHP_METHOD(DuckDB_Appender, appendArrow) {
+DUCKDB_COPY_METHOD(DuckDB_Appender, appendArrow) {
     DUCKDB_TSRMLS_CACHE_UPDATE();
     duckdb_appender_append_chunk(INTERNAL_FUNCTION_PARAM_PASSTHRU, true);
 }
@@ -391,7 +403,7 @@ PHP_METHOD(DuckDB_Appender, clear) {
     }
 
     std::unique_lock<std::mutex> lk;
-    if (!duckdb_conn_enter(*inner.conn, lk)) {
+    if (!duckdb_conn_enter(*inner.conn, lk, conn_entry::plain)) {
         RETURN_THROWS();
     }
     if (duckdb_appender_clear(inner.appender) == DuckDBError) {
@@ -403,7 +415,7 @@ PHP_METHOD(DuckDB_Appender, clear) {
     inner.failed = false;
 }
 
-PHP_METHOD(DuckDB_Appender, close) {
+DUCKDB_COPY_METHOD(DuckDB_Appender, close) {
     DUCKDB_TSRMLS_CACHE_UPDATE();
     ZEND_PARSE_PARAMETERS_START(0, 0)
     ZEND_PARSE_PARAMETERS_END();
@@ -420,7 +432,7 @@ PHP_METHOD(DuckDB_Appender, close) {
 
     if (intern->inner->failed) {
         std::unique_lock<std::mutex> lk;
-        if (!duckdb_conn_enter(*intern->inner->conn, lk)) {
+        if (!duckdb_conn_enter(*intern->inner->conn, lk, conn_entry::plain)) {
             RETURN_THROWS();
         }
         if (duckdb_appender_clear(intern->inner->appender) == DuckDBError) {
@@ -432,7 +444,7 @@ PHP_METHOD(DuckDB_Appender, close) {
 
     if (intern->inner->appender) {
         std::unique_lock<std::mutex> lk;
-        if (!duckdb_conn_enter(*intern->inner->conn, lk)) {
+        if (!duckdb_conn_enter(*intern->inner->conn, lk, conn_entry::statement_start)) {
             RETURN_THROWS();
         }
         if (duckdb_appender_close(intern->inner->appender) == DuckDBError) {

@@ -700,12 +700,69 @@ static bool duckdb_decode_value(decode_ctx *ctx, duckdb_vector vec, duckdb_logic
 /* Row fetching                                                       */
 /* ================================================================== */
 
-/* Ensure a data chunk with unread rows is available.
- *
- * For streaming results the chunk fetch runs inside DuckDB's execution
- * engine on the connection, so it must hold the connection mutex (an
- * async worker may be using the same connection). Materialized results
- * are self-contained and need no lock. */
+/* Fetch a streaming result's next chunk. DuckDB 2.0 refuses a new
+ * statement while a stream is open, so a newer statement supersedes this
+ * one: its native handle is gone, and fetching fails loudly instead of
+ * silently truncating the result. */
+static bool duckdb_result_fetch_stream_chunk(result_data *d) {
+    /* The fetch runs inside DuckDB's execution engine on the connection, and
+     * the record's state only changes under the connection mutex, so a
+     * stream checked open cannot be superseded before the fetch runs. */
+    std::unique_lock<std::mutex> lk;
+    if (!duckdb_conn_enter(*d->conn_keepalive, lk, conn_entry::own_result)) {
+        return false;
+    }
+
+    open_result &record = *d->record;
+    if (record.failed) {
+        /* A failed stream keeps its error, also after a newer statement
+         * destroyed its handle. */
+        duckdb_throw_error(record.error_type, record.error_message.c_str());
+        return false;
+    }
+    if (record.state == open_result_state::superseded) {
+        duckdb_throw_msg("This streaming result was invalidated by a newer query on the same "
+                         "connection (DuckDB allows one open streaming result per connection). "
+                         "Use a separate connection per concurrent stream.");
+        return false;
+    }
+
+    d->chunk = duckdb_fetch_chunk(record.result);
+    if (d->chunk == nullptr) {
+        /* duckdb_fetch_chunk returns NULL both at end-of-data AND when a
+         * streaming query fails mid-flight ("Returns NULL if the result
+         * has an error"). Check the result's error state so a failed
+         * stream throws instead of silently truncating the result set.
+         * The record stays registered and keeps the error, so a re-fetch
+         * throws it again. */
+        if (duckdb_result_error_type(&record.result) != DUCKDB_ERROR_INVALID) {
+            const char *err = duckdb_result_error(&record.result);
+            record.failed = true;
+            record.error_type = duckdb_result_error_type(&record.result);
+            record.error_message = err ? err : "Query failed during streaming";
+            record.state = open_result_state::errored;
+            duckdb_throw_error(record.error_type, record.error_message.c_str());
+            return false;
+        }
+        duckdb_open_result_drained(*d->conn_keepalive, record);
+        d->exhausted = true;
+        return false;
+    }
+    d->chunk_size = duckdb_data_chunk_get_size(d->chunk);
+    d->chunk_pos = 0;
+    if (d->chunk_size == 0) {
+        duckdb_destroy_data_chunk(&d->chunk);
+        d->chunk = nullptr;
+        duckdb_open_result_drained(*d->conn_keepalive, record);
+        d->exhausted = true;
+        return false;
+    }
+    return true;
+}
+
+/* Ensure a data chunk with unread rows is available. Streaming fetches hold
+ * the connection mutex (an async worker may be using the same connection).
+ * Materialized results are self-contained and need no lock. */
 static bool duckdb_result_fetch_chunk(result_data *d) {
     if (d->chunk && d->chunk_pos < d->chunk_size) {
         return true;
@@ -715,36 +772,14 @@ static bool duckdb_result_fetch_chunk(result_data *d) {
         d->chunk = nullptr;
     }
 
-    if (d->streaming && d->stmt_keepalive) {
-        /* DuckDB permits only one open streaming result per connection: a
-         * newer execution invalidates this stream and duckdb_fetch_chunk
-         * would silently report end-of-data. Detect that via the connection
-         * epoch and fail loudly instead of truncating the result. The
-         * check runs INSIDE the connection mutex: executions bump the
-         * epoch under the same mutex, so a checked-fresh epoch cannot
-         * become stale before the fetch runs. */
-        std::unique_lock<std::mutex> lk;
-        if (!duckdb_conn_enter(*d->stmt_keepalive->conn, lk)) {
-            return false;
-        }
-        if (d->epoch != d->stmt_keepalive->conn->execution_epoch.load(std::memory_order_relaxed)) {
-            duckdb_throw_msg("This streaming result was invalidated by a newer query on the same "
-                             "connection (DuckDB allows one open streaming result per connection). "
-                             "Use a separate connection per concurrent stream.");
-            return false;
-        }
-        d->chunk = duckdb_fetch_chunk(d->result);
-    } else {
-        d->chunk = duckdb_fetch_chunk(d->result);
+    if (d->record) {
+        return duckdb_result_fetch_stream_chunk(d);
     }
 
+    d->chunk = duckdb_fetch_chunk(d->result);
     if (d->chunk == nullptr) {
-        /* duckdb_fetch_chunk returns NULL both at end-of-data AND when a
-         * streaming query fails mid-flight ("Returns NULL if the result
-         * has an error"). Check the result's error state so a failed
-         * stream throws instead of silently truncating the result set.
-         * The result stays owned by us (the caller may fetch again and
-         * re-trigger the same error), so throw without destroying it. */
+        /* duckdb_fetch_chunk returns NULL both at end-of-data AND when the
+         * result has an error. Throw instead of silently truncating. */
         if (duckdb_result_error_type(&d->result) != DUCKDB_ERROR_INVALID) {
             const char *err = duckdb_result_error(&d->result);
             duckdb_throw_error(duckdb_result_error_type(&d->result),
@@ -788,8 +823,8 @@ static bool duckdb_result_fetch_row_into(result_data *d, int mode, zval *row) {
         }
 
         if (mode == FETCH_MODE_ASSOC || mode == FETCH_MODE_BOTH) {
-            const char *name = duckdb_column_name(&d->result, col);
-            add_assoc_zval(row, name ? name : "?", &val);
+            const std::string &name = d->column_names[col];
+            add_assoc_zval_ex(row, name.data(), name.size(), &val);
         }
         if (mode == FETCH_MODE_NUM) {
             add_next_index_zval(row, &val);
@@ -881,11 +916,12 @@ bool duckdb_decode_vector_value(duckdb_vector vector, duckdb_logical_type type, 
     return duckdb_decode_value(&ctx, vector, type, row, out);
 }
 
-static std::shared_ptr<arrow_schema_data> duckdb_result_arrow_schema(result_data *data, duckdb_arrow_options options) {
+static std::shared_ptr<arrow_schema_data> duckdb_result_arrow_schema(result_data *data) {
     std::vector<const char *> names;
     for (idx_t col = 0; col < data->column_count; col++) {
-        names.push_back(duckdb_column_name(&data->result, col));
+        names.push_back(data->column_names[col].c_str());
     }
+    duckdb_arrow_options options = data->arrow_options;
     auto schema = std::make_shared<arrow_schema_data>();
     if (!duckdb_arrow_check_error(duckdb_to_arrow_schema(options, data->column_types, names.data(),
                                                       data->column_count, &schema->schema))) {
@@ -907,11 +943,10 @@ PHP_METHOD(DuckDB_Result, arrowSchema) {
         RETURN_THROWS();
     }
     std::unique_lock<std::mutex> lock;
-    if (!duckdb_conn_enter(*data->conn_keepalive, lock)) {
+    if (!duckdb_conn_enter(*data->conn_keepalive, lock, conn_entry::own_result)) {
         RETURN_THROWS();
     }
-    duckdb_scoped<duckdb_arrow_options, duckdb_destroy_arrow_options> options(duckdb_result_get_arrow_options(&data->result));
-    auto schema = duckdb_result_arrow_schema(data.get(), options.get());
+    auto schema = duckdb_result_arrow_schema(data.get());
     if (!schema) {
         RETURN_THROWS();
     }
@@ -936,16 +971,15 @@ PHP_METHOD(DuckDB_Result, fetchArrowChunk) {
         RETURN_NULL();
     }
     std::unique_lock<std::mutex> lock;
-    if (!duckdb_conn_enter(*data->conn_keepalive, lock)) {
+    if (!duckdb_conn_enter(*data->conn_keepalive, lock, conn_entry::own_result)) {
         RETURN_THROWS();
     }
-    duckdb_scoped<duckdb_arrow_options, duckdb_destroy_arrow_options> options(duckdb_result_get_arrow_options(&data->result));
     auto arrow = std::make_shared<arrow_chunk_data>();
-    arrow->schema = duckdb_result_arrow_schema(data.get(), options.get());
+    arrow->schema = duckdb_result_arrow_schema(data.get());
     if (!arrow->schema) {
         RETURN_THROWS();
     }
-    if (!duckdb_arrow_check_error(duckdb_data_chunk_to_arrow(options.get(), data->chunk, &arrow->array))) {
+    if (!duckdb_arrow_check_error(duckdb_data_chunk_to_arrow(data->arrow_options, data->chunk, &arrow->array))) {
         RETURN_THROWS();
     }
     arrow->row_count = data->chunk_size;
@@ -969,17 +1003,31 @@ void duckdb_result_instantiate(zval *return_value, duckdb_result *res, bool stre
     data->streaming = streaming;
     data->conn_keepalive = std::move(connection);
     data->stmt_keepalive = keepalive;
-    /* Record the connection's execution epoch so a stale stream can be
-     * detected (see conn_inner::execution_epoch). */
-    data->epoch = (streaming && keepalive)
-        ? keepalive->conn->execution_epoch.load(std::memory_order_relaxed)
-        : 0;
-    data->column_count = duckdb_column_count(&data->result);
+
+    /* Copy the metadata while the native handle is live: a newer statement
+     * may destroy a streaming result's handle while PHP still reads it. */
+    duckdb_result *source = &data->result;
+    data->column_count = duckdb_column_count(source);
     if (data->column_count > 0) {
         data->column_types = new duckdb_logical_type[data->column_count]();
         for (idx_t i = 0; i < data->column_count; i++) {
-            data->column_types[i] = duckdb_column_logical_type(&data->result, i);
+            data->column_types[i] = duckdb_column_logical_type(source, i);
+            const char *name = duckdb_column_name(source, i);
+            data->column_names.emplace_back(name ? name : "?");
         }
+    }
+    data->statement_type = duckdb_result_statement_type(*source);
+    /* duckdb_row_count is deprecated upstream, but there is no
+     * non-deprecated API for counting the rows of an already-materialized
+     * result. Kept deliberately; isolated to this call site. */
+    data->row_count = duckdb_row_count(source);
+    data->rows_changed = duckdb_rows_changed(source);
+    data->arrow_options = duckdb_result_get_arrow_options(source);
+
+    /* A stream is the connection's open result until it drains or a newer
+     * statement supersedes it; the record owns its native handle. */
+    if (streaming && keepalive) {
+        data->record = duckdb_open_result_stream(*data->conn_keepalive, &data->result);
     }
     intern->data = data;
 }
@@ -1049,7 +1097,8 @@ PHP_METHOD(DuckDB_Result, columnName) {
     if (!duckdb_result_check_column(d, index)) {
         RETURN_THROWS();
     }
-    RETURN_STRING(duckdb_column_name(&d->result, (idx_t)index));
+    const std::string &name = d->column_names[(idx_t)index];
+    RETURN_STRINGL(name.data(), name.size());
 }
 
 PHP_METHOD(DuckDB_Result, columnType) {
@@ -1087,8 +1136,8 @@ PHP_METHOD(DuckDB_Result, columns) {
     for (idx_t i = 0; i < d->column_count; i++) {
         zval column;
         array_init_size(&column, 2);
-        const char *name = duckdb_column_name(&d->result, i);
-        add_assoc_string(&column, "name", (char *)(name ? name : "?"));
+        const std::string &name = d->column_names[i];
+        add_assoc_stringl(&column, "name", name.data(), name.size());
         std::string type_name = duckdb_logical_type_render(d->column_types[i]);
         add_assoc_string(&column, "type", (char *)type_name.c_str());
         add_next_index_zval(return_value, &column);
@@ -1103,10 +1152,7 @@ PHP_METHOD(DuckDB_Result, rowCount) {
     if (!duckdb_initialized_guard(static_cast<bool>(intern->data), "DuckDB\\Result")) {
         RETURN_THROWS();
     }
-    /* duckdb_row_count is deprecated upstream, but there is no
-     * non-deprecated API for counting the rows of an already-materialized
-     * result. Kept deliberately; isolated to this call site. */
-    RETURN_LONG((zend_long)duckdb_row_count(&intern->data->result));
+    RETURN_LONG((zend_long)intern->data->row_count);
 }
 
 PHP_METHOD(DuckDB_Result, rowsChanged) {
@@ -1117,7 +1163,7 @@ PHP_METHOD(DuckDB_Result, rowsChanged) {
     if (!duckdb_initialized_guard(static_cast<bool>(intern->data), "DuckDB\\Result")) {
         RETURN_THROWS();
     }
-    RETURN_LONG((zend_long)duckdb_rows_changed(&intern->data->result));
+    RETURN_LONG((zend_long)intern->data->rows_changed);
 }
 
 PHP_METHOD(DuckDB_Result, statementType) {
@@ -1128,7 +1174,7 @@ PHP_METHOD(DuckDB_Result, statementType) {
     if (!duckdb_initialized_guard(d != nullptr, "DuckDB\\Result")) {
         RETURN_THROWS();
     }
-    RETURN_STRING(duckdb_statement_type_name(duckdb_result_statement_type(d->result)));
+    RETURN_STRING(duckdb_statement_type_name(d->statement_type));
 }
 
 PHP_METHOD(DuckDB_Result, fetchRow) {

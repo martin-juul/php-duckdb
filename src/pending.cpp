@@ -285,54 +285,76 @@ static bool duckdb_task_step_once(const std::shared_ptr<async_task> &task) {
         std::lock_guard<std::mutex> lk(task->m);
         return task->done;
     }
-    if (task->pending == nullptr) {
-        /* finished during queryPending() startup, or cancelled */
+    if (!task->record) {
+        /* finished, superseded or cancelled */
         std::lock_guard<std::mutex> lk(task->m);
         return task->done;
     }
 
-    duckdb_pending_state st;
+    bool finished = false;
     {
+        /* Own-result entry: the PendingQuery method checked the busy state
+         * on entry, and stepping must not supersede its own statement. */
         std::lock_guard<std::mutex> lk(task->conn->mutex);
-        if (task->session) {
-            st = duckdb_session_step(*task->session, task->pending);
+        open_result &record = *task->record;
+        if (record.state == open_result_state::superseded) {
+            /* A newer statement destroyed the pending query; its writers
+             * abort here unless that statement already ran them. */
+            if (record.session) {
+                duckdb_session_end(*task->conn, record.session, duckdb_superseded_message, true);
+            }
+            task->error = true;
+            task->error_type = DUCKDB_ERROR_INVALID;
+            task->error_msg = duckdb_superseded_message;
+            task->consumed = true;
+            task->record.reset();
+            finished = true;
         } else {
-            st = duckdb_pending_execute_task(task->pending);
-        }
-        if (st == DUCKDB_PENDING_RESULT_READY || st == DUCKDB_PENDING_ERROR) {
-            /* Close before execute_pending, which cancels on error. */
-            if (task->session) {
-                std::string failure;
-                if (st == DUCKDB_PENDING_ERROR) {
-                    const char *e = duckdb_pending_error(task->pending);
-                    failure = (e && e[0]) ? e : "Query execution failed";
+            duckdb_pending_state st;
+            if (record.session) {
+                st = duckdb_session_step(*record.session, record.pending);
+            } else {
+                st = duckdb_pending_execute_task(record.pending);
+            }
+            if (st == DUCKDB_PENDING_RESULT_READY || st == DUCKDB_PENDING_ERROR) {
+                /* Close before execute_pending, which cancels on error. */
+                if (record.session) {
+                    std::string failure;
+                    if (st == DUCKDB_PENDING_ERROR) {
+                        const char *e = duckdb_pending_error(record.pending);
+                        failure = (e && e[0]) ? e : "Query execution failed";
+                    }
+                    duckdb_session_end(*task->conn, record.session, failure, true);
                 }
-                duckdb_session_end(*task->conn, task->session, failure, true);
-                task->session.reset();
+                /* For both states, duckdb_execute_pending produces the final
+                 * materialized result - on failure it also carries the
+                 * precise error message and error type. */
+                if (duckdb_execute_pending(record.pending, &task->result) == DuckDBError) {
+                    task->error = true;
+                    task->error_type = duckdb_result_error_type(&task->result);
+                    const char *e = duckdb_result_error(&task->result);
+                    task->error_msg = (e && e[0]) ? e : "Query execution failed";
+                }
+                /* duckdb_execute_pending does NOT consume the pending
+                 * handle; it stays owned by the record and must be
+                 * destroyed explicitly. */
+                duckdb_destroy_pending(&record.pending);
+                duckdb_open_result_drained(*task->conn, record);
+                task->record.reset();
+                if (task->error) {
+                    duckdb_destroy_result(&task->result);
+                    task->consumed = true;
+                }
+                finished = true;
             }
-            /* For both states, duckdb_execute_pending produces the final
-             * materialized result - on failure it also carries the precise
-             * error message and error type. */
-            if (duckdb_execute_pending(task->pending, &task->result) == DuckDBError) {
-                task->error = true;
-                task->error_type = duckdb_result_error_type(&task->result);
-                const char *e = duckdb_result_error(&task->result);
-                task->error_msg = (e && e[0]) ? e : "Query execution failed";
-            }
-            /* duckdb_execute_pending does NOT consume the pending handle;
-             * it stays owned by us and must be destroyed explicitly. */
-            duckdb_destroy_pending(&task->pending);
-            if (task->error) {
-                duckdb_destroy_result(&task->result);
-                task->consumed = true;
-            }
+            /* DUCKDB_PENDING_RESULT_NOT_READY: call again to execute the
+             * next task. DUCKDB_PENDING_NO_TASKS_AVAILABLE: all tasks are
+             * currently claimed by DuckDB's own worker threads; call again
+             * shortly. */
         }
-        /* DUCKDB_PENDING_RESULT_NOT_READY: call again to execute the next
-         * task. DUCKDB_PENDING_NO_TASKS_AVAILABLE: all tasks are currently
-         * claimed by DuckDB's own worker threads; call again shortly. */
     }
 
-    if (st == DUCKDB_PENDING_RESULT_READY || st == DUCKDB_PENDING_ERROR) {
+    if (finished) {
         std::lock_guard<std::mutex> lk(task->m);
         task->done = true;
         task->cv.notify_all();
@@ -405,9 +427,8 @@ void duckdb_discard_pending(conn_inner &conn, duckdb_pending_result &pending) {
     if (!pending) {
         return;
     }
-    // Check DuckDB's active result while holding the connection mutex.
-    // The PHP execution epoch also counts queued async workers, which may
-    // not have started yet, so it cannot establish ownership here.
+    // Check DuckDB's active result while holding the connection mutex: an
+    // interrupt is only for the statement this pending handle still owns.
     if (duckdb_pending_execute_check_state(pending) != DUCKDB_PENDING_ERROR) {
         duckdb_interrupt(conn.conn);
     }
@@ -415,10 +436,6 @@ void duckdb_discard_pending(conn_inner &conn, duckdb_pending_result &pending) {
     duckdb_execute_pending(pending, &discarded);
     duckdb_destroy_result(&discarded);
     duckdb_destroy_pending(&pending);
-}
-
-void async_task::discard_pending() {
-    duckdb_discard_pending(*conn, pending);
 }
 
 /* Interrupt a running task. Safe to call at any time: a finished task is
@@ -434,13 +451,15 @@ void duckdb_task_cancel(std::shared_ptr<async_task> &task) {
 
     if (task->mode == task_mode::POLLING) {
         {
+            /* Own-result entry, like duckdb_task_step_once(). */
             std::lock_guard<std::mutex> lk(task->conn->mutex);
-            if (task->session) {
-                duckdb_session_end(*task->conn, task->session, "Query interrupted", true);
-                task->session.reset();
-            }
-            if (task->pending) {
-                task->discard_pending();
+            if (task->record) {
+                open_result &record = *task->record;
+                if (record.session) {
+                    duckdb_session_end(*task->conn, record.session, "Query interrupted", true);
+                }
+                duckdb_open_result_destroy(*task->conn, record, "Query interrupted");
+                task->record.reset();
             }
             duckdb_destroy_result(&task->result);
             task->consumed = true;

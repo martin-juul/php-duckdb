@@ -587,7 +587,7 @@ DUCKDB_COPY_METHOD(DuckDB_Connection, registerScalarFunction) {
     }
     try {
         std::unique_lock<std::mutex> lock;
-        if (!duckdb_conn_enter(*conn, lock)) {
+        if (!duckdb_conn_enter(*conn, lock, conn_entry::plain)) {
             RETURN_THROWS();
         }
         if (!conn->scalar_state) {

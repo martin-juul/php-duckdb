@@ -82,7 +82,8 @@ idx_t duckdb_conn_connection_id(conn_inner &conn);
 bool duckdb_conn_needs_pump(const conn_inner &conn);
 
 /* Open a session for the connection and publish it to PHP callbacks.
- * Caller holds conn.mutex on the request thread. */
+ * Caller holds conn.mutex on the request thread, through a statement-start
+ * entry that already superseded the connection's open results. */
 std::shared_ptr<copy_session> duckdb_session_open(conn_inner &conn);
 /* Close the session if still open, stop publishing it, and run its finish
  * hook. `failure` is empty when the statement succeeded. */

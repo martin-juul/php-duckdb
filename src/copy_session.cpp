@@ -157,10 +157,6 @@ idx_t duckdb_conn_connection_id(conn_inner &conn) {
 }
 
 std::shared_ptr<copy_session> duckdb_session_open(conn_inner &conn) {
-    if (conn.session) {
-        duckdb_session_end(conn, conn.session, "COPY statement superseded by another statement on its connection");
-    }
-
     auto session = std::make_shared<copy_session>();
     session->db = conn.db;
     session->connection_id = duckdb_conn_connection_id(conn);
@@ -170,13 +166,13 @@ std::shared_ptr<copy_session> duckdb_session_open(conn_inner &conn) {
         std::lock_guard<std::mutex> lock(conn.db->session_mutex);
         conn.db->sessions[session->connection_id] = session;
     }
-    conn.session = session;
     return session;
 }
 
 void duckdb_session_end(conn_inner &conn, const std::shared_ptr<copy_session> &session_ref,
                         const std::string &failure, bool can_call_php) {
-    /* The caller may pass conn.session itself, which is reset below. */
+    /* Keep the session alive while its finish hook runs, whatever owns the
+     * caller's reference. */
     std::shared_ptr<copy_session> session = session_ref;
     session->close(failure.empty() ? "COPY statement finished" : failure);
     if (auto db = session->db.lock()) {
@@ -185,9 +181,6 @@ void duckdb_session_end(conn_inner &conn, const std::shared_ptr<copy_session> &s
         if (found != db->sessions.end() && found->second.lock() == session) {
             db->sessions.erase(found);
         }
-    }
-    if (conn.session == session) {
-        conn.session.reset();
     }
     if (session->finish) {
         auto finish = std::move(session->finish);
