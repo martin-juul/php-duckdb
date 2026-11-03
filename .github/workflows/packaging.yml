@@ -345,11 +345,28 @@ jobs:
       - name: Install Remi repository and build tooling
         run: |
           set -eu
-          dnf install -y --setopt=install_weak_deps=False epel-release
-          dnf install -y "https://rpms.remirepo.net/enterprise/remi-release-${{ matrix.os }}.rpm"
+          # EPEL and Remi mirrors intermittently serve bad or slow metadata
+          # (checksum mismatches, TLS errors, timeouts). Retry with fresh
+          # metadata a bounded number of times; signature and checksum
+          # verification stay on.
+          dnf_retry() {
+            attempt=1
+            while ! dnf --setopt=retries=10 --setopt=timeout=60 "$@"; do
+              if [ "$attempt" -ge 3 ]; then
+                return 1
+              fi
+              echo "dnf failed; cleaning metadata before retry $((attempt + 1))/3"
+              dnf clean metadata
+              attempt=$((attempt + 1))
+              sleep 15
+            done
+          }
+
+          dnf_retry install -y --setopt=install_weak_deps=False epel-release
+          dnf_retry install -y "https://rpms.remirepo.net/enterprise/remi-release-${{ matrix.os }}.rpm"
           dnf module reset -y php 2>/dev/null || true
-          dnf module install -y "php:remi-${{ matrix.php }}/common"
-          dnf install -y --setopt=install_weak_deps=False --allowerasing \
+          dnf_retry module install -y "php:remi-${{ matrix.php }}/common"
+          dnf_retry install -y --setopt=install_weak_deps=False --allowerasing \
             php-devel php-cli \
             rpm-build gcc gcc-c++ make libtool chrpath cmake python3 patch curl tar gzip gawk
           php -v | head -1
