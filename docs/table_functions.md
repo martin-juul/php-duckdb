@@ -12,7 +12,7 @@ per table-function overload visible through this connection's
 `duckdb_functions()` catalog. Omit the name to list all overloads, or pass an
 exact, case-insensitive name. An unknown name returns an empty list.
 A name containing a NUL byte throws `\ValueError`.
-This API is under development and is not included in extension 1.4.1.
+This API is available starting with extension 1.5.0.
 
 ```php
 foreach ($conn->getTableFunctions('range') as $function) {
@@ -67,7 +67,7 @@ registration interfaces.
 
 Scalar functions can be implemented in PHP with bind, worker-init and batch
 execution callbacks; see [scalar functions](scalar_functions.md). These APIs
-are under development and are not included in extension 1.4.1.
+are available starting with extension 1.5.0.
 
 COPY functions are also supported: a PHP class can implement a `COPY ... TO`
 output format. DuckDB hands each result batch to the request thread, where the

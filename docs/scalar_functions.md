@@ -1,6 +1,6 @@
 # PHP scalar functions
 
-These APIs are under development after extension 1.4.1.
+These APIs are available starting with extension 1.5.0.
 
 `Connection::registerScalarFunction()` adds a SQL scalar function implemented
 in PHP. DuckDB supplies native input batches; PHP returns one value for each

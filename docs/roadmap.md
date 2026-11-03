@@ -36,11 +36,14 @@ inspects bound argument types and folds constants through callback-scoped
 `Expression` handles. [Custom logging](logging.md) was merged in
 [PR #18](https://github.com/martin-juul/php-duckdb/pull/18):
 named database-wide storage buffers native log entries for explicit PHP
-draining. [UTF-8 checks](api.md#functions) are implemented in this development
-checkout as connection-free `isValidUtf8()` and `checkUtf8()` functions.
-[Geometry CRS metadata](compatibility.md) is implemented in this development
-checkout: read-side type strings render a CRS-qualified column as
-`GEOMETRY('OGC:CRS84')`, matching `typeof()`.
+draining. [UTF-8 checks](api.md#functions) were merged as connection-free
+`isValidUtf8()` and `checkUtf8()` functions. [Geometry CRS metadata](compatibility.md)
+was merged in [PR #19](https://github.com/martin-juul/php-duckdb/pull/19):
+read-side type strings render a CRS-qualified column as
+`GEOMETRY('OGC:CRS84')`, matching `typeof()`. Scalar callbacks, expressions,
+table-function metadata, custom logging, UTF-8 checks and geometry CRS
+metadata are available in extension 1.5.0, which completes the planned
+sequence.
 
 The intended PR sequence is:
 

@@ -9,7 +9,7 @@
 #
 
 %global pecl_name        duckdb
-%global upstream_version 1.4.1
+%global upstream_version 1.5.0
 
 # Build the pinned, patched source SDK used by all packaging targets.
 # Keep the engine patch set consistent with the project SDK.
@@ -162,6 +162,11 @@ export DUCKDB_EXTENSION_PATH="$PWD/modules/duckdb.so"
 %{_libdir}/libduckdb.so
 
 %changelog
+* Tue Nov 03 2026 Martin Juul Christiansen <code@juul.xyz> - 1.5.0-1
+- Release 1.5.0 with PHP scalar functions, expression inspection and custom logging.
+- Add table-function metadata, UTF-8 checks and CRS-qualified geometry type strings.
+- Keep the pinned DuckDB 1.5.6 SDK and its engine patch set.
+
 * Sat Oct 17 2026 Martin Juul Christiansen <code@juul.xyz> - 1.4.1-1
 - Release 1.4.1; join asynchronous workers before module unload.
 - Add a Valgrind 3.27.1 Fiber stack-unwind patch for development checks.

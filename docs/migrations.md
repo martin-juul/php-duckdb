@@ -1,5 +1,39 @@
 # Migrations
 
+## Upgrade 1.4.1 → 1.5.0
+
+DuckDB remains pinned to **1.5.6**, with the repository's patched SDK.
+PHP **8.2–8.5** remain supported. Rebuild or install extension **1.5.0** for
+the target PHP ABI and restart persistent PHP workers. Replace the extension
+and bundled engine library together; retain the previous pair or immutable
+image for rollback.
+
+This minor release adds callback, catalog and validation APIs:
+
+- [PHP scalar functions](scalar_functions.md) with bind, per-worker init and
+  batch execution callbacks on the request thread, and
+  `ScalarExpressionFunction` for inspecting bound argument types and folding
+  constant arguments.
+- [Table-function metadata](table_functions.md) through
+  `Connection::getTableFunctions()`.
+- [Custom logging](logging.md) that buffers native log entries in bounded
+  database-wide storage for explicit PHP draining.
+- Connection-free [UTF-8 checks](api.md#functions) with
+  `DuckDB\isValidUtf8()` and `DuckDB\checkUtf8()`.
+
+One behavior changes: read-side type strings now include a geometry column's
+CRS. `Result::columns()`, `Result::columnType()`,
+`Statement::parameterType()`, `Statement::columnType()`,
+`DataChunk::columns()` and `Vector::type()` report `GEOMETRY('OGC:CRS84')`
+where 1.4.1 reported `GEOMETRY`. Code that compares these strings with
+`'GEOMETRY'` must account for the CRS; columns without a CRS still report
+`GEOMETRY`. See [compatibility](compatibility.md).
+
+No PHP APIs are removed or newly deprecated. Statements that call PHP scalar
+functions cannot run through the background-thread `queryAsync()` and
+`executeAsync()`; run them synchronously, streaming or through
+`queryPending()`.
+
 ## Upgrade 1.4.0 → 1.4.1
 
 This patch release keeps the 1.4.0 PHP API and DuckDB **1.5.6**. It joins

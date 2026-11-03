@@ -31,13 +31,13 @@ application example. See the [API reference](../docs/api.md) and
 | [arrow.php](arrow.php) | Streaming Arrow batches copied between connections | Extension; no FFI required |
 | [vectors.php](vectors.php) | Typed column vectors built from PHP, split into native chunks and appended | Extension |
 | [copy_to.php](copy_to.php) | A Markdown table `COPY ... TO` format written in PHP, with options, prepared reuse, bind validation and connection scope | Extension |
-| [scalar_expressions.php](scalar_expressions.php) | Inspect bound argument types and fold a constant prefix before batch execution | Development extension after 1.4.1 |
-| [scalar_functions.php](scalar_functions.php) | PHP scalar bind, per-worker initialization, NULL-aware batch execution and prepared/pending reuse | Development extension after 1.4.1 |
+| [scalar_expressions.php](scalar_expressions.php) | Inspect bound argument types and fold a constant prefix before batch execution | Extension |
+| [scalar_functions.php](scalar_functions.php) | PHP scalar bind, per-worker initialization, NULL-aware batch execution and prepared/pending reuse | Extension |
 | [selection.php](selection.php) | Streaming batches validated in PHP and routed to two tables, plus row reordering and gathering with selection vectors | Extension |
 | [arrow_c_data.php](arrow_c_data.php) | External buffer access and schema/array ownership across the C Data Interface | Enabled PHP FFI |
 | [logging.php](logging.php) | Bounded native logging, explicit draining and forwarding to an application sink | Extension |
 | [errors.php](errors.php) | Typed errors and machine-readable error categories | Extension |
-| [utf8.php](utf8.php) | Validate UTF-8 with a predicate or throwing guard, without a connection | Development extension after 1.4.1 |
+| [utf8.php](utf8.php) | Validate UTF-8 with a predicate or throwing guard, without a connection | Extension |
 | [async_jobs.php](async_jobs.php) | Reporting deadlines, progress, cancellation, polling and a minimal Fiber scheduler | Extension |
 | [async_concurrent.php](async_concurrent.php) | Concurrent background queries with `stream_select()` | Extension |
 | [amphp.php](amphp.php) | Concurrent analytical queries through AMPHP fibers | AMPHP v3/Revolt |

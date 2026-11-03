@@ -48,7 +48,7 @@ The [runnable examples and API map](examples/README.md) cover the public API
 and application workflows: order analytics, typed ingestion, Arrow batch
 exchange and asynchronous reporting. Run them with `php tests/harness.php examples`.
 
-This development checkout also exposes [UTF-8 checks](docs/api.md#functions)
+Extension 1.5.0 also exposes [UTF-8 checks](docs/api.md#functions)
 through `DuckDB\isValidUtf8()` and `DuckDB\checkUtf8()`, without opening a database.
 
 ## Comparison with alternatives
@@ -210,15 +210,15 @@ Choose how closely to pin the extension and PHP versions:
 | ------------------------ | ---------------------------------------------------------------------------------- |
 | `8.4`, `php8.4`          | Moving build for PHP 8.4; also available for PHP 8.2, 8.3 and 8.5                  |
 | `latest`                 | Moving build for the newest supported PHP version (currently 8.5)                  |
-| `1.4.1-php8.4`           | Extension release 1.4.1 with PHP 8.4                                               |
-| `1.4-php8.4`, `1-php8.4` | Moving extension minor/major release aliases with PHP 8.4                          |
-| `1.4.1`                  | Extension release 1.4.1 with the newest supported PHP version                      |
-| `1.4`, `1`               | Moving extension minor/major release aliases with the newest supported PHP version |
+| `1.5.0-php8.4`           | Extension release 1.5.0 with PHP 8.4                                               |
+| `1.5-php8.4`, `1-php8.4` | Moving extension minor/major release aliases with PHP 8.4                          |
+| `1.5.0`                  | Extension release 1.5.0 with the newest supported PHP version                      |
+| `1.5`, `1`               | Moving extension minor/major release aliases with the newest supported PHP version |
 
 PHP-only aliases update on master pushes and stable release builds. Extension
-release aliases are published on Git tags such as `v1.4.1` or `1.4.1`;
+release aliases are published on Git tags such as `v1.5.0` or `1.5.0`;
 major/minor aliases follow the most recently published matching release build.
-Prereleases such as `1.4.1-rc.1` publish only their full release tags, with and
+Prereleases such as `1.5.0-rc.1` publish only their full release tags, with and
 without the PHP suffix, and leave stable aliases unchanged. Pull requests build
 images without publishing tags.
 
@@ -244,8 +244,8 @@ docker run --rm --entrypoint php \
 ```
 
 Every tag form above also has a `-frankenphp` variant for PHP 8.4 and 8.5, such
-as `php8.4-frankenphp`, `1.4.1-php8.4-frankenphp`, `1.4-php8.4-frankenphp`,
-`1.4.1-frankenphp` and `1-frankenphp`. Release-only FrankenPHP tags use PHP 8.5.
+as `php8.4-frankenphp`, `1.5.0-php8.4-frankenphp`, `1.5-php8.4-frankenphp`,
+`1.5.0-frankenphp` and `1-frankenphp`. Release-only FrankenPHP tags use PHP 8.5.
 
 They are built from `Dockerfile.frankenphp` in this repository; see
 [docs/frankenphp.md](docs/frankenphp.md) for worker-mode details.
@@ -419,7 +419,7 @@ run on the request thread. See [COPY TO formats](docs/copy.md) and the
 
 ## PHP scalar functions
 
-Scalar bind/init callbacks are under development after extension 1.4.1.
+Scalar bind/init callbacks are available starting with extension 1.5.0.
 `Connection::registerScalarFunction()` registers a PHP `ScalarFunction` with
 explicit parameter and return types. Its `bind()` returns a `ScalarBinding`,
 whose `init()` creates a `ScalarExecutor` for each executing DuckDB worker.

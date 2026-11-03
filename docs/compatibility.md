@@ -1,10 +1,12 @@
 # Compatibility
 
 The PHP extension and the embedded DuckDB engine have separate versions. This
-release uses extension **1.4.1**, and its pinned build recipes use **DuckDB
+release uses extension **1.5.0**, and its pinned build recipes use **DuckDB
 1.5.6**. Typed values, Arrow, vectors, selection and custom COPY TO APIs are
-available starting with extension 1.4.0. Before upgrading, check the versions
-loaded by the actual process:
+available starting with extension 1.4.0. Scalar functions, expressions,
+table-function metadata, custom logging and UTF-8 checks are available starting
+with extension 1.5.0. Before upgrading, check the versions loaded by the actual
+process:
 
 ```php
 printf("PHP %s; extension %s; DuckDB %s\n",
@@ -12,22 +14,22 @@ printf("PHP %s; extension %s; DuckDB %s\n",
 ```
 
 Public PHP [scalar functions](scalar_functions.md), including bind and
-worker-init callbacks, are under development after extension 1.4.1. They
+worker-init callbacks, are available starting with extension 1.5.0. They
 require the pinned DuckDB 1.5.6 APIs. Callback support uses the request thread;
 worker-based `queryAsync()` and `executeAsync()` reject PHP scalar execution.
 
-[Custom logging](logging.md) is under development after extension 1.4.1 and
+[Custom logging](logging.md) is available starting with extension 1.5.0 and
 requires the pinned DuckDB 1.5.6 log-storage APIs. Its callbacks copy entries
 into a bounded native buffer and never execute PHP. Explicit draining works
 with synchronous, pending and background queries.
 
-After extension 1.4.1, read-side type strings include the GEOMETRY CRS.
+Starting with extension 1.5.0, read-side type strings include the GEOMETRY CRS.
 `Result::columns()`, `Result::columnType()`, `Statement::parameterType()`,
 `Statement::columnType()`, `DataChunk::columns()` and `Vector::type()` report a
 CRS-qualified column as `GEOMETRY('OGC:CRS84')`, matching `typeof()`, where
-extension 1.4.1 reports `GEOMETRY`. Code that compares these strings with
-`'GEOMETRY'` must account for the CRS. Columns without a CRS still report
-`GEOMETRY`.
+extension 1.4.1 and earlier report `GEOMETRY`. Code that compares these
+strings with `'GEOMETRY'` must account for the CRS. Columns without a CRS still
+report `GEOMETRY`.
 
 ## PHP and platform coverage
 
@@ -189,7 +191,7 @@ structured appender/error reporting.
 | Value string rendering | Exposed through `Value::toString(Connection)` for connection-aware display text |
 | Standalone vectors | Exposed through `Vector`, `Connection::createVector()` and `DataChunk::fromVectors()`/`vector()` |
 | Selection vectors | Exposed through `SelectionVector`, `Vector::select()`/`copySelected()` and `DataChunk::select()`; slicing into dictionary vectors is not public |
-| UTF-8 checks | Development APIs `DuckDB\isValidUtf8()` and `DuckDB\checkUtf8()` validate complete byte strings without a connection; see [Functions](api.md#functions) |
+| UTF-8 checks | `DuckDB\isValidUtf8()` and `DuckDB\checkUtf8()`, available starting with extension 1.5.0, validate complete byte strings without a connection; see [Functions](api.md#functions) |
 
 [Native typed value classes](value.md) provide complete typed input for
 prepared statements, execution parameter arrays and Appender, including

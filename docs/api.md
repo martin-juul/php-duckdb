@@ -3,9 +3,9 @@
 This reference lists every class, method, enum and function exported by the
 extension. [`duckdb.stub.php`](../duckdb.stub.php) is the canonical source and
 also serves as the stub for IDEs and static analysis. This reference covers
-extension **1.4.1**, including typed values, Arrow, vectors, selection and
-custom COPY TO APIs. The scalar-function APIs below are under development
-after extension 1.4.1.
+extension **1.5.0**, including typed values, Arrow, vectors, selection,
+custom COPY TO, scalar-function, expression, table-function metadata, logging
+and UTF-8 APIs.
 
 Namespace: `DuckDB`.
 
@@ -24,7 +24,7 @@ engine. It is the default vector capacity and the maximum row count of
 
 ### `DuckDB\isValidUtf8(string $value): bool`
 
-Available in this development checkout after extension 1.4.1. Returns whether
+Available starting with extension 1.5.0. Returns whether
 the complete PHP string is valid UTF-8 according to DuckDB, without opening a
 database or connection. Empty strings and embedded NUL bytes are valid; bytes
 after a NUL are also checked. Invalid sequences, overlong encodings, surrogate
@@ -34,7 +34,7 @@ code points and values above U+10FFFF return `false`.
 
 Uses the same validation as `isValidUtf8()`, returning normally for valid input
 and throwing `DuckDB\Exception` with `ErrorType::InvalidInput` (code 32) for
-invalid UTF-8. This function is also available after extension 1.4.1.
+invalid UTF-8. This function is also available starting with extension 1.5.0.
 
 Neither function modifies, repairs or normalizes the input. They check encoding
 only, without validating SQL syntax, paths or identifiers. For arbitrary binary
@@ -219,8 +219,8 @@ Created via `Database::connect()`. Not constructible directly.
 
 ## Scalar-function interfaces
 
-These interfaces run on the request thread and must not suspend. Their APIs
-are under development after extension 1.4.1.
+These interfaces run on the request thread and must not suspend. They are
+available starting with extension 1.5.0.
 
 | Interface | Method | Description |
 | --- | --- | --- |
