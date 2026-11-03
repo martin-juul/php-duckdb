@@ -663,7 +663,8 @@ static bool duckdb_decode_value(decode_ctx *ctx, duckdb_vector vec, duckdb_logic
             duckdb_make_datetime_from_micros(out, micros, duckdb_is_finite_timestamp_ms(ts));
             return true;
         }
-        case DUCKDB_TYPE_TIMESTAMP_NS: {
+        case DUCKDB_TYPE_TIMESTAMP_NS:
+        case DUCKDB_TYPE_TIMESTAMP_TZ_NS: {
             duckdb_timestamp_ns ts = ((duckdb_timestamp_ns *)data)[row];
             duckdb_make_datetime_from_micros(out, ts.nanos / 1000LL,
                                              duckdb_is_finite_timestamp_ns(ts));

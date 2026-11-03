@@ -118,6 +118,8 @@ duckdb_error_type duckdb_classify_error_message(const char *msg) {
         {"Divide By Zero Error:", DUCKDB_ERROR_DIVIDE_BY_ZERO},
         {"Invalid Input Error:", DUCKDB_ERROR_INVALID_INPUT},
         {"Invalid Configuration Error:", DUCKDB_INVALID_CONFIGURATION},
+        {"Data Corruption Error:", DUCKDB_ERROR_DATA_CORRUPTION},
+        {"Resource In Use Error:", DUCKDB_ERROR_RESOURCE_IN_USE},
         {"Not implemented Error:", DUCKDB_ERROR_NOT_IMPLEMENTED},
         {"IO Error:", DUCKDB_ERROR_IO},
         {"HTTP Error:", DUCKDB_ERROR_HTTP},
@@ -157,7 +159,7 @@ PHP_METHOD(DuckDB_Exception, getErrorType) {
 
     zend_long code = Z_LVAL_P(zend_read_property(zend_ce_exception, Z_OBJ_P(ZEND_THIS), "code",
                                                  sizeof("code") - 1, /*silent=*/true, NULL));
-    if (code < 0 || code > DUCKDB_INVALID_CONFIGURATION) {
+    if (code < 0 || code > DUCKDB_ERROR_RESOURCE_IN_USE) {
         RETURN_NULL();
     }
     zend_object *case_obj = nullptr;
@@ -209,6 +211,7 @@ const char *duckdb_type_name(duckdb_type type) {
         case DUCKDB_TYPE_BIT: return "BIT";
         case DUCKDB_TYPE_TIME_TZ: return "TIME_TZ";
         case DUCKDB_TYPE_TIMESTAMP_TZ: return "TIMESTAMP_TZ";
+        case DUCKDB_TYPE_TIMESTAMP_TZ_NS: return "TIMESTAMPTZ_NS";
         case DUCKDB_TYPE_TIME_NS: return "TIME_NS";
         case DUCKDB_TYPE_GEOMETRY: return "GEOMETRY";
         case DUCKDB_TYPE_VARIANT: return "VARIANT";

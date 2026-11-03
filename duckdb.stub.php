@@ -90,6 +90,8 @@ enum ErrorType: int
     case Autoload = 40;
     case Sequence = 41;
     case InvalidConfiguration = 42;
+    case DataCorruption = 43;
+    case ResourceInUse = 44;
 }
 
 /**

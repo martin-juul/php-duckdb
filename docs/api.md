@@ -69,7 +69,8 @@ Cases (backing value in parentheses): `Invalid` (0), `OutOfRange` (1),
 (28), `Interrupt` (29), `Fatal` (30), `Internal` (31), `InvalidInput` (32),
 `OutOfMemory` (33), `Permission` (34), `ParameterNotResolved` (35),
 `ParameterNotAllowed` (36), `Dependency` (37), `Http` (38), `MissingExtension`
-(39), `Autoload` (40), `Sequence` (41), `InvalidConfiguration` (42).
+(39), `Autoload` (40), `Sequence` (41), `InvalidConfiguration` (42),
+`DataCorruption` (43), `ResourceInUse` (44).
 
 ## Exceptions
 

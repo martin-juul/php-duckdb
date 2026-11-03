@@ -24,7 +24,7 @@ you never construct logical types by hand in PHP.
 | GEOMETRY | `string` (binary) |
 | UUID | `string` (canonical `xxxxxxxx-xxxx-…` form) |
 | DATE | `DateTimeImmutable` (midnight, UTC) |
-| `TIMESTAMP` / `TIMESTAMP_S` / `TIMESTAMP_MS` / `TIMESTAMP_NS` / `TIMESTAMPTZ` | `DateTimeImmutable` (UTC) |
+| `TIMESTAMP` / `TIMESTAMP_S` / `TIMESTAMP_MS` / `TIMESTAMP_NS` / `TIMESTAMPTZ` / `TIMESTAMPTZ_NS` | `DateTimeImmutable` (UTC) |
 | TIME / TIMETZ / TIME_NS | `string` |
 | INTERVAL | `DuckDB\Interval` |
 | LIST / ARRAY | `list<mixed>` (recursively decoded) |

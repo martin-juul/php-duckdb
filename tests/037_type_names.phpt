@@ -18,7 +18,8 @@ $result = $conn->query("SELECT
     'happy'::mood AS e,
     [[1]]::INT[][] AS lol,
     1::HUGEINT AS h,
-    '2024-01-01'::DATE AS dt");
+    '2024-01-01'::DATE AS dt,
+    '2026-11-03 12:00:00+00'::TIMESTAMPTZ_NS AS tzns");
 foreach ($result->columns() as $column) {
     echo $column['name'], ' => ', $column['type'], "\n";
 }
@@ -28,6 +29,9 @@ $stmt = $conn->prepare('SELECT ?::DECIMAL(18,2) AS p');
 echo $stmt->parameterType(1), "\n";
 echo $stmt->columnType(0), "\n";
 $stmt = $conn->prepare('SELECT [1]::INT[] AS l');
+echo $stmt->columnType(0), "\n";
+$stmt = $conn->prepare('SELECT ?::TIMESTAMPTZ_NS AS tzns');
+echo $stmt->parameterType(1), "\n";
 echo $stmt->columnType(0), "\n";
 
 // Result::columnType
@@ -45,7 +49,10 @@ e => ENUM('sad', 'ok', 'happy')
 lol => INTEGER[][]
 h => HUGEINT
 dt => DATE
+tzns => TIMESTAMPTZ_NS
 DECIMAL(18,2)
 DECIMAL(18,2)
 INTEGER[]
+TIMESTAMPTZ_NS
+TIMESTAMPTZ_NS
 MAP(VARCHAR, INTEGER[])
