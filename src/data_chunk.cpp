@@ -80,8 +80,9 @@ static void borrowed_arrow_release(ArrowArray *array) {
     array->release = nullptr;
 }
 
-/* DuckDB 1.5.6's C importer omits the root offset for data conversion,
- * and its nested struct converter omits offsets inherited from ancestors.
+/* DuckDB's C importer (still in 2.0.0) omits the root offset for data
+ * conversion, and its nested struct converter omits offsets inherited from
+ * ancestors.
  * Normalize every struct into an offset-zero view: move its slice onto
  * its immediate children and independently rebase its validity bitmap.
  * Lists, fixed arrays and dictionaries retain their own offset semantics. */

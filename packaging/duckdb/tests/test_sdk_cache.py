@@ -47,8 +47,8 @@ class SDKCacheTests(unittest.TestCase):
         with tarfile.open(self.archive, "w:gz") as archive:
             archive.add(source, arcname="duckdb-fixture")
         self.manifest = {
-            "version": "1.5.6",
-            "commit": "069cc9abcdef012345678901234567890123456789",
+            "version": "2.0.0",
+            "commit": "d54cbbeabcdef012345678901234567890123456789",
             "url": "https://invalid.example/never-download.tar.gz",
             "sha256": hashlib.sha256(self.archive.read_bytes()).hexdigest(),
             "patch": "fixture.patch",
@@ -243,6 +243,25 @@ else:
             builder.write("\n# changed implementation\n")
         self.assertNotEqual(fingerprint, self.fingerprint())
 
+    def configure_arguments(self):
+        commands = [json.loads(line) for line in self.log.read_text().splitlines()]
+        configures = [command for command in commands if command[0] == "-S"]
+        self.assertEqual(len(configures), 1)
+        return configures[0]
+
+    def assert_portable_configuration(self, arguments):
+        self.assertIn("-DDUCKDB_OPTIMIZATION_PROFILE=NONE", arguments)
+        self.assertIn("-DNATIVE_ARCH=OFF", arguments)
+        self.assertIn("-DBUILD_EXTENSIONS=json;icu;autocomplete", arguments)
+        self.assertIn("-DLINK_CORE_EXTENSIONS=ON", arguments)
+        self.assertFalse([argument for argument in arguments if argument.startswith("-DENABLE_EXTENSION_AUTO")])
+
+    def test_configure_keeps_portable_cpu_baseline(self):
+        self.build()
+        self.assert_portable_configuration(self.configure_arguments())
+        metadata = (self.prefix / "share/duckdb-sdk/build.txt").read_text()
+        self.assertIn("optimization_profile=NONE", metadata)
+
     def test_existing_prefix_artifact_validation_forces_rebuild(self):
         self.build()
         (self.prefix / "lib/libduckdb.so").write_bytes(b"corrupt")
@@ -342,7 +361,9 @@ else:
             self.assertEqual(pins[artifact], hashlib.sha256((self.prefix / artifact).read_bytes()).hexdigest())
         self.assertIn("arrow_patch_sha256=", (metadata / "build.txt").read_text())
         self.assertIn("copy_function_patch_sha256=", (metadata / "build.txt").read_text())
+        self.assertIn("optimization_profile=NONE", (metadata / "build.txt").read_text())
         self.assertEqual(self.builds(), 1)
+        self.assert_portable_configuration(self.configure_arguments())
 
     def test_optimized_python_still_checks_cache_artifacts(self):
         self.build(cached=True)

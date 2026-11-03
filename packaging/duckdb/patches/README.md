@@ -8,14 +8,16 @@ those builds. The PHP extension still links through DuckDB's public C API.
 
 | Patch | Source baseline | Purpose | Origin and upstream tracking |
 | --- | --- | --- | --- |
-| [nullable-bitpacking.patch](nullable-bitpacking.patch) | DuckDB 1.5.6, pinned in [source.json](../source.json) | Initialize NULL slots before frame-of-reference bitpacking | Local fix developed for this repository; no upstream issue, PR or merge reference is recorded here |
-| [arrow-geometry.patch](arrow-geometry.patch) | DuckDB 1.5.6, pinned in [source.json](../source.json) | Run C Arrow conversions in a transaction and preserve declared geometry CRS on import | Local fix developed for this repository; no upstream issue, PR or merge reference is recorded here |
-| [c-api-copy-functions.patch](c-api-copy-functions.patch) | DuckDB 1.5.6, pinned in [source.json](../source.json) | Reject parallel COPY modes and EXPORT DATABASE for C API copy functions; let their bind callbacks decline a binding | Local change developed for this repository; no upstream issue, PR or merge reference is recorded here |
+| [nullable-bitpacking.patch](nullable-bitpacking.patch) | DuckDB 2.0.0, pinned in [source.json](../source.json) | Initialize NULL slots before frame-of-reference bitpacking | Local fix developed for this repository; not fixed upstream in 2.0.0; no upstream issue, PR or merge reference is recorded here |
+| [arrow-geometry.patch](arrow-geometry.patch) | DuckDB 2.0.0, pinned in [source.json](../source.json) | Run C Arrow conversions in a transaction and preserve declared geometry CRS on import | Local fix developed for this repository; not fixed upstream in 2.0.0; no upstream issue, PR or merge reference is recorded here |
+| [c-api-copy-functions.patch](c-api-copy-functions.patch) | DuckDB 2.0.0, pinned in [source.json](../source.json) | Reject parallel COPY modes and EXPORT DATABASE for C API copy functions; let their bind callbacks decline a binding | Local change developed for this repository; not in upstream 2.0.0; no upstream issue, PR or merge reference is recorded here |
 
-The patches are maintained against this exact source baseline. Their presence does
-not establish whether another DuckDB release contains the same defect or an
-equivalent fix. The general PHP extension support for DuckDB 1.5.5 does not
-mean these patches have been validated against 1.5.5.
+The patches are maintained against this exact source baseline. They were
+rebased from DuckDB 1.5.6 onto 2.0.0, where the C API sources moved to
+`src/main/capi/v1/`. Each native regression below still fails on the unpatched
+2.0.0 library, so 2.0.0 contains none of the fixes. Their presence does not
+establish whether another DuckDB release contains the same defect or an
+equivalent fix.
 
 ## Nullable bitpacking
 
@@ -60,8 +62,10 @@ engine internals without adding a PHP dependency on C++ headers.
 The [native regression](../../../tests/native/arrow_geometry.cpp) covers known
 and noncatalog CRS definitions, nested fields, appending to a matching CRS
 table, and caller transactions across conversion failures. It passes normally
-and under Valgrind with zero errors or lost allocations. The PHP 8.4 full
-harness passes 92 PHPTs and 91 Memcheck tests, including the
+and under Valgrind with zero errors or lost allocations. The unpatched 2.0.0
+library fails it with the internal error `TransactionContext::ActiveTransaction
+called without active transaction`. With the patched 2.0.0 SDK, the PHP
+harness passes the
 [lossless regression](../../../tests/094_arrow_lossless.phpt),
 [foreign CRS metadata](../../../tests/095_arrow_geometry_metadata.phpt), and
 [failed-import cleanup](../../../tests/096_arrow_failure_cleanup.phpt).
@@ -87,8 +91,9 @@ format, after its bind callback accepts the binding:
   `PARTITION_BY is not supported for C API copy function "<name>"`.
 - `PER_THREAD_OUTPUT true` raises the matching `PER_THREAD_OUTPUT` Binder
   Error. `PER_THREAD_OUTPUT false` is accepted.
-- `FILE_SIZE_BYTES` keeps its original "not implemented" error, now raised
-  after the bind callback.
+- `FILE_SIZE_BYTES` keeps the engine's Binder Error
+  `FILE_SIZE_BYTES not implemented for "<name>"`, now raised after the bind
+  callback.
 
 `EXPORT DATABASE` with a C API format raises the Binder Error
 `EXPORT DATABASE is not supported for C API copy function "<name>"` before
@@ -111,14 +116,18 @@ remains a Binder Error with the callback's message. A format must therefore
 never begin its bind error with text that a user controls.
 
 The patch adds no exported symbol, so callers still build and run against the
-original 1.5.6 library. There, a decline arrives as
+unpatched 2.0.0 library. There, a decline arrives as
 `Binder Error: [copy-function-declined] ...`, and the parallel modes are
 accepted; such callers need their own runtime detection. The
 [native regression](../../../tests/native/c_api_copy_functions.c) covers the
 rejections, explicit and inferred declines, the prefix position, and built-in
 CSV and Parquet modes. Its header gives compile and Memcheck commands.
-The original 1.5.6 SDK fails 10 of its 24 checks. The patched SDK passes all
+The unpatched 2.0.0 SDK fails 10 of its 24 checks. The patched SDK passes all
 of them, normally and under Valgrind with zero errors or lost allocations.
+DuckDB 2.0's new `ORDER_BY` copy option still drives a C API format through
+one global state and serial sinks, so the patch leaves it allowed.
+`BATCHES_PER_FILE` already fails for these formats because they implement no
+batch callbacks.
 
 ## Which builds include them
 
@@ -135,16 +144,17 @@ cleanly. Installed SDKs carry `source.json`, `nullable-bitpacking.patch`,
 DuckDB's license under `share/duckdb-sdk/`. Every patch hash enters the SDK
 identity, and cache verification requires every patch artifact and its
 checksum. Use that metadata to identify our build: the patches do not change
-DuckDB's reported `1.5.6` version.
+DuckDB's reported `2.0.0` version.
 
 ## Nullable bitpacking evidence and patch removal
 
 The [62-case native regression](../../../tests/native/nullable_bitpacking_matrix.c)
 checks values and NULL positions after checkpoint and reopen. Its header gives
-compile and Memcheck commands. The same workload reported 49 Memcheck errors
-with the original 1.5.6 SDK and zero with the patched SDK. SQL assertions alone
-do not detect undefined bytes in unused NULL slots. The full PHP 8.4 harness
-also passed all 79 Memcheck tests with the patched SDK; details are in
+compile and Memcheck commands. The same workload reports 49 Memcheck errors
+with the unpatched 2.0.0 SDK and zero with the patched SDK; the
+[minimal reproducer](../../../tests/native/nullable_bitpacking.c) reports one
+and zero. SQL assertions alone do not detect undefined bytes in unused NULL
+slots. Full-harness Memcheck results are in
 [compatibility](../../../docs/compatibility.md#memcheck-and-nullable-integer-persistence).
 
 When upgrading DuckDB, check for an equivalent upstream fix and record its issue

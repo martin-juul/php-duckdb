@@ -129,6 +129,7 @@ $metadata = [ordered]@{
     cmake = $cmakeVersion
     build = 'Release; Visual Studio 17 2022; x64; host=x64; upstream static CRT'
     native_arch = 'OFF'
+    optimization_profile = 'NONE'
     disable_unity = $DisableUnity
     builtins = 'core_functions,parquet,json,icu,autocomplete'
     autoload = 'ON'
@@ -280,8 +281,8 @@ $arguments = @('-S', $sourceDirectory, '-B', $buildDirectory,
     "-DCMAKE_GENERATOR_INSTANCE=$($vs.installationPath)",
     "-DOVERRIDE_GIT_DESCRIBE=v$($manifest.version)",
     "-DGIT_COMMIT_HASH=$($manifest.commit.Substring(0, 10))",
-    '-DBUILD_EXTENSIONS=json;icu;autocomplete', '-DENABLE_EXTENSION_AUTOLOADING=ON',
-    '-DENABLE_EXTENSION_AUTOINSTALL=ON', '-DNATIVE_ARCH=OFF', "-DDISABLE_UNITY=$DisableUnity",
+    '-DBUILD_EXTENSIONS=json;icu;autocomplete', '-DLINK_CORE_EXTENSIONS=ON', '-DNATIVE_ARCH=OFF',
+    '-DDUCKDB_OPTIMIZATION_PROFILE=NONE', "-DDISABLE_UNITY=$DisableUnity",
     '-DBUILD_SHELL=OFF', '-DBUILD_UNITTESTS=OFF', '-DBUILD_BENCHMARKS=OFF')
 & cmake @arguments
 if ($LASTEXITCODE -ne 0) {

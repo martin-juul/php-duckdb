@@ -93,8 +93,8 @@ cmake -S "$work/source" -B "$work/build" -G 'Unix Makefiles' \
     -DCMAKE_C_FLAGS="${CFLAGS:--m64}" -DCMAKE_CXX_FLAGS="${CXXFLAGS:--m64}" \
     -DCMAKE_SHARED_LINKER_FLAGS="${LDFLAGS:-} -lsocket -lnsl" \
     -DOVERRIDE_GIT_DESCRIBE="v$version" -DGIT_COMMIT_HASH="$(printf '%.10s' "$commit")" \
-    '-DBUILD_EXTENSIONS=json;icu;autocomplete' -DENABLE_EXTENSION_AUTOLOADING=ON \
-    -DENABLE_EXTENSION_AUTOINSTALL=ON -DNATIVE_ARCH=OFF \
+    '-DBUILD_EXTENSIONS=json;icu;autocomplete' -DLINK_CORE_EXTENSIONS=ON \
+    -DNATIVE_ARCH=OFF -DDUCKDB_OPTIMIZATION_PROFILE=NONE \
     -DDISABLE_UNITY="$DUCKDB_DISABLE_UNITY" -DBUILD_SHELL=OFF \
     -DBUILD_UNITTESTS=OFF -DBUILD_BENCHMARKS=OFF
 cmake --build "$work/build" --target duckdb --parallel "$DUCKDB_BUILD_JOBS"
@@ -113,6 +113,7 @@ cp "$copy_function_patch_file" "$metadata/c-api-copy-functions.patch"
     echo "copy_function_patch_sha256=$(hash "$copy_function_patch_file")"
     echo "builder_sha256=$(hash "$0")"
     echo 'builtins=core_functions,parquet,json,icu,autocomplete; native_arch=OFF'
+    echo 'optimization_profile=NONE'
     echo "unity_disabled=$DUCKDB_DISABLE_UNITY; cflags=${CFLAGS:--m64}; cxxflags=${CXXFLAGS:--m64}"
     echo "ldflags=${LDFLAGS:-} -lsocket -lnsl"
     uname -a

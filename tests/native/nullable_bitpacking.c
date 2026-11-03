@@ -1,6 +1,8 @@
-/* Standalone DuckDB 1.5.6 checkpoint regression; no PHP extension involved.
- * Supply a new database path. Success means SQL completed; run under Memcheck
- * to detect the uninitialized compression bytes written during close.
+/* Standalone DuckDB checkpoint regression for the nullable bitpacking patch;
+ * no PHP extension involved. Supply a new database path. Success means SQL
+ * completed; run under Memcheck to detect the uninitialized compression bytes
+ * written during close. The unpatched DuckDB 2.0.0 library reports one
+ * Memcheck error; the patched SDK reports none.
  */
 #include "duckdb.h"
 #include <stdio.h>

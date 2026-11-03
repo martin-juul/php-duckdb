@@ -168,7 +168,8 @@ fi
     "$cxx" --version
     "$cxx" -dumpmachine
     cmake --version
-    echo "build=Release; generator=Unix Makefiles; native_arch=OFF; disable_unity=$disable_unity"
+    echo "build=Release; generator=Unix Makefiles; native_arch=OFF; optimization_profile=NONE"
+    echo "disable_unity=$disable_unity"
     echo "builtins=core_functions,parquet,json,icu,autocomplete; autoload=ON; autoinstall=ON"
     echo "cflags=${CFLAGS:-}; cxxflags=${CXXFLAGS:-}; ldflags=${LDFLAGS:-}"
     echo "osx_architectures=${DUCKDB_OSX_ARCHITECTURES:-$(uname -m)}"
@@ -313,8 +314,8 @@ set -- -S "$source_dir" -B "$build_dir" -G "Unix Makefiles" \
     -DCMAKE_C_FLAGS="${CFLAGS:-}" -DCMAKE_CXX_FLAGS="${CXXFLAGS:-}" \
     -DCMAKE_SHARED_LINKER_FLAGS="${LDFLAGS:-}" -DOVERRIDE_GIT_DESCRIBE="v$version" \
     -DGIT_COMMIT_HASH="$(printf '%.10s' "$source_commit")" \
-    -DBUILD_EXTENSIONS="json;icu;autocomplete" -DENABLE_EXTENSION_AUTOLOADING=ON \
-    -DENABLE_EXTENSION_AUTOINSTALL=ON -DNATIVE_ARCH=OFF -DDISABLE_UNITY="$disable_unity" \
+    -DBUILD_EXTENSIONS="json;icu;autocomplete" -DLINK_CORE_EXTENSIONS=ON \
+    -DNATIVE_ARCH=OFF -DDUCKDB_OPTIMIZATION_PROFILE=NONE -DDISABLE_UNITY="$disable_unity" \
     -DBUILD_SHELL=OFF -DBUILD_UNITTESTS=OFF -DBUILD_BENCHMARKS=OFF
 if [ "$platform" = Darwin ]; then
     set -- "$@" "-DCMAKE_OSX_ARCHITECTURES=${DUCKDB_OSX_ARCHITECTURES:-$(uname -m)}" \
