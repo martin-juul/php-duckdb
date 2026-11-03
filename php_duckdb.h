@@ -146,6 +146,7 @@ duckdb_notify_fd duckdb_notify_fd_duplicate(duckdb_notify_fd fd);
 /* ================================================================== */
 
 struct copy_session;
+struct conn_helper;
 struct copy_slot;
 struct copy_registration;
 struct scalar_slot;
@@ -218,6 +219,12 @@ struct open_result {
     std::string error_message;
 };
 
+/* Stop and join a connection's helper thread; a no-op once stopped
+ * (copy_session.cpp). */
+void duckdb_conn_helper_stop(const std::shared_ptr<conn_helper> &helper);
+/* MSHUTDOWN: stop and join every helper thread still parked. */
+void duckdb_helpers_shutdown();
+
 /* A DuckDB connection. DuckDB connections are not safe for concurrent
  * use from multiple threads, so every statement execution (sync or
  * async) holds `mutex` for the duration of the DuckDB call. PHP-thread
@@ -252,6 +259,11 @@ struct conn_inner {
     /* DuckDB's id for this connection, resolved when first pumped. */
     idx_t connection_id = 0;
     bool connection_id_known = false;
+    /* The thread that drives pumped statements while the request thread
+     * holds `mutex` and services their callbacks. Created on the first
+     * lease and parked between leases. It never locks `mutex` and holds no
+     * reference to this connection, so this destructor never runs on it. */
+    std::shared_ptr<conn_helper> helper;
     ~conn_inner() {
         std::lock_guard<std::mutex> lock(mutex);
         /* Deferred work never owns the connection, so the last owner can
@@ -260,6 +272,7 @@ struct conn_inner {
             work();
         }
         deferred.clear();
+        duckdb_conn_helper_stop(helper);
         if (conn) {
             duckdb_disconnect(&conn);
         }

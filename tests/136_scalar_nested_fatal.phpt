@@ -20,11 +20,11 @@ $child = <<<'PHP'
 <?php
 require $argv[1];
 error_reporting(E_ALL & ~E_DEPRECATED);
-[$phase, $action] = [$argv[2], $argv[3]];
+[$phase, $action, $threads] = [$argv[2], $argv[3], (int) $argv[4]];
 register_shutdown_function(function () {
     echo "shutdown\n";
 });
-$db = new DuckDB\Database(':memory:', ['threads' => getenv('DUCKDB_PHP_TEST_PUMP_SERVICE_ONLY') ? 4 : 1]);
+$db = new DuckDB\Database(':memory:', ['threads' => $threads]);
 $conn = $db->connect();
 $function = new TestScalar();
 $function->hooks[$phase] = function () use ($action) {
@@ -54,12 +54,14 @@ $path = tempnam(sys_get_temp_dir(), 'duckdb-scalar-bailout');
 file_put_contents($path, $child);
 register_shutdown_function(fn() => @unlink($path));
 $args = duckdb_subprocess_args();
-foreach (['direct' => '0', 'marshaled' => '1'] as $mode => $serviceOnly) {
+// "helper": the connection's helper thread is the only DuckDB thread;
+// "workers": DuckDB worker threads reach the callbacks too.
+foreach (['helper' => 1, 'workers' => 4] as $mode => $threads) {
     foreach (['bind', 'init', 'execute'] as $phase) {
         foreach (['array_map', 'generator'] as $action) {
-            $command = array_merge([PHP_BINARY], $args, [$path, __DIR__ . '/scalar.inc', $phase, $action]);
-            $env = ['DUCKDB_PHP_TEST_PUMP_SERVICE_ONLY' => $serviceOnly] + getenv();
-            $process = proc_open($command, [1 => ['pipe', 'w'], 2 => ['redirect', 1]], $pipes, null, $env);
+            $command = array_merge([PHP_BINARY], $args,
+                [$path, __DIR__ . '/scalar.inc', $phase, $action, (string) $threads]);
+            $process = proc_open($command, [1 => ['pipe', 'w'], 2 => ['redirect', 1]], $pipes, null, getenv());
             $output = stream_get_contents($pipes[1]);
             fclose($pipes[1]);
             $status = proc_close($process);
@@ -73,5 +75,5 @@ foreach (['direct' => '0', 'marshaled' => '1'] as $mode => $serviceOnly) {
 }
 ?>
 --EXPECT--
-direct
-marshaled
+helper
+workers

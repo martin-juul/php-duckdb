@@ -39,15 +39,16 @@ check($conn->query('BEGIN; SELECT 7 AS y; COMMIT')->fetchAll() === [['y' => 7]],
 echo "multi-statement queries run every statement\n";
 
 $classes = [];
-$classes[] = rejects(fn() => $conn->query('CREATE TABLE never(i INTEGER); SELEC 1'), DuckDB\ParserException::class);
+$classes[] = rejects(fn() => $conn->query('CREATE TABLE parsed(i INTEGER); SELEC 1'), DuckDB\ParserException::class);
 $classes[] = rejects(
     fn() => $conn->query("CREATE TABLE first(i INTEGER); SELECT 'z'::INTEGER; CREATE TABLE after(i INTEGER)"),
     DuckDB\ConversionException::class
 );
 check($conn->query("SELECT table_name FROM duckdb_tables() WHERE table_name IN ('first', 'after')")->fetchAll()
     === [['table_name' => 'first']], 'Statements stop at the first error');
-check($conn->query("SELECT count(*) AS n FROM duckdb_tables() WHERE table_name = 'never'")->fetchAll() === [['n' => 0]],
-    'A parse error runs no statement');
+// DuckDB 2.0 runs the statements before a syntax error, pumped or not.
+check($conn->query("SELECT count(*) AS n FROM duckdb_tables() WHERE table_name = 'parsed'")->fetchAll() === [['n' => 1]],
+    'The statements before a parse error run');
 $classes[] = rejects(fn() => $conn->query('INSERT INTO t VALUES (1)'), DuckDB\ConstraintException::class);
 $classes[] = rejects(fn() => $conn->query("SELECT 'x'::INTEGER"), DuckDB\ConversionException::class);
 $classes[] = rejects(fn() => $conn->query('SELECT * FROM missing'), DuckDB\CatalogException::class);

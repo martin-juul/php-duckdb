@@ -1,6 +1,7 @@
-/* Pumped statement execution. Statements that may reach a PHP COPY format
- * run through DuckDB's pending API on the request thread, which services
- * callbacks handed over by DuckDB worker threads between execution slices. */
+/* Pumped statement execution. Statements that may reach a PHP callback
+ * start on the request thread and then run on the connection's helper
+ * thread, while the request thread services callbacks handed over by the
+ * helper and DuckDB's worker threads. */
 #ifdef HAVE_CONFIG_H
 #include "config.h"
 #endif
@@ -11,6 +12,7 @@
 #include "copy.h"
 #include "scalar.h"
 
+#include <algorithm>
 #include <cstdlib>
 #include <exception>
 
@@ -31,21 +33,23 @@ static bool force_pump() {
     return enabled;
 }
 
-static bool service_only() {
-    static const bool enabled = env_flag("DUCKDB_PHP_TEST_PUMP_SERVICE_ONLY");
-    return enabled;
+/* Leases nested at least this deep never service their callbacks, as if
+ * the request thread were stuck elsewhere; 1 covers every lease and 0
+ * disables the switch. */
+static int stuck_lease_depth() {
+    static const int depth = [] {
+        const char *value = std::getenv("DUCKDB_PHP_TEST_STUCK_LEASE");
+        long parsed = value ? std::strtol(value, nullptr, 10) : 0;
+        if (parsed < 0) {
+            parsed = 0;
+        }
+        return static_cast<int>(parsed);
+    }();
+    return depth;
 }
 
-/* The driver behaves as if it never left DuckDB: it stops servicing
- * requests and its stuck clock keeps running. */
-static bool stuck_driver() {
-    static const bool enabled = env_flag("DUCKDB_PHP_TEST_STUCK_DRIVER");
-    return enabled;
-}
-
-/* How long a waiting worker tolerates the driver staying inside one DuckDB
- * call. A pending engine error can make that call spin until every task
- * ends, including the waiting worker's; giving up turns that into an error. */
+/* How long a queued callback tolerates the request thread staying away
+ * from its leased session. Giving up turns a hang into an error. */
 static int64_t stuck_limit_ns() {
     static const int64_t limit = [] {
         const char *value = std::getenv("DUCKDB_PHP_COPY_STUCK_SECONDS");
@@ -57,6 +61,158 @@ static int64_t stuck_limit_ns() {
     }();
     return limit;
 }
+
+/* ------------------------------------------------------------------ */
+/* Driver state (request thread)                                      */
+/* ------------------------------------------------------------------ */
+
+int64_t copy_driver::unserviced_for(const copy_session *session, int64_t queued_at) {
+    std::lock_guard<std::mutex> lock(mutex);
+    if (away_since == 0 || serving == session) {
+        return 0;
+    }
+    return steady_now() - std::max(away_since, queued_at);
+}
+
+static std::shared_ptr<copy_driver> &this_driver() {
+    static thread_local std::shared_ptr<copy_driver> driver = std::make_shared<copy_driver>();
+    return driver;
+}
+
+/* Leases this request thread is inside, counting nested ones. */
+static thread_local int lease_depth = 0;
+
+/* From construction until destruction, the request thread services only
+ * `serving` (nothing when null); the outer state is restored afterwards. */
+class driver_away {
+public:
+    explicit driver_away(const copy_session *serving) : driver(*this_driver()) {
+        std::lock_guard<std::mutex> lock(driver.mutex);
+        outer_serving = driver.serving;
+        outer_since = driver.away_since;
+        driver.serving = serving;
+        driver.away_since = steady_now();
+    }
+
+    ~driver_away() {
+        std::lock_guard<std::mutex> lock(driver.mutex);
+        driver.serving = outer_serving;
+        driver.away_since = outer_since;
+    }
+
+    driver_away(const driver_away &) = delete;
+    driver_away &operator=(const driver_away &) = delete;
+
+private:
+    copy_driver &driver;
+    const copy_session *outer_serving = nullptr;
+    int64_t outer_since = 0;
+};
+
+/* ------------------------------------------------------------------ */
+/* Connection helpers                                                 */
+/* ------------------------------------------------------------------ */
+
+/* The thread that runs one connection's leased DuckDB work. It touches no
+ * PHP state; callbacks it reaches go through the session's queue. */
+struct conn_helper {
+    std::mutex mutex;
+    std::condition_variable cv;
+    std::function<void()> work;
+    bool busy = false;
+    bool stop = false;
+    std::thread thread;
+};
+
+static std::mutex helper_registry_mutex;
+static std::vector<std::shared_ptr<conn_helper>> helper_registry;
+
+static void helper_main(conn_helper *helper) {
+    std::unique_lock<std::mutex> lock(helper->mutex);
+    for (;;) {
+        helper->cv.wait(lock, [helper] {
+            return helper->stop || helper->work;
+        });
+        if (!helper->work) {
+            return;
+        }
+
+        std::function<void()> work = std::move(helper->work);
+        helper->work = nullptr;
+        lock.unlock();
+
+        work();
+        work = nullptr;
+
+        lock.lock();
+        helper->busy = false;
+        helper->cv.notify_all();
+    }
+}
+
+/* The connection's helper, started on first use. Caller holds conn.mutex.
+ * Throws std::system_error when the thread cannot start. */
+static std::shared_ptr<conn_helper> conn_helper_for(conn_inner &conn) {
+    if (conn.helper) {
+        return conn.helper;
+    }
+
+    auto helper = std::make_shared<conn_helper>();
+    helper->thread = std::thread(helper_main, helper.get());
+    {
+        std::lock_guard<std::mutex> lock(helper_registry_mutex);
+        helper_registry.push_back(helper);
+    }
+    conn.helper = helper;
+    return helper;
+}
+
+/* Hand `work` to the helper once its previous lease has parked. */
+static void helper_post(conn_helper &helper, std::function<void()> work) {
+    std::unique_lock<std::mutex> lock(helper.mutex);
+    helper.cv.wait(lock, [&helper] {
+        return !helper.busy;
+    });
+    helper.busy = true;
+    helper.work = std::move(work);
+    helper.cv.notify_all();
+}
+
+void duckdb_conn_helper_stop(const std::shared_ptr<conn_helper> &helper) {
+    if (!helper) {
+        return;
+    }
+
+    std::thread thread;
+    {
+        std::lock_guard<std::mutex> lock(helper->mutex);
+        helper->stop = true;
+        thread = std::move(helper->thread);
+    }
+    helper->cv.notify_all();
+    if (thread.joinable()) {
+        thread.join();
+    }
+
+    std::lock_guard<std::mutex> lock(helper_registry_mutex);
+    helper_registry.erase(std::remove(helper_registry.begin(), helper_registry.end(), helper),
+                          helper_registry.end());
+}
+
+void duckdb_helpers_shutdown() {
+    std::vector<std::shared_ptr<conn_helper>> helpers;
+    {
+        std::lock_guard<std::mutex> lock(helper_registry_mutex);
+        helpers = helper_registry;
+    }
+    for (auto &helper : helpers) {
+        duckdb_conn_helper_stop(helper);
+    }
+}
+
+/* ------------------------------------------------------------------ */
+/* Sessions                                                           */
+/* ------------------------------------------------------------------ */
 
 bool duckdb_conn_needs_pump(const conn_inner &conn) {
     return force_pump() || conn.copy_registrations.load(std::memory_order_acquire) > 0 ||
@@ -112,6 +268,7 @@ bool copy_session::submit(const std::shared_ptr<copy_request> &request, std::str
         error = close_reason;
         return false;
     }
+    request->queued_at = steady_now();
     queue.push_back(request);
     cv.notify_all();
 
@@ -125,8 +282,7 @@ bool copy_session::submit(const std::shared_ptr<copy_request> &request, std::str
                 return false;
             }
 
-            int64_t since = duckdb_since.load(std::memory_order_acquire);
-            if (since != 0 && steady_now() - since > stuck_limit_ns()) {
+            if (driver_state->unserviced_for(this, request->queued_at) > stuck_limit_ns()) {
                 open = false;
                 close_reason = "COPY callback abandoned: the driving thread stayed inside DuckDB too long";
                 queue.clear();
@@ -158,6 +314,7 @@ idx_t duckdb_conn_connection_id(conn_inner &conn) {
 
 std::shared_ptr<copy_session> duckdb_session_open(conn_inner &conn) {
     auto session = std::make_shared<copy_session>();
+    session->driver_state = this_driver();
     session->db = conn.db;
     session->connection_id = duckdb_conn_connection_id(conn);
     duckdb_copy_session_attach(conn, *session);
@@ -198,36 +355,92 @@ std::shared_ptr<copy_session> duckdb_session_find(db_inner &db, idx_t connection
     return found->second.lock();
 }
 
-duckdb_pending_state duckdb_session_step(copy_session &session, duckdb_pending_result pending) {
-    if (stuck_driver()) {
-        int64_t idle = 0;
-        session.duckdb_since.compare_exchange_strong(idle, steady_now(), std::memory_order_acq_rel);
-    } else {
-        session.service();
-        session.duckdb_since.store(steady_now(), std::memory_order_release);
+std::shared_ptr<copy_session> duckdb_session_find_bind(db_inner &db, idx_t connection_id) {
+    auto session = duckdb_session_find(db, connection_id);
+    if (!session || !session->marshal_bind.load(std::memory_order_acquire)) {
+        return nullptr;
     }
+    return session;
+}
+
+bool duckdb_session_lease(conn_inner &conn, copy_session &session, const std::function<void()> &work,
+                          std::string &error) {
+    std::shared_ptr<conn_helper> helper;
+    try {
+        helper = conn_helper_for(conn);
+    } catch (const std::system_error &failure) {
+        error = std::string("Unable to start the DuckDB helper thread: ") + failure.what();
+        return false;
+    }
+
+    /* Guarded by session.mutex. The helper's last access to this frame is
+     * setting it, so the frame outlives every use. */
+    bool done = false;
+    helper_post(*helper, [&work, &session, &done] {
+        work();
+
+        std::lock_guard<std::mutex> lock(session.mutex);
+        done = true;
+        session.cv.notify_all();
+    });
+
+    lease_depth++;
+    bool stuck = stuck_lease_depth() > 0 && lease_depth >= stuck_lease_depth();
+    {
+        driver_away away(stuck ? nullptr : &session);
+        for (;;) {
+            if (!stuck) {
+                session.service();
+            }
+
+            std::unique_lock<std::mutex> lock(session.mutex);
+            if (!stuck && session.open && !session.queue.empty()) {
+                continue;
+            }
+            if (done) {
+                break;
+            }
+            session.cv.wait(lock);
+        }
+    }
+    lease_depth--;
+    return true;
+}
+
+duckdb_pending_state duckdb_session_step(copy_session &session, duckdb_pending_result pending) {
+    session.service();
 
     duckdb_pending_state state;
-    if (service_only()) {
-        state = duckdb_pending_execute_check_state(pending);
-        /* check_state reports a finished execution as an error without a
-         * message; execute_pending then returns the result. */
-        const char *error = state == DUCKDB_PENDING_ERROR ? duckdb_pending_error(pending) : nullptr;
-        if (state == DUCKDB_PENDING_ERROR && (!error || !error[0])) {
-            state = DUCKDB_PENDING_RESULT_READY;
-        }
-    } else {
+    {
+        driver_away away(nullptr);
         state = duckdb_pending_execute_task(pending);
     }
-    if (!stuck_driver()) {
-        session.duckdb_since.store(0, std::memory_order_release);
-    }
 
-    if (state == DUCKDB_PENDING_NO_TASKS_AVAILABLE ||
-        (service_only() && state == DUCKDB_PENDING_RESULT_NOT_READY)) {
+    if (state == DUCKDB_PENDING_NO_TASKS_AVAILABLE) {
         session.wait_for_work(std::chrono::milliseconds(1));
     }
     return state;
+}
+
+/* Helper thread: execute a pending query until it is ready or fails. When
+ * DuckDB's workers hold every task, back off briefly instead of spinning. */
+static duckdb_pending_state drive_pending(duckdb_pending_result pending) {
+    int idle = 0;
+    for (;;) {
+        duckdb_pending_state state = duckdb_pending_execute_task(pending);
+        if (state == DUCKDB_PENDING_RESULT_READY || state == DUCKDB_PENDING_ERROR) {
+            return state;
+        }
+
+        if (state != DUCKDB_PENDING_NO_TASKS_AVAILABLE) {
+            idle = 0;
+            continue;
+        }
+        if (idle < 5) {
+            idle++;
+        }
+        std::this_thread::sleep_for(std::chrono::microseconds(32 << idle));
+    }
 }
 
 duckdb_state duckdb_pump_execute(conn_inner &conn, duckdb_prepared_statement statement, bool streaming,
@@ -249,10 +462,24 @@ duckdb_state duckdb_pump_execute(conn_inner &conn, duckdb_prepared_statement sta
         return DuckDBError;
     }
 
-    duckdb_pending_state state;
-    do {
-        state = duckdb_session_step(*session, pending);
-    } while (state != DUCKDB_PENDING_RESULT_READY && state != DUCKDB_PENDING_ERROR);
+    duckdb_pending_state state = DUCKDB_PENDING_ERROR;
+    duckdb_state result = DuckDBError;
+    std::string lease_error;
+    bool leased = duckdb_session_lease(
+        conn, *session,
+        [&] {
+            state = drive_pending(pending);
+            if (state == DUCKDB_PENDING_RESULT_READY) {
+                result = duckdb_execute_pending(pending, out);
+            }
+        },
+        lease_error);
+    if (!leased) {
+        start_error = lease_error;
+        duckdb_session_end(conn, session, start_error);
+        duckdb_discard_pending(conn, pending);
+        return DuckDBError;
+    }
 
     if (state == DUCKDB_PENDING_ERROR) {
         /* execute_pending would wrap this message in a generic error. */
@@ -264,7 +491,6 @@ duckdb_state duckdb_pump_execute(conn_inner &conn, duckdb_prepared_statement sta
         return DuckDBError;
     }
     duckdb_session_end(conn, session);
-    duckdb_state result = duckdb_execute_pending(pending, out);
     duckdb_destroy_pending(&pending);
     return result;
 }
@@ -281,13 +507,35 @@ bool duckdb_pump_query(conn_inner &conn, const char *sql, duckdb_result *out) {
     duckdb_extracted_statements extracted = nullptr;
     idx_t count = duckdb_extract_statements(conn.conn, sql, &extracted);
     if (count == 0) {
-        /* No statement can reach a COPY format; keep duckdb_query()'s exact
-         * handling of empty input and parse errors. */
+        /* Keep duckdb_query()'s exact handling of empty input and parse
+         * errors. DuckDB 2.0 runs the statements before a syntax error, so
+         * this runs as a lease too, and their bind callbacks reach PHP
+         * through the session from the helper. */
         duckdb_destroy_extracted(&extracted);
-        if (duckdb_query(conn.conn, sql, out) == DuckDBError) {
+        auto session = duckdb_session_open(conn);
+        session->marshal_bind.store(true, std::memory_order_release);
+
+        duckdb_state state = DuckDBError;
+        std::string lease_error;
+        bool leased = duckdb_session_lease(
+            conn, *session,
+            [&] {
+                state = duckdb_query(conn.conn, sql, out);
+            },
+            lease_error);
+        if (!leased) {
+            duckdb_session_end(conn, session, lease_error);
+            duckdb_throw_start_error(lease_error);
+            return false;
+        }
+
+        if (state == DuckDBError) {
+            const char *error = duckdb_result_error(out);
+            duckdb_session_end(conn, session, (error && error[0]) ? error : "Query failed");
             duckdb_throw_result_error(out);
             return false;
         }
+        duckdb_session_end(conn, session);
         return true;
     }
 

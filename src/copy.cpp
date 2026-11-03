@@ -800,38 +800,11 @@ static bool option_is_probe(duckdb_value options, std::string &token) {
     return false;
 }
 
-static void copy_bind_callback(duckdb_copy_function_bind_info info) {
-    auto *slot = static_cast<std::shared_ptr<copy_slot> *>(duckdb_copy_function_bind_get_extra_info(info))->get();
-    idx_t connection_id = duckdb_context_connection_id(duckdb_copy_function_bind_get_client_context(info));
-    scoped_duckdb_value options(duckdb_copy_function_bind_get_options(info));
-
-    std::string token;
-    if (option_is_probe(options.get(), token)) {
-        if (probe_token && token == probe_token) {
-            probe_answer = slot;
-        }
-        duckdb_copy_function_bind_set_error(info, "COPY format registration probe");
-        return;
-    }
-
-    std::shared_ptr<copy_registration> registration;
-    {
-        std::lock_guard<std::mutex> lock(slot->mutex);
-        auto found = slot->entries.find(connection_id);
-        if (found != slot->entries.end()) {
-            registration = found->second;
-        }
-    }
-    if (!registration || !registration->alive.load(std::memory_order_acquire)) {
-        std::string message =
-            std::string(decline_prefix) + "COPY format '" + slot->name + "' is not registered on this connection";
-        duckdb_copy_function_bind_set_error(info, message.c_str());
-        return;
-    }
-    if (registration->owner != std::this_thread::get_id()) {
-        duckdb_copy_function_bind_set_error(info, duckdb_copy_not_pumped_message);
-        return;
-    }
+/* The request-thread part of binding a PHP format: run its bind() and
+ * attach the bind data. */
+static void bind_on_request_thread(duckdb_copy_function_bind_info info,
+                                   const std::shared_ptr<copy_registration> &registration,
+                                   scoped_duckdb_value &options) {
     if (handler_depth > 0) {
         duckdb_copy_function_bind_set_error(info, "PHP COPY formats cannot run inside another COPY handler");
         return;
@@ -872,6 +845,59 @@ static void copy_bind_callback(duckdb_copy_function_bind_info info) {
     duckdb_copy_function_bind_set_bind_data(info, bind.release(), [](void *data) {
         delete static_cast<copy_bind *>(data);
     });
+}
+
+static void copy_bind_callback(duckdb_copy_function_bind_info info) {
+    auto *slot = static_cast<std::shared_ptr<copy_slot> *>(duckdb_copy_function_bind_get_extra_info(info))->get();
+    idx_t connection_id = duckdb_context_connection_id(duckdb_copy_function_bind_get_client_context(info));
+    scoped_duckdb_value options(duckdb_copy_function_bind_get_options(info));
+
+    std::string token;
+    if (option_is_probe(options.get(), token)) {
+        if (probe_token && token == probe_token) {
+            probe_answer = slot;
+        }
+        duckdb_copy_function_bind_set_error(info, "COPY format registration probe");
+        return;
+    }
+
+    std::shared_ptr<copy_registration> registration;
+    {
+        std::lock_guard<std::mutex> lock(slot->mutex);
+        auto found = slot->entries.find(connection_id);
+        if (found != slot->entries.end()) {
+            registration = found->second;
+        }
+    }
+    if (!registration || !registration->alive.load(std::memory_order_acquire)) {
+        std::string message =
+            std::string(decline_prefix) + "COPY format '" + slot->name + "' is not registered on this connection";
+        duckdb_copy_function_bind_set_error(info, message.c_str());
+        return;
+    }
+    if (registration->owner == std::this_thread::get_id()) {
+        bind_on_request_thread(info, registration, options);
+        return;
+    }
+
+    /* duckdb_query() on a pumped connection binds on the helper thread. */
+    auto db = slot->db.lock();
+    auto session = db ? duckdb_session_find_bind(*db, connection_id) : nullptr;
+    if (!session) {
+        duckdb_copy_function_bind_set_error(info, duckdb_copy_not_pumped_message);
+        return;
+    }
+    std::string error;
+    bool ok = duckdb_callback_on_request_thread(
+        *session,
+        [&](std::string &) {
+            bind_on_request_thread(info, registration, options);
+            return true;
+        },
+        error);
+    if (!ok) {
+        duckdb_copy_function_bind_set_error(info, error.c_str());
+    }
 }
 
 /* DuckDB resolves a relative target against the process working directory,

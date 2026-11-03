@@ -107,9 +107,13 @@ remove partial output in `abort()`.
 
 DuckDB executes COPY callbacks on its worker threads, but PHP code may only
 run on the request thread. On a connection with a registered format, every
-statement runs through a pump: the request thread drives DuckDB and runs the
-handler calls that workers hand to it, between execution slices. Handler code
-therefore always runs on the request thread, in the order DuckDB requests it.
+statement runs through a pump. The request thread prepares the statement,
+which runs `bind()` directly. For `query()`, `execute()` and
+`Statement::execute()`, a helper thread that belongs to the connection then
+drives DuckDB while the request thread runs the handler calls that the helper
+and DuckDB's workers hand to it. The helper is created on first use, parks
+between statements, and ends with the connection. Handler code therefore
+always runs on the request thread, in the order DuckDB requests it.
 
 This works for:
 

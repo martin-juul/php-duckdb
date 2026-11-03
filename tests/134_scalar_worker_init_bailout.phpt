@@ -44,8 +44,7 @@ register_shutdown_function(fn() => @unlink($path));
 $args = duckdb_subprocess_args();
 foreach (['exit', 'fatal'] as $action) {
     $command = array_merge([PHP_BINARY], $args, [$path, __DIR__ . '/scalar.inc', $action]);
-    $env = ['DUCKDB_PHP_TEST_PUMP_SERVICE_ONLY' => '1'] + getenv();
-    $process = proc_open($command, [1 => ['pipe', 'w'], 2 => ['redirect', 1]], $pipes, null, $env);
+    $process = proc_open($command, [1 => ['pipe', 'w'], 2 => ['redirect', 1]], $pipes, null, getenv());
     scalar_check(is_resource($process), 'Child process started');
     $output = stream_get_contents($pipes[1]);
     fclose($pipes[1]);

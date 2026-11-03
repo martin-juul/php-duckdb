@@ -1444,6 +1444,11 @@ PHP_MSHUTDOWN_FUNCTION(duckdb) {
      * C++ state — never Zend memory — so waiting here cannot deadlock. */
     duckdb_async_shutdown();
 
+    /* Connection helpers park between leases, so the interrupt loop above
+     * never ends them. A connection that outlives the request still owns
+     * one; join it before the module and libduckdb go away. */
+    duckdb_helpers_shutdown();
+
     /* Close databases held by the process-wide instance cache while
      * libduckdb is still mapped (see duckdb_instance_cache_ptr). */
     {

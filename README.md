@@ -889,10 +889,11 @@ The test suite covers the following input checks and resource-lifecycle rules:
 - Worker threads only execute DuckDB calls; all PHP/zval access happens on the
   request thread. Safe under ZTS, `parallel`, FrankenPHP, etc.
 - PHP callbacks such as [COPY TO format](docs/copy.md) handlers also run only
-  on the request thread: DuckDB workers hand their calls to it while it drives
-  the statement. Handlers must not suspend or use the connection running the
-  statement, and `queryAsync()`/`executeAsync()` reject statements that need
-  them.
+  on the request thread: DuckDB threads hand their calls to it while the
+  statement runs, driven for buffered statements by a helper thread that
+  belongs to the connection. Handlers must not suspend or use the connection
+  running the statement, and `queryAsync()`/`executeAsync()` reject statements
+  that need them.
 - DuckDB interrupt is connection-scoped: `PendingQuery::cancel()` on a threaded
   query interrupts the whole connection (cancelling a finished query is a no-op
   and never disturbs newer work).
