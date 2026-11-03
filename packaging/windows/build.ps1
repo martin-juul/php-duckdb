@@ -92,8 +92,11 @@ try {
         }
     }
 
+    # Windows rebuilds carry a revision suffix such as 8.3.36-1; php-src tags do not.
+    $phpSourceVersion = $details.phpSemver -replace '-\d+$', ''
+
     $runner = Join-Path $build 'run-tests.php'
-    Invoke-WebRequest "https://raw.githubusercontent.com/php/php-src/php-$($details.phpSemver)/run-tests.php" -OutFile $runner
+    Invoke-WebRequest "https://raw.githubusercontent.com/php/php-src/php-$phpSourceVersion/run-tests.php" -OutFile $runner
     $env:DUCKDB_EXTENSION_PATH = $extension
     $env:TEST_PHP_EXECUTABLE = "$php/php.exe"
     $env:TEST_PHP_ARGS = "-n -d extension_dir=`"$php/ext`" -d extension=php_ffi.dll -d ffi.enable=true -d extension=php_sockets.dll -d extension=`"$extension`""
