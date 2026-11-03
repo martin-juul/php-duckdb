@@ -21,6 +21,14 @@ requires the pinned DuckDB 1.5.6 log-storage APIs. Its callbacks copy entries
 into a bounded native buffer and never execute PHP. Explicit draining works
 with synchronous, pending and background queries.
 
+After extension 1.4.1, read-side type strings include the GEOMETRY CRS.
+`Result::columns()`, `Result::columnType()`, `Statement::parameterType()`,
+`Statement::columnType()`, `DataChunk::columns()` and `Vector::type()` report a
+CRS-qualified column as `GEOMETRY('OGC:CRS84')`, matching `typeof()`, where
+extension 1.4.1 reports `GEOMETRY`. Code that compares these strings with
+`'GEOMETRY'` must account for the CRS. Columns without a CRS still report
+`GEOMETRY`.
+
 ## PHP and platform coverage
 
 The tables list configured checks; they do not claim that every job has passed
@@ -172,7 +180,7 @@ structured appender/error reporting.
 | Client context, catalog, configuration options, file-system handles | Additional capability requiring explicit binding work |
 | Arrow schema/chunk conversion | Exposed through `ArrowSchema`, `ArrowChunk` and `DataChunk`, with C Data Interface import/export and batch appending |
 | Typed values and value constructors | Full typed input through native PHP value classes; C value handles remain internal |
-| Geometry CRS | Typed geometry preserves CRS metadata; additional CRS APIs are not public |
+| Geometry CRS | Typed geometry preserves CRS metadata; read-side type strings render it, as in `GEOMETRY('OGC:CRS84')` |
 | Scalar bind/init callbacks | Exposed through `ScalarFunction`, `ScalarBinding` and `ScalarExecutor`; request-thread PHP binding, worker initialization and batch execution |
 | Expressions | `ScalarExpressionFunction` receives callback-scoped `Expression` handles for resolved types, foldability and constant folding |
 | COPY functions | `COPY ... TO` formats exposed through `Connection::registerCopyToFunction()`; `COPY ... FROM` functions are not public |

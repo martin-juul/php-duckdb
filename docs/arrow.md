@@ -151,9 +151,9 @@ paths require validation against the actual linked engine. Raw `ArrowSchema`
 import/export copies schema metadata independently of native DuckDB type
 conversion.
 
-`DataChunk::columns()` renders a type summary and can report plain `GEOMETRY`
-even when the native type retains a CRS. Inspect the GeoArrow extension
-metadata from `arrowSchema($connection)->toArray()` to check its CRS.
+`DataChunk::columns()` renders each converted type, including a GEOMETRY CRS,
+as in `GEOMETRY('OGC:CRS84')`. A CRS that DuckDB stores as PROJJSON appears in
+full, exactly as `typeof()` shows it.
 
 Conversion uses DuckDB's supported Arrow types and the supplied connection's
 conversion settings. Result export uses the settings captured for its query.
