@@ -54,6 +54,27 @@ on:
       - '.github/tests/test_sdk_cache_key.py'
   release:
     types: [published]
+  # Manual runs build only the selected targets, for example to retest the
+  # jobs a previous run lost to runner or mirror trouble. Push, pull
+  # request and release runs always build the full matrix.
+  workflow_dispatch:
+    inputs:
+      targets:
+        description: "Comma-separated job ids without spaces (e.g. almalinux-rpm,fedora-rpm), or all"
+        required: true
+        default: all
+      os:
+        description: 'Optional JSON array narrowing the os axis of the selected job (e.g. ["9"] for AlmaLinux, ["2023"] for Amazon Linux)'
+        required: false
+        default: ''
+      php:
+        description: 'Optional JSON array narrowing the php axis (e.g. ["8.2","8.5"])'
+        required: false
+        default: ''
+      arch:
+        description: 'Optional JSON array narrowing the arch axis of Linux jobs (e.g. ["amd64"])'
+        required: false
+        default: ''
 
 jobs:
   sdk-cache-tests:
@@ -67,12 +88,13 @@ jobs:
 
   opensuse-rpm:
     needs: sdk-cache-tests
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.targets == 'all' || contains(format(',{0},', inputs.targets), ',opensuse-rpm,') }}
     name: openSUSE Tumbleweed RPM (${{ matrix.arch }})
     runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
     strategy:
       fail-fast: false
       matrix:
-        arch: [amd64, arm64]
+        arch: ${{ fromJSON(inputs.arch || '["amd64", "arm64"]') }}
     container: opensuse/tumbleweed:latest
     steps:
       - uses: actions/checkout@v4
@@ -162,12 +184,13 @@ jobs:
 
   fedora-rpm:
     needs: sdk-cache-tests
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.targets == 'all' || contains(format(',{0},', inputs.targets), ',fedora-rpm,') }}
     name: Fedora 44 RPM (${{ matrix.arch }})
     runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
     strategy:
       fail-fast: false
       matrix:
-        arch: [amd64, arm64]
+        arch: ${{ fromJSON(inputs.arch || '["amd64", "arm64"]') }}
     container: fedora:44
     steps:
       - uses: actions/checkout@v4
@@ -230,14 +253,15 @@ jobs:
 
   amazonlinux-rpm:
     needs: sdk-cache-tests
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.targets == 'all' || contains(format(',{0},', inputs.targets), ',amazonlinux-rpm,') }}
     name: Amazon Linux ${{ matrix.os }} PHP ${{ matrix.php }} RPM (${{ matrix.arch }})
     runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
     strategy:
       fail-fast: false
       matrix:
-        os: ['2023', '2027']
-        php: ['8.2', '8.3', '8.4', '8.5']
-        arch: [amd64, arm64]
+        os: ${{ fromJSON(inputs.os || '["2023", "2027"]') }}
+        php: ${{ fromJSON(inputs.php || '["8.2", "8.3", "8.4", "8.5"]') }}
+        arch: ${{ fromJSON(inputs.arch || '["amd64", "arm64"]') }}
         exclude:
           # AL2027 is a public preview and currently supplies only PHP 8.5.
           - os: '2027'
@@ -319,14 +343,15 @@ jobs:
 
   almalinux-rpm:
     needs: sdk-cache-tests
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.targets == 'all' || contains(format(',{0},', inputs.targets), ',almalinux-rpm,') }}
     name: AlmaLinux ${{ matrix.os }} RPM — Remi PHP ${{ matrix.php }} (${{ matrix.arch }})
     runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
     strategy:
       fail-fast: false
       matrix:
-        os: ['9', '10']
-        php: ['8.2', '8.3', '8.4', '8.5']
-        arch: [amd64, arm64]
+        os: ${{ fromJSON(inputs.os || '["9", "10"]') }}
+        php: ${{ fromJSON(inputs.php || '["8.2", "8.3", "8.4", "8.5"]') }}
+        arch: ${{ fromJSON(inputs.arch || '["amd64", "arm64"]') }}
     container: almalinux:${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -423,12 +448,13 @@ jobs:
 
   debian-deb:
     needs: sdk-cache-tests
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.targets == 'all' || contains(format(',{0},', inputs.targets), ',debian-deb,') }}
     name: Debian sid deb (${{ matrix.arch }})
     runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
     strategy:
       fail-fast: false
       matrix:
-        arch: [amd64, arm64]
+        arch: ${{ fromJSON(inputs.arch || '["amd64", "arm64"]') }}
     container: debian:sid
     steps:
       - uses: actions/checkout@v4
@@ -508,12 +534,13 @@ jobs:
 
   debian-trixie-deb:
     needs: sdk-cache-tests
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.targets == 'all' || contains(format(',{0},', inputs.targets), ',debian-trixie-deb,') }}
     name: Debian 13 trixie deb (${{ matrix.arch }})
     runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
     strategy:
       fail-fast: false
       matrix:
-        arch: [amd64, arm64]
+        arch: ${{ fromJSON(inputs.arch || '["amd64", "arm64"]') }}
     container: debian:trixie
     steps:
       - uses: actions/checkout@v4
@@ -590,6 +617,7 @@ jobs:
 
   ubuntu-lts-deb:
     needs: sdk-cache-tests
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.targets == 'all' || contains(format(',{0},', inputs.targets), ',ubuntu-lts-deb,') }}
     name: Ubuntu ${{ matrix.release }} LTS deb (${{ matrix.arch }})
     runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
     strategy:
@@ -597,7 +625,7 @@ jobs:
       matrix:
         # noble: PHP 8.3, resolute: PHP 8.5; both build the patched SDK.
         release: ['24.04', '26.04']
-        arch: [amd64, arm64]
+        arch: ${{ fromJSON(inputs.arch || '["amd64", "arm64"]') }}
     container: ubuntu:${{ matrix.release }}
     steps:
       - uses: actions/checkout@v4
@@ -671,12 +699,13 @@ jobs:
 
   ubuntu-devel-deb:
     needs: sdk-cache-tests
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.targets == 'all' || contains(format(',{0},', inputs.targets), ',ubuntu-devel-deb,') }}
     name: Ubuntu devel deb (${{ matrix.arch }})
     runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
     strategy:
       fail-fast: false
       matrix:
-        arch: [amd64, arm64]
+        arch: ${{ fromJSON(inputs.arch || '["amd64", "arm64"]') }}
     container: ubuntu:devel
     steps:
       - uses: actions/checkout@v4
@@ -754,13 +783,14 @@ jobs:
 
   macos-tarball:
     needs: sdk-cache-tests
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.targets == 'all' || contains(format(',{0},', inputs.targets), ',macos-tarball,') }}
     name: macOS 12+ ${{ matrix.arch }} tarball — PHP ${{ matrix.php }}
     runs-on: ${{ matrix.arch == 'x86_64' && 'macos-15-intel' || 'macos-15' }}
     strategy:
       fail-fast: false
       matrix:
         arch: [x86_64, arm64]
-        php: ['8.2', '8.3', '8.4', '8.5']
+        php: ${{ fromJSON(inputs.php || '["8.2", "8.3", "8.4", "8.5"]') }}
     steps:
       - uses: actions/checkout@v4
 
@@ -823,12 +853,13 @@ jobs:
 
   windows-zip:
     needs: sdk-cache-tests
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.targets == 'all' || contains(format(',{0},', inputs.targets), ',windows-zip,') }}
     name: Windows x64 ZIP — PHP ${{ matrix.php }} ${{ matrix.ts }}
     runs-on: windows-2022
     strategy:
       fail-fast: false
       matrix:
-        php: ['8.2', '8.3', '8.4', '8.5']
+        php: ${{ fromJSON(inputs.php || '["8.2", "8.3", "8.4", "8.5"]') }}
         ts: [ts, nts]
     defaults:
       run:
