@@ -16,6 +16,13 @@
 # Package the patched engine alongside the PHP extension.
 %global duckdb_version   1.5.6
 
+# The vendored DuckDB engine is a very large C++ build. The distribution's
+# LTO flags (-flto=auto -ffat-lto-objects) store both LTO bytecode and
+# machine code in every object, which roughly doubles the engine's build
+# tree and has filled hosted CI runners' disks. LTO adds little to a
+# library used through its C API; debug info and hardening flags stay.
+%global _lto_cflags %{nil}
+
 # duckdb is a normal extension without load-order constraints: the
 # standard PECL ini priority is 40. Remi's default-namespace PHP uses
 # /etc/php.d exactly like Fedora/RHEL AppStream PHP.
