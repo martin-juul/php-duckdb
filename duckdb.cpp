@@ -1217,11 +1217,72 @@ DUCKDB_COPY_METHOD(DuckDB_Connection, beginTransaction) {
     duckdb_connection_exec_simple(INTERNAL_FUNCTION_PARAM_PASSTHRU, "BEGIN TRANSACTION");
 }
 
+/* DuckDB 2.0 turns COMMIT of an aborted transaction into a silent ROLLBACK,
+ * whatever aborted it: a SQL error, a superseded write or raw SQL the
+ * extension never saw. commit() therefore asks DuckDB first. Every statement
+ * that needs a valid transaction fails with "Current transaction is aborted"
+ * while an aborted one is open. EXPLAIN SELECT 1 is that statement: it has no
+ * side effects, cannot fail in a healthy transaction (where any error would
+ * itself abort it), and the profiler skips it, so profiling output and
+ * profile_output files still describe the user's last query. Outside a
+ * transaction it runs under autocommit, and COMMIT then reports "no
+ * transaction is active" as before. */
+static const char duckdb_transaction_probe_sql[] = "EXPLAIN SELECT 1";
+
+static bool duckdb_transaction_probe_aborted(duckdb_result *res) {
+    if (duckdb_result_error_type(res) != DUCKDB_ERROR_TRANSACTION) {
+        return false;
+    }
+
+    const char *error = duckdb_result_error(res);
+
+    return error != nullptr && strstr(error, "Current transaction is aborted") != nullptr;
+}
+
 DUCKDB_COPY_METHOD(DuckDB_Connection, commit) {
     DUCKDB_TSRMLS_CACHE_UPDATE();
     ZEND_PARSE_PARAMETERS_START(0, 0)
     ZEND_PARSE_PARAMETERS_END();
-    duckdb_connection_exec_simple(INTERNAL_FUNCTION_PARAM_PASSTHRU, "COMMIT");
+
+    php_duckdb_connection_object *intern = Z_DUCKDB_CONNECTION_P(ZEND_THIS);
+    if (!duckdb_connection_guard(intern->inner)) {
+        RETURN_THROWS();
+    }
+
+    duckdb_result res = {};
+    {
+        /* Superseding here can itself abort the transaction (an undriven
+         * write), so the probe runs after the entry. */
+        std::unique_lock<std::mutex> lk;
+        if (!duckdb_conn_enter(*intern->inner, lk, conn_entry::statement_start)) {
+            RETURN_THROWS();
+        }
+
+        if (duckdb_query(intern->inner->conn, duckdb_transaction_probe_sql, &res) == DuckDBError) {
+            if (!duckdb_transaction_probe_aborted(&res)) {
+                duckdb_throw_result_error(&res);
+                RETURN_THROWS();
+            }
+
+            duckdb_destroy_result(&res);
+            if (duckdb_query(intern->inner->conn, "ROLLBACK", &res) == DuckDBError) {
+                duckdb_throw_result_error(&res);
+                RETURN_THROWS();
+            }
+
+            duckdb_destroy_result(&res);
+            duckdb_throw_error(DUCKDB_ERROR_TRANSACTION,
+                               "Transaction was aborted, so nothing was committed; it has been rolled back");
+            RETURN_THROWS();
+        }
+        duckdb_destroy_result(&res);
+
+        if (duckdb_query(intern->inner->conn, "COMMIT", &res) == DuckDBError) {
+            duckdb_throw_result_error(&res);
+            RETURN_THROWS();
+        }
+    }
+    duckdb_destroy_result(&res);
 }
 
 DUCKDB_COPY_METHOD(DuckDB_Connection, rollBack) {
