@@ -180,14 +180,17 @@ static bool capture_exception(std::string &error) {
     return true;
 }
 
-static bool resolve_type(conn_inner &conn, const std::string &declaration, scoped_duckdb_value &value) {
+/* Resolve `declaration` on `resolver`, which is `conn` or its conversion
+ * connection. */
+static bool resolve_type(conn_inner &conn, conn_inner &resolver, const std::string &declaration,
+                         scoped_duckdb_value &value) {
     zval wrapper;
     zval input;
     ZVAL_NULL(&input);
     object_init_ex(&wrapper, duckdb_value_class_entry());
     std::vector<scoped_duckdb_value> values;
     bool ok = duckdb_value_initialize(&wrapper, declaration, &input) &&
-        duckdb_convert_values(&conn, {&wrapper}, values);
+        duckdb_convert_values(&resolver, {&wrapper}, values);
     duckdb_callback_zval_release(&conn, &wrapper);
     if (ok) {
         value = std::move(values.front());
@@ -601,19 +604,25 @@ DUCKDB_COPY_METHOD(DuckDB_Connection, registerScalarFunction) {
             conn->scalar_state = std::move(registry);
             scalar_connections.emplace_back(conn);
         }
+        /* Registration must not supersede an open result, and DuckDB refuses
+         * a statement while one is open. Resolve on the user connection, which
+         * sees its USE catalog, search path and uncommitted types, unless a
+         * result is open; then resolve on the conversion connection. */
+        conn_inner &resolver = conn->open_results.empty() ? *conn : *conn->scalar_state->conversion;
+
         std::vector<scoped_duckdb_value> types;
         zval *parameter;
         ZEND_HASH_FOREACH_VAL(Z_ARRVAL_P(parameters), parameter) {
             std::string declaration;
             scoped_duckdb_value resolved;
-            if (!duckdb_type_spec(parameter, declaration) || !resolve_type(*conn, declaration, resolved)) {
+            if (!duckdb_type_spec(parameter, declaration) || !resolve_type(*conn, resolver, declaration, resolved)) {
                 RETURN_THROWS();
             }
             types.push_back(std::move(resolved));
         } ZEND_HASH_FOREACH_END();
         std::string declaration;
         scoped_duckdb_value resolved;
-        if (!duckdb_type_spec(result, declaration) || !resolve_type(*conn, declaration, resolved)) {
+        if (!duckdb_type_spec(result, declaration) || !resolve_type(*conn, resolver, declaration, resolved)) {
             RETURN_THROWS();
         }
         types.push_back(std::move(resolved));

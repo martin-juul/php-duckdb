@@ -37,17 +37,17 @@ check(in_array('abort', $format->log, true), 'abort() ran');
 check($conn->query('SELECT count(*) AS n FROM t')->fetchAll() === [['n' => 10]], 'The appender flushed its rows');
 echo "appender destructor\n";
 
-// Any other entry to the connection supersedes the undriven COPY, with a
-// message that says so.
+// Binding a value starts no statement, so the undriven COPY keeps running
+// and completes when awaited.
 $statement = $conn->prepare('SELECT ?::INTEGER AS v');
-$pending = start_copy($conn, $format, $copy);
+$bound = "COPY (SELECT range AS i FROM range(1000000)) TO '$dir/bound.lines' (FORMAT lines)";
+$pending = start_copy($conn, $format, $bound);
 $statement->bindValue(1, 5);
-$error = failure(fn() => $pending->await());
-check(str_contains($error->getMessage(), 'COPY statement superseded by another operation on its connection'),
-    $error->getMessage());
-check(in_array('abort', $format->log, true), 'abort() ran');
-check($statement->execute()->fetchAll() === [['v' => 5]], 'The connection stays usable');
-echo "superseded by bindValue\n";
+check($pending->await()->fetchAll() === [['Count' => 1000000]], 'The COPY wrote every row');
+check(!in_array('abort', $format->log, true), 'abort() did not run');
+check(in_array('close', $format->log, true), 'The COPY closed its writer');
+check($statement->execute()->fetchAll() === [['v' => 5]], 'The binding was kept');
+echo "bindValue leaves the COPY running\n";
 
 // Registration leaves an active COPY on its pinned handler.
 $prepared = $conn->prepare("COPY (SELECT 2 AS i) TO '$dir/prepared.lines' (FORMAT lines)");
@@ -91,7 +91,7 @@ echo "relative target\n";
 ?>
 --EXPECT--
 appender destructor
-superseded by bindValue
+bindValue leaves the COPY running
 registration while running
 registration before first batch
 relative target

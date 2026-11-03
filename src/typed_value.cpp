@@ -701,9 +701,11 @@ void capture_bind(duckdb_bind_info info) {
         duckdb_error_data err = duckdb_expression_fold(ctx, expr, &v);
         duckdb_destroy_expression(&expr);
         if (duckdb_error_data_has_error(err)) {
+            /* Keep the error for the PHP thread instead of failing the bind:
+             * DuckDB 2.0 aborts an explicit transaction on any statement
+             * error, and a failed conversion leaves the transaction usable. */
             active->error_type = duckdb_error_data_error_type(err);
             active->error_message = duckdb_error_data_message(err);
-            duckdb_scalar_function_bind_set_error(info, duckdb_error_data_message(err));
             duckdb_destroy_error_data(&err);
             if (v)
                 duckdb_destroy_value(&v);
@@ -1058,16 +1060,24 @@ bool duckdb_convert_values(conn_inner *c, const std::vector<zval *> &inputs,
                 duckdb_throw_prepare_error(duckdb_prepare_error(p.get()));
                 return false;
             }
-        duckdb_result result{};
-        if (duckdb_execute_prepared(p.get(), &result) == DuckDBError) {
+        /* Creating the pending query rebinds with the bound values, so the
+         * capture has folded every input. Executing it would raise a failed
+         * cast again as a statement error, which aborts the user's
+         * transaction, so the pending query is discarded unexecuted. */
+        duckdb_scoped<duckdb_pending_result, duckdb_destroy_pending> pending;
+        if (duckdb_pending_prepared(p.get(), pending.out()) == DuckDBError) {
             if (!op.error_message.empty()) {
-                duckdb_destroy_result(&result);
                 throw_operation_error(op);
-            } else
-                duckdb_throw_result_error(&result);
+            } else {
+                duckdb_throw_prepare_error(duckdb_pending_error(pending.get()));
+            }
             return false;
         }
-        duckdb_destroy_result(&result);
+
+        if (!op.error_message.empty()) {
+            throw_operation_error(op);
+            return false;
+        }
         if (op.values.size() != inputs.size() + 1) {
             duckdb_throw_msg("Typed conversion did not capture every native value");
             return false;
