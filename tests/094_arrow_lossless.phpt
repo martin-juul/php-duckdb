@@ -135,13 +135,16 @@ $appender->appendChunk($transactionChunk);
 $appender->close();
 check($observer->query('SELECT count(*) AS n FROM markers')->fetchRow() === ['n' => 0], 'Arrow export committed source transaction');
 check($observer->query('SELECT count(*) AS n FROM transactional_geometry')->fetchRow() === ['n' => 0], 'Arrow import committed destination transaction');
-$unsupported = $source->query("SELECT 'text'::VARIANT AS v");
+// DuckDB 2.0 exports VARIANT, so a lossy UHUGEINT export provides the failing conversion.
+$source->query('SET arrow_lossless_conversion = false');
+$unsupported = $source->query("SELECT '340282366920938463463374607431768211455'::UHUGEINT AS v");
 try {
     $unsupported->fetchArrowChunk();
-    throw new RuntimeException('VARIANT export did not reject unsupported type');
+    throw new RuntimeException('Lossy UHUGEINT export did not reject unsafe type');
 } catch (DuckDB\Exception $error) {
-    check(str_contains($error->getMessage(), 'VARIANT'), 'Unsupported error does not identify VARIANT');
+    check(str_contains($error->getMessage(), 'UHUGEINT'), 'Unsafe export error does not identify UHUGEINT');
 }
+$source->query('SET arrow_lossless_conversion = true');
 check($source->query('SELECT count(*) AS n FROM markers')->fetchRow() === ['n' => 1], 'Conversion failure aborted caller transaction');
 $source->rollback();
 $destination->rollback();

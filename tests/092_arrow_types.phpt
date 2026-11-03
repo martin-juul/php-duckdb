@@ -103,15 +103,16 @@ foreach ($cases as [$type, $expression, $normalized]) {
 }
 echo "explicit lossy exports preserve safe UUID, ENUM and JSON values\n";
 
-$unsupportedSql = "SELECT 'text'::VARIANT AS v";
+// DuckDB 2.0 exports VARIANT, so the lossy settings above provide the failing export.
+$unsupportedSql = "SELECT '340282366920938463463374607431768211455'::UHUGEINT AS v";
 $expected = $conn->query($unsupportedSql)->fetchRow();
 $unsupported = $conn->query($unsupportedSql);
 foreach ([fn() => $unsupported->arrowSchema(), fn() => $unsupported->fetchArrowChunk()] as $operation) {
     try {
         $operation();
-        throw new RuntimeException('Unsupported VARIANT export did not throw');
+        throw new RuntimeException('Unsupported lossy UHUGEINT export did not throw');
     } catch (DuckDB\Exception $error) {
-        check(str_contains($error->getMessage(), 'VARIANT'), 'Unsupported export must identify its type');
+        check(str_contains($error->getMessage(), 'UHUGEINT'), 'Unsupported export must identify its type');
     }
 }
 check($unsupported->fetchRow() === $expected, 'Unsupported export must retain unread row');

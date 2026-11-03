@@ -13,6 +13,17 @@ $probe = static fn () => $conn->query("SELECT 'alive' AS s")->fetchRow()['s'];
 try { $conn->query('SELEC 1'); } catch (ParserException) { echo "parser caught\n"; }
 echo 'after parser: ', $probe(), "\n";
 
+// DuckDB 2.0 runs the statements before a later syntax error. Test 109 checks
+// the same on the forced COPY pump path.
+try {
+    $conn->query('CREATE TABLE never(i INTEGER); SELEC 1');
+} catch (ParserException) {
+    echo "multi-statement parser caught\n";
+}
+
+$sql = "SELECT count(*)::INTEGER AS c FROM duckdb_tables() WHERE table_name = 'never'";
+echo 'statement before parse error ran: ', $conn->query($sql)->fetchRow()['c'], "\n";
+
 try { $conn->query('SELECT * FROM missing_table'); } catch (CatalogException) { echo "catalog caught\n"; }
 echo 'after catalog: ', $probe(), "\n";
 
@@ -65,6 +76,8 @@ echo "done\n";
 --EXPECT--
 parser caught
 after parser: alive
+multi-statement parser caught
+statement before parse error ran: 1
 catalog caught
 after catalog: alive
 binder caught
