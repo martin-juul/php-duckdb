@@ -81,9 +81,8 @@ ranges.
 | `select(SelectionVector\|array $selection): Vector` | Copy the rows a [selection](selection.md) names into a new vector |
 
 Values decode with the normal [PHP type mappings](types.md). `type()` renders
-like result metadata: JSON reports `VARCHAR`, and GEOMETRY omits its CRS even
-though the vector retains it. Export a chunk's Arrow schema to inspect the
-CRS.
+like result metadata: JSON reports `VARCHAR`, and a CRS-qualified GEOMETRY
+reports its CRS, as in `GEOMETRY('OGC:CRS84')`.
 
 ## Data chunks
 

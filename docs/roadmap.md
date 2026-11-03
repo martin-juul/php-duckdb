@@ -38,7 +38,9 @@ inspects bound argument types and folds constants through callback-scoped
 named database-wide storage buffers native log entries for explicit PHP
 draining. [UTF-8 checks](api.md#functions) are implemented in this development
 checkout as connection-free `isValidUtf8()` and `checkUtf8()` functions.
-Additional geometry CRS APIs are next.
+[Geometry CRS metadata](compatibility.md) is implemented in this development
+checkout: read-side type strings render a CRS-qualified column as
+`GEOMETRY('OGC:CRS84')`, matching `typeof()`.
 
 The intended PR sequence is:
 
