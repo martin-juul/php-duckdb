@@ -220,10 +220,27 @@ const char *duckdb_type_name(duckdb_type type) {
 
 /* Render a logical type the way DuckDB itself does (LogicalType::ToString):
  * DECIMAL(10,3), INTEGER[], INTEGER[3], STRUCT(a INTEGER, b VARCHAR),
- * MAP(VARCHAR, INTEGER), UNION(num INTEGER, txt VARCHAR), ENUM('sad', 'ok').
+ * MAP(VARCHAR, INTEGER), UNION(num INTEGER, txt VARCHAR), ENUM('sad', 'ok'),
+ * GEOMETRY('OGC:CRS84'). Aliases such as JSON render as their physical type.
  * Falls back to the bare type name when a child cannot be resolved. */
 std::string duckdb_logical_type_render(duckdb_logical_type type) {
     switch (duckdb_get_type_id(type)) {
+        case DUCKDB_TYPE_GEOMETRY: {
+            char *crs = duckdb_geometry_type_get_crs(type);
+            std::string out = "GEOMETRY";
+            if (crs && crs[0] != '\0') {
+                out += "('";
+                for (const char *c = crs; *c != '\0'; c++) {
+                    out += *c;
+                    if (*c == '\'') {
+                        out += '\'';
+                    }
+                }
+                out += "')";
+            }
+            duckdb_free(crs);
+            return out;
+        }
         case DUCKDB_TYPE_DECIMAL:
             return "DECIMAL(" + std::to_string(duckdb_decimal_width(type)) + "," +
                    std::to_string(duckdb_decimal_scale(type)) + ")";
