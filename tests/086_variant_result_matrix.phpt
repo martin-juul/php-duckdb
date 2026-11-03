@@ -1,5 +1,5 @@
 --TEST--
-Result: VARIANT JSON rendering for all payload tags and persisted multi-chunk results
+Result: VARIANT JSON rendering for all payload tags, Parquet round trips and persisted multi-chunk results
 --SKIPIF--
 <?php require_once __DIR__ . '/skipif.inc'; ?>
 --FILE--
@@ -8,12 +8,10 @@ Result: VARIANT JSON rendering for all payload tags and persisted multi-chunk re
 $databasePath = sys_get_temp_dir() . '/duckdb-variant-matrix-' . bin2hex(random_bytes(8)) . '.db';
 
 try {
-    $database = new DuckDB\Database($databasePath, [
-        'threads' => '1', 'storage_compatibility_version' => 'v1.5.0',
-    ]);
+    $database = new DuckDB\Database($databasePath, ['threads' => '1']);
     $conn = $database->connect();
     $conn->query("SET TimeZone = 'UTC'");
-    // Each of the 34 VARIANT payload tags has a direct case. SQL JSON casts are
+    // Each of the 35 VARIANT payload tags has a direct case. SQL JSON casts are
     // the formatting oracle; every assertion reads the uncast VARIANT into PHP.
     $cases = [
         'variant null' => "'null'::JSON::VARIANT",
@@ -44,6 +42,7 @@ try {
         'timestamp nanos' => "TIMESTAMP_NS '2024-01-01 12:00:00.123456789'::VARIANT",
         'time timezone' => "TIMETZ '12:34:56.123456-02:03:04'::VARIANT",
         'timestamp timezone' => "TIMESTAMPTZ '2024-01-01 12:00:00.123456+02'::VARIANT",
+        'timestamp nanos timezone' => "TIMESTAMPTZ_NS '2024-01-01 12:00:00.123456789+02'::VARIANT",
         'interval' => "INTERVAL '1 year 2 months 3 days 04:05:06.789'::VARIANT",
         'object' => "{'a': 1::UTINYINT, 'b': 'two', 'n': NULL, 'list': [1, 2]}::VARIANT",
         'array' => "'[1,\"two\",null,{\"nested\":true},[]]'::JSON::VARIANT",
@@ -60,6 +59,9 @@ try {
         'decimal int32' => "'-1234.50'::DECIMAL(9,2)::VARIANT",
         'decimal int64' => "'1234567890123456.70'::DECIMAL(18,2)::VARIANT",
         'decimal zero' => '0::DECIMAL(18,3)::VARIANT',
+        'decimal fraction only' => "'0.5'::DECIMAL(1,1)::VARIANT",
+        'decimal negative fraction only' => "'-0.50'::DECIMAL(2,2)::VARIANT",
+        'object unsorted keys' => "'{\"zeta\":1,\"alpha\":{\"y\":2,\"x\":3},\"Alpha\":4,\"_\":5}'::JSON::VARIANT",
         'unicode key and control characters' => <<<'SQL'
 '{"a\u0000b":"quotes \" slash \\ newline\n tab\t","🦆":"héllo"}'::JSON::VARIANT
 SQL,
@@ -70,6 +72,7 @@ SQL,
         'timestamp seconds infinity' => "TIMESTAMP_S 'infinity'::VARIANT",
         'timestamp millis infinity' => "TIMESTAMP_MS '-infinity'::VARIANT",
         'timestamp nanos before epoch' => "TIMESTAMP_NS '1969-12-31 23:59:59.999999999'::VARIANT",
+        'timestamp nanos timezone before epoch' => "TIMESTAMPTZ_NS '1969-12-31 23:59:59.999999999+00'::VARIANT",
     ];
     foreach (['FLOAT', 'DOUBLE'] as $type) {
         foreach (['NaN', 'infinity', '-infinity', '-0.0', '1e-7', '1e-6', '1e20', '1e21',
@@ -164,31 +167,72 @@ SQL,
     verify_variant_rows($filtered, $ids, $labels, 'filtered persisted values', $failures);
     echo "filtered persisted payloads: exact JSON\n";
 
-    foreach (['buffered' => false, 'streaming' => true] as $context => $streaming) {
-        $chunkSql = "SELECT i AS id, {'n': i, 'nil': NULL, 'text': 'a' || chr(0) || 'b', 'list': [i, i + 1]}::VARIANT AS v FROM range(4105) t(i)";
-        $chunkSql = "SELECT id, v, CAST(v AS JSON)::VARCHAR AS oracle FROM ($chunkSql) ORDER BY id";
-        $result = $streaming ? $conn->queryStreaming($chunkSql) : $conn->query($chunkSql);
-        $count = 0;
-        while (($row = $result->fetchRow()) !== null) {
-            if ($row['id'] !== $count || $row['v'] !== $row['oracle']) {
-                throw new RuntimeException("VARIANT chunk decoding mismatch: $context/$count");
-            }
-            $count++;
+    // DuckDB's own Parquet writer and reader re-encode VARIANT. Parquet VARIANT
+    // has no HUGEINT, UHUGEINT, UBIGINT maximum, TIME_NS, TIMESTAMP_S/MS, TIMETZ,
+    // INTERVAL, BIGNUM, BIT or GEOMETRY payload, and accepts TIMESTAMPTZ_NS only
+    // in a uniformly typed (shredded) column, so that payload gets its own file.
+    $parquetLabels = [
+        'variant null', 'true', 'false', 'int8', 'int16', 'int32', 'int64', 'uint8', 'uint16', 'uint32',
+        'float', 'double', 'decimal', 'varchar', 'blob', 'uuid', 'date', 'time micros', 'timestamp micros',
+        'timestamp nanos', 'timestamp timezone', 'object', 'array', 'sql null', 'empty object', 'empty array',
+        'empty varchar', 'empty blob', 'decimal int16', 'decimal int32', 'decimal int64', 'decimal zero',
+        'decimal fraction only', 'decimal negative fraction only', 'object unsorted keys',
+        'unicode key and control characters',
+    ];
+    $parquetIds = array_map(static fn(string $label) => array_search($label, $labels, true), $parquetLabels);
+    sort($parquetIds);
+    $parquetPath = sys_get_temp_dir() . '/duckdb-variant-matrix-' . bin2hex(random_bytes(8)) . '.parquet';
+    $parquetFiles = [$parquetPath];
+    $conn->query("COPY (SELECT id, v FROM variants WHERE id IN (" . implode(', ', $parquetIds) . ")) TO '$parquetPath' (FORMAT parquet)");
+    $sqlValues = array_column($conn->query($literalSql)->fetchAll(), 'v', 'id');
+    $parquetSql = "SELECT id, v, CAST(v AS JSON)::VARCHAR AS oracle, v IS NULL AS sql_null FROM read_parquet('$parquetPath') ORDER BY id";
+    $parquetRows = $conn->query($parquetSql)->fetchAll();
+    verify_variant_rows($parquetRows, $parquetIds, $labels, 'parquet', $failures);
+    foreach ($parquetRows as $row) {
+        if ($row['v'] !== $sqlValues[$row['id']]) {
+            $failures[] = "parquet/{$labels[$row['id']]}: Parquet value differs from SQL value";
         }
-        if ($count !== 4105) {
-            throw new RuntimeException('VARIANT chunk result truncated');
-        }
-        unset($result);
-        echo $context, ": 4105 rows cross chunk boundaries\n";
     }
+    $nanosId = array_search('timestamp nanos timezone', $labels, true);
+    $nanosPath = sys_get_temp_dir() . '/duckdb-variant-matrix-' . bin2hex(random_bytes(8)) . '.parquet';
+    $parquetFiles[] = $nanosPath;
+    $conn->query("COPY (SELECT id, v FROM variants WHERE id = $nanosId) TO '$nanosPath' (FORMAT parquet)");
+    $nanosRows = $conn->query(str_replace($parquetPath, $nanosPath, $parquetSql))->fetchAll();
+    verify_variant_rows($nanosRows, [$nanosId], $labels, 'parquet shredded', $failures);
+    if ($nanosRows[0]['v'] !== '"2024-01-01 10:00:00.123456789+00"') {
+        $failures[] = 'parquet shredded/timestamp nanos timezone: ' . var_export($nanosRows[0]['v'], true);
+    }
+    echo "parquet written by DuckDB: exact JSON, same as SQL values\n";
+
+    function verify_variant_chunks(DuckDB\Connection $conn, string $source, string $context): void {
+        foreach (['buffered' => false, 'streaming' => true] as $mode => $streaming) {
+            $chunkSql = "SELECT id, v, CAST(v AS JSON)::VARCHAR AS oracle FROM ($source) ORDER BY id";
+            $result = $streaming ? $conn->queryStreaming($chunkSql) : $conn->query($chunkSql);
+            $count = 0;
+            while (($row = $result->fetchRow()) !== null) {
+                if ($row['id'] !== $count || $row['v'] !== $row['oracle']) {
+                    throw new RuntimeException("VARIANT chunk decoding mismatch: $context/$mode/$count");
+                }
+                $count++;
+            }
+            if ($count !== 4105) {
+                throw new RuntimeException("VARIANT chunk result truncated: $context/$mode");
+            }
+            unset($result);
+            echo "$context $mode: 4105 rows cross chunk boundaries\n";
+        }
+    }
+    $chunkSource = "SELECT i AS id, {'n': i, 'nil': NULL, 'text': 'a' || chr(0) || 'b', 'list': [i, i + 1]}::VARIANT AS v FROM range(4105) t(i)";
+    verify_variant_chunks($conn, $chunkSource, 'query');
+    $conn->query("CREATE TABLE chunk_variants AS $chunkSource");
+    $conn->query('CHECKPOINT');
     unset($paths, $run, $statement, $conn, $database);
-    $database = new DuckDB\Database($databasePath, [
-        'threads' => '1', 'storage_compatibility_version' => 'v1.5.0',
-    ]);
+    $database = new DuckDB\Database($databasePath, ['threads' => '1']);
     $conn = $database->connect();
     $rows = $conn->query($literalSql)->fetchAll();
     verify_variant_rows($rows, range(0, count($cases) - 1), $labels, 'reopened database', $failures);
     echo "reopened database: exact JSON\n";
+    verify_variant_chunks($conn, 'SELECT id, v FROM chunk_variants', 'reopened checkpoint');
     if ($failures !== []) {
         throw new RuntimeException(implode("\n", $failures));
     }
@@ -196,6 +240,9 @@ SQL,
     unset($paths, $run, $statement, $result, $conn, $database);
     @unlink($databasePath);
     @unlink($databasePath . '.wal');
+    foreach ($parquetFiles ?? [] as $file) {
+        @unlink($file);
+    }
 }
 ?>
 --EXPECT--
@@ -207,6 +254,9 @@ prepared streaming: all payloads match JSON cast across fetch paths
 prepared async: all payloads match JSON cast across fetch paths
 nested typed wrappers: exact JSON
 filtered persisted payloads: exact JSON
-buffered: 4105 rows cross chunk boundaries
-streaming: 4105 rows cross chunk boundaries
+parquet written by DuckDB: exact JSON, same as SQL values
+query buffered: 4105 rows cross chunk boundaries
+query streaming: 4105 rows cross chunk boundaries
 reopened database: exact JSON
+reopened checkpoint buffered: 4105 rows cross chunk boundaries
+reopened checkpoint streaming: 4105 rows cross chunk boundaries
