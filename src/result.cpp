@@ -993,7 +993,8 @@ PHP_METHOD(DuckDB_Result, fetchArrowChunk) {
 /* ================================================================== */
 
 void duckdb_result_instantiate(zval *return_value, duckdb_result *res, bool streaming,
-                               std::shared_ptr<stmt_inner> keepalive, std::shared_ptr<conn_inner> connection) {
+                               std::shared_ptr<stmt_inner> keepalive, std::shared_ptr<conn_inner> connection,
+                               duckdb_statement_type statement_type) {
     object_init_ex(return_value, duckdb_result_ce);
     php_duckdb_result_object *intern = Z_DUCKDB_RESULT_P(return_value);
 
@@ -1016,7 +1017,10 @@ void duckdb_result_instantiate(zval *return_value, duckdb_result *res, bool stre
             data->column_names.emplace_back(name ? name : "?");
         }
     }
-    data->statement_type = duckdb_result_statement_type(*source);
+    data->statement_type = statement_type;
+    if (data->statement_type == DUCKDB_STATEMENT_TYPE_INVALID) {
+        data->statement_type = duckdb_result_statement_type(*source);
+    }
     /* duckdb_row_count is deprecated upstream, but there is no
      * non-deprecated API for counting the rows of an already-materialized
      * result. Kept deliberately; isolated to this call site. */

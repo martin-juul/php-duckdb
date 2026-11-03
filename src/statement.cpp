@@ -560,7 +560,8 @@ static void duckdb_statement_execute_impl(INTERNAL_FUNCTION_PARAMETERS, bool str
 
         /* A stream becomes the connection's open result. */
         duckdb_result_instantiate(return_value, &res, streaming,
-                                  streaming ? intern->inner : nullptr, intern->inner->conn);
+                                  streaming ? intern->inner : nullptr, intern->inner->conn,
+                                  duckdb_prepared_statement_type(intern->inner->stmt));
     }
 }
 
@@ -621,6 +622,7 @@ DUCKDB_COPY_METHOD(DuckDB_Statement, executeAsync) {
     task->mode = task_mode::THREAD_PREPARED;
     task->conn = intern->inner->conn;
     task->stmt = intern->inner; /* keeps the statement alive during execution */
+    task->statement_type = duckdb_prepared_statement_type(intern->inner->stmt);
     task->notify_write_fd = fds[1];
 
     try {

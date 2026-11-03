@@ -503,7 +503,7 @@ void duckdb_throw_start_error(const std::string &message) {
     duckdb_throw_error(type, message.c_str());
 }
 
-bool duckdb_pump_query(conn_inner &conn, const char *sql, duckdb_result *out) {
+bool duckdb_pump_query(conn_inner &conn, const char *sql, duckdb_result *out, duckdb_statement_type *out_type) {
     duckdb_extracted_statements extracted = nullptr;
     idx_t count = duckdb_extract_statements(conn.conn, sql, &extracted);
     if (count == 0) {
@@ -560,6 +560,7 @@ bool duckdb_pump_query(conn_inner &conn, const char *sql, duckdb_result *out) {
 
         duckdb_result current = {};
         std::string start_error;
+        duckdb_statement_type current_type = duckdb_prepared_statement_type(statement);
         duckdb_state state = duckdb_pump_execute(conn, statement, false, &current, start_error);
         duckdb_destroy_prepare(&statement);
         if (!start_error.empty() || state == DuckDBError) {
@@ -583,6 +584,9 @@ bool duckdb_pump_query(conn_inner &conn, const char *sql, duckdb_result *out) {
             duckdb_destroy_result(out);
         }
         *out = current;
+        if (out_type) {
+            *out_type = current_type;
+        }
         held = true;
         held_rows = duckdb_result_return_type(*out) == DUCKDB_RESULT_TYPE_QUERY_RESULT;
     }

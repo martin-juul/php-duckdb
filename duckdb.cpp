@@ -625,13 +625,14 @@ DUCKDB_COPY_METHOD(DuckDB_Connection, query) {
     }
 
     duckdb_result res = {};
+    duckdb_statement_type statement_type = DUCKDB_STATEMENT_TYPE_INVALID;
     {
         std::unique_lock<std::mutex> lk;
         if (!duckdb_conn_enter(*intern->inner, lk, conn_entry::statement_start)) {
             RETURN_THROWS();
         }
         if (duckdb_conn_needs_pump(*intern->inner)) {
-            if (!duckdb_pump_query(*intern->inner, sql, &res)) {
+            if (!duckdb_pump_query(*intern->inner, sql, &res, &statement_type)) {
                 RETURN_THROWS();
             }
         } else if (duckdb_query(intern->inner->conn, sql, &res) == DuckDBError) {
@@ -640,7 +641,7 @@ DUCKDB_COPY_METHOD(DuckDB_Connection, query) {
         }
     }
 
-    duckdb_result_instantiate(return_value, &res, /*streaming=*/false, nullptr, intern->inner);
+    duckdb_result_instantiate(return_value, &res, /*streaming=*/false, nullptr, intern->inner, statement_type);
 }
 
 DUCKDB_COPY_METHOD(DuckDB_Connection, queryStreaming) {
@@ -711,7 +712,8 @@ DUCKDB_COPY_METHOD(DuckDB_Connection, queryStreaming) {
         }
 
         /* The stream is now the connection's open result. */
-        duckdb_result_instantiate(return_value, &res, /*streaming=*/true, stmt, intern->inner);
+        duckdb_result_instantiate(return_value, &res, /*streaming=*/true, stmt, intern->inner,
+                                  duckdb_prepared_statement_type(stmt->stmt));
     }
 }
 
@@ -807,6 +809,7 @@ DUCKDB_COPY_METHOD(DuckDB_Connection, queryPending) {
          * statement, but the pending result may reference its data - keep it
          * alive on the task, destroyed after the pending result. */
         task->owned_stmt = ps;
+        task->statement_type = duckdb_prepared_statement_type(ps);
         /* Workers start with the pending query: publish the session first. */
         std::shared_ptr<copy_session> session;
         if (duckdb_conn_needs_pump(*task->conn)) {
@@ -861,6 +864,7 @@ DUCKDB_COPY_METHOD(DuckDB_Connection, execute) {
 
     duckdb_prepared_statement ps = nullptr;
     duckdb_result res = {};
+    duckdb_statement_type statement_type = DUCKDB_STATEMENT_TYPE_INVALID;
     {
         std::unique_lock<std::mutex> lk;
         if (!duckdb_conn_enter(*intern->inner, lk, conn_entry::statement_start)) {
@@ -896,10 +900,11 @@ DUCKDB_COPY_METHOD(DuckDB_Connection, execute) {
             duckdb_throw_result_error(&res);
             RETURN_THROWS();
         }
+        statement_type = duckdb_prepared_statement_type(ps);
         duckdb_destroy_prepare(&ps);
     }
 
-    duckdb_result_instantiate(return_value, &res, /*streaming=*/false, nullptr, intern->inner);
+    duckdb_result_instantiate(return_value, &res, /*streaming=*/false, nullptr, intern->inner, statement_type);
 }
 
 DUCKDB_COPY_METHOD(DuckDB_Connection, prepare) {

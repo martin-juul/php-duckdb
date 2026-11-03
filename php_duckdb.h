@@ -408,6 +408,9 @@ struct async_task {
      * result may reference it (duckdb_pending_prepared does NOT take
      * ownership). Destroyed after the pending result. */
     duckdb_prepared_statement owned_stmt = nullptr;
+    /* The prepared statement's type, recorded when the task is created
+     * because the statement may be gone when the result is read. */
+    duckdb_statement_type statement_type = DUCKDB_STATEMENT_TYPE_INVALID;
 
     duckdb_notify_fd notify_write_fd = DUCKDB_INVALID_NOTIFY_FD;
 
@@ -735,8 +738,12 @@ bool duckdb_type_spec(zval *spec, std::string &type);
  * `res`. `keepalive` keeps a prepared statement alive for streaming
  * results (pass nullptr otherwise). A streaming result is registered as the
  * connection's open result, so the caller holds conn.mutex for it. */
+/* `statement_type` overrides the result's own type: DuckDB 2.0 reports
+ * EXECUTE for every result of a C API prepared statement, so callers that
+ * executed one pass duckdb_prepared_statement_type() instead. */
 void duckdb_result_instantiate(zval *return_value, duckdb_result *res, bool streaming,
-                               std::shared_ptr<stmt_inner> keepalive, std::shared_ptr<conn_inner> connection);
+                               std::shared_ptr<stmt_inner> keepalive, std::shared_ptr<conn_inner> connection,
+                               duckdb_statement_type statement_type = DUCKDB_STATEMENT_TYPE_INVALID);
 /* Consume a buffered result and return its rows with associative keys.
  * Takes ownership of `res`; returns false with an exception pending on error. */
 bool duckdb_result_fetch_all_assoc(duckdb_result *res, std::shared_ptr<conn_inner> connection,

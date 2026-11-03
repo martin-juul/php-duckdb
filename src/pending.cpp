@@ -387,7 +387,8 @@ void duckdb_pending_complete(php_duckdb_pending_object *intern, zval *return_val
     }
     task->consumed = true;
 
-    duckdb_result_instantiate(return_value, &task->result, /*streaming=*/false, nullptr, task->conn);
+    duckdb_result_instantiate(return_value, &task->result, /*streaming=*/false, nullptr, task->conn,
+                              task->statement_type);
 }
 
 /* ================================================================== */

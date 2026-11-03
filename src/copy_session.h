@@ -141,7 +141,8 @@ duckdb_state duckdb_pump_execute(conn_inner &conn, duckdb_prepared_statement sta
 /* Run all statements of `sql` through the pump with duckdb_query()'s
  * semantics: stop at the first error and return the result duckdb_query()
  * would. Caller holds conn.mutex. Throws and returns false on failure. */
-bool duckdb_pump_query(conn_inner &conn, const char *sql, duckdb_result *out);
+bool duckdb_pump_query(conn_inner &conn, const char *sql, duckdb_result *out,
+                       duckdb_statement_type *out_type = nullptr);
 
 /* Throw a start failure reported by duckdb_pump_execute(). */
 void duckdb_throw_start_error(const std::string &message);
