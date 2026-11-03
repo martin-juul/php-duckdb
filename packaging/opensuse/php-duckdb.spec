@@ -12,7 +12,7 @@
 # Build the pinned, patched source SDK used by all packaging targets.
 # Keep the engine patch set consistent with the project SDK.
 # Package the patched engine alongside the PHP extension.
-%define duckdb_version 1.5.6
+%define duckdb_version 2.0.0
 
 # php8-devel ships rpm macros for php_extdir/php_cfgdir/php_core_api/
 # php_zend_api on suse_version > 1500; define the paths by hand for older
@@ -27,7 +27,7 @@
 %bcond_without tests
 
 Name:           php8-duckdb
-Version:        1.5.0
+Version:        2.0.0
 Release:        0
 Summary:        Native DuckDB driver for PHP
 License:        MIT
@@ -115,6 +115,11 @@ export DUCKDB_EXTENSION_PATH="$PWD/modules/duckdb.so"
 %{_libdir}/libduckdb.so
 
 %changelog
+* Tue Nov 03 2026 Martin Juul Christiansen <code@juul.xyz> - 2.0.0-0
+- Release 2.0.0 on DuckDB 2.0; a helper thread drives DuckDB while PHP callbacks run.
+- A newer statement supersedes open results; commit() throws for aborted transactions.
+- Ship the pinned DuckDB 2.0.0 SDK with the rebased engine patch set.
+
 * Tue Nov 03 2026 Martin Juul Christiansen <code@juul.xyz> - 1.5.0-0
 - Release 1.5.0 with PHP scalar functions, expression inspection and custom logging.
 - Add table-function metadata, UTF-8 checks and CRS-qualified geometry type strings.

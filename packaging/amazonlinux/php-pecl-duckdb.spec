@@ -1,8 +1,8 @@
 # Native Amazon Linux 2023 / 2027 preview PHP extension package.
 # Both releases use namespaced PHP packages and a single active PHP toolchain.
 %global pecl_name duckdb
-%global upstream_version 1.5.0
-%global duckdb_version 1.5.6
+%global upstream_version 2.0.0
+%global duckdb_version 2.0.0
 
 %if 0%{?amzn2027}
 %{!?php_slot:%global php_slot 8.5}
@@ -173,6 +173,11 @@ export TEST_PHP_ARGS='-d ffi.enable=true'
 %{engine_dir}/%{engine_name}
 
 %changelog
+* Tue Nov 03 2026 Martin Juul Christiansen <code@juul.xyz> - 2.0.0-1
+- Release 2.0.0 on DuckDB 2.0; a helper thread drives DuckDB while PHP callbacks run.
+- A newer statement supersedes open results; commit() throws for aborted transactions.
+- Ship the pinned DuckDB 2.0.0 SDK with the rebased engine patch set.
+
 * Tue Nov 03 2026 Martin Juul Christiansen <code@juul.xyz> - 1.5.0-1
 - Release 1.5.0 with PHP scalar functions, expression inspection and custom logging.
 - Add table-function metadata, UTF-8 checks and CRS-qualified geometry type strings.

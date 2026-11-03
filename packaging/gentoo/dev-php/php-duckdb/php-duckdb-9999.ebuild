@@ -18,7 +18,7 @@ HOMEPAGE="https://github.com/martin-juul/php-duckdb"
 
 # Portage must know the distfile at metadata time. The shared SDK builder
 # verifies it against packaging/duckdb/source.json before compilation.
-DUCKDB_SOURCE_VERSION="1.5.6"
+DUCKDB_SOURCE_VERSION="2.0.0"
 DUCKDB_DISTFILE="duckdb-${DUCKDB_SOURCE_VERSION}.tar.gz"
 SRC_URI="https://codeload.github.com/duckdb/duckdb/tar.gz/refs/tags/v${DUCKDB_SOURCE_VERSION} -> ${DUCKDB_DISTFILE}"
 if [[ ${PV} == 9999 ]]; then

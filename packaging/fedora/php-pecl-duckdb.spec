@@ -7,12 +7,12 @@
 #
 
 %global pecl_name        duckdb
-%global upstream_version 1.5.0
+%global upstream_version 2.0.0
 
 # Build the pinned, patched source SDK used by all packaging targets.
 # Keep the engine patch set consistent with the project SDK.
 # Package the patched engine alongside the PHP extension.
-%global duckdb_version   1.5.6
+%global duckdb_version   2.0.0
 
 # duckdb is a normal extension without load-order constraints: the
 # standard PECL ini priority is 40.
@@ -152,6 +152,11 @@ export DUCKDB_EXTENSION_PATH="$PWD/modules/duckdb.so"
 %{_libdir}/libduckdb.so
 
 %changelog
+* Tue Nov 03 2026 Martin Juul Christiansen <code@juul.xyz> - 2.0.0-1
+- Release 2.0.0 on DuckDB 2.0; a helper thread drives DuckDB while PHP callbacks run.
+- A newer statement supersedes open results; commit() throws for aborted transactions.
+- Ship the pinned DuckDB 2.0.0 SDK with the rebased engine patch set.
+
 * Tue Nov 03 2026 Martin Juul Christiansen <code@juul.xyz> - 1.5.0-1
 - Release 1.5.0 with PHP scalar functions, expression inspection and custom logging.
 - Add table-function metadata, UTF-8 checks and CRS-qualified geometry type strings.

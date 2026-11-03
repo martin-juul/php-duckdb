@@ -8,6 +8,14 @@ if (ltrim(DuckDB\version(), 'v') !== $pins['version']) {
     throw new RuntimeException('Installed package loaded a different DuckDB engine version');
 }
 
+$header = file_get_contents(__DIR__ . '/../php_duckdb.h');
+if (preg_match('/#define PHP_DUCKDB_VERSION "([^"]+)"/', $header, $match) !== 1) {
+    throw new RuntimeException('Cannot read PHP_DUCKDB_VERSION from php_duckdb.h');
+}
+if (phpversion('duckdb') !== $match[1]) {
+    throw new RuntimeException('Installed package reports a different extension version');
+}
+
 $db = new DuckDB\Database();
 $conn = $db->connect();
 $sql = "SELECT '340282366920938463463374607431768211455'::UHUGEINT AS n,
@@ -45,14 +53,19 @@ $conn->beginTransaction();
 $appender = $conn->appender('geometry_smoke');
 $appender->appendChunk($native);
 $appender->close();
+
+// DuckDB 2.0 exports VARIANT, so fail a conversion through lossy settings.
+$conn->query('SET arrow_lossless_conversion = false');
 try {
-    $conn->query("SELECT 'text'::VARIANT AS v")->fetchArrowChunk();
-    throw new RuntimeException('Installed package unexpectedly accepted VARIANT export');
+    $conn->query("SELECT '340282366920938463463374607431768211455'::UHUGEINT AS n")->fetchArrowChunk();
+    throw new RuntimeException('Installed package unexpectedly accepted a lossy UHUGEINT export');
 } catch (DuckDB\Exception $error) {
-    if (!str_contains($error->getMessage(), 'VARIANT')) {
+    if (!str_contains($error->getMessage(), 'Lossless Arrow conversion')) {
         throw $error;
     }
 }
+$conn->query('SET arrow_lossless_conversion = true');
+
 if ($conn->query('SELECT count(*) AS n FROM geometry_smoke')->fetchRow()['n'] !== 1) {
     throw new RuntimeException('Installed package lost the caller transaction');
 }
