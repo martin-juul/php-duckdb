@@ -41,6 +41,12 @@ override_dh_auto_install:
 	cp -a duckdb-sdk/share/duckdb-sdk/. \
 		$(CURDIR)/debian/php-duckdb/usr/share/doc/php-duckdb/duckdb-sdk/
 
+# dwz cannot optimise the engine's debug information (it exceeds dwz's DIE
+# limit), and newer debhelper fails the build on that. The engine keeps its
+# debug information; only dwz compression is skipped for it.
+override_dh_dwz:
+	dh_dwz -Xlibduckdb.so
+
 # The vendored lib is not on the loader path during the build, so point
 # the test suite at duckdb-sdk/lib explicitly (same as the RPM %check).
 override_dh_auto_test:

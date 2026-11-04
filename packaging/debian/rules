@@ -42,6 +42,12 @@ override_dh_auto_install:
 	mkdir -p $(PACKAGE_ROOT)/usr/share/doc/php-duckdb/duckdb-sdk
 	cp -a duckdb-sdk/share/duckdb-sdk/. $(PACKAGE_ROOT)/usr/share/doc/php-duckdb/duckdb-sdk/
 
+# dwz cannot optimise the engine's debug information (it exceeds dwz's DIE
+# limit), and newer debhelper fails the build on that. The engine keeps its
+# debug information; only dwz compression is skipped for it.
+override_dh_dwz:
+	dh_dwz -X$(PRIVATE_ENGINE_NAME)
+
 # Rewrite ELF layout after dwz and strip have finished reading debug sections.
 # Dependency scanning follows this step and sees the final private linkage.
 override_dh_strip:
