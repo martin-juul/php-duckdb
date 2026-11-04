@@ -15,7 +15,7 @@ PHP 8.4/8.5) and architecture (`x64`). These packages support 64-bit Windows;
    `php --ini`. Set `extension_dir` to the extension directory if necessary.
 4. Restart PHP workers or your web server, then run `php --ri duckdb`.
 
-Both DLLs are required; use the bundled DuckDB 1.5.6 runtime with the extension.
+Both DLLs are required; use the bundled DuckDB 2.0.0 runtime with the extension.
 Install the Microsoft Visual C++ Redistributable for Visual Studio 2015–2022
 (x64), as required by the official Windows PHP builds: [Microsoft Visual C++
 Redistributable](https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist)

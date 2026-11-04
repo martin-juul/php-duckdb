@@ -38,7 +38,7 @@ separate rows. Scalar functions, aggregates and macros are excluded. The
 returned arrays are snapshots and remain usable after closing the connection.
 The parallel lists flatten positional inputs followed by named inputs; order
 among named inputs is determined by DuckDB's catalog. Discovery executes a
-query and invalidates an active streaming result on the same connection.
+query and supersedes an active streaming result on the same connection.
 
 The metadata describes declared inputs. Result columns can depend on arguments:
 prepare an actual query and inspect `Statement::columnCount()`, `columnName()`
@@ -71,7 +71,7 @@ are available starting with extension 1.5.0.
 
 COPY functions are also supported: a PHP class can implement a `COPY ... TO`
 output format. DuckDB hands each result batch to the request thread, where the
-PHP handler writes it. See [COPY TO formats](copy.md).
+PHP handler writes it while a helper thread drives the query. See [COPY TO formats](copy.md).
 
 ## But: use the entire built-in table-function library via SQL
 

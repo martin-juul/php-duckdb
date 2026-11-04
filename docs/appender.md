@@ -62,7 +62,7 @@ The appender uses the same PHP→DuckDB value mapping as
 become LIST values and associative arrays become STRUCT values.
 [Native typed classes](value.md), such as `DuckDB\Decimal` and
 `DuckDB\ListValue`, supply explicit SQL types. Typed conversion uses the same
-connection and can invalidate an open stream. A conversion helper failure
+connection and supersedes an open stream. A conversion helper failure
 before submission leaves the appender usable.
 
 ## Flushing and failure semantics
@@ -78,10 +78,17 @@ before submission leaves the appender usable.
   appender as failed. Further appends and flushes are rejected until `clear()`
   discards its buffered rows and any partial row. A helper conversion failure
   before submission leaves the appender usable without clearing it.
+- An open streaming or pending result on the connection does not cost the
+  appender its rows. Row and batch appends, `flush()`, `close()` and
+  destruction supersede that result first, because DuckDB 2.0 refuses to
+  flush while a result is open.
 - `clear()` does not undo rows already flushed to the table. Use a transaction
   when recovery must roll back the entire batch. No rows are replayed
-  automatically. `close()` on a failed appender discards pending data; a closed
-  appender cannot be cleared or reopened.
+  automatically. Inside an explicit transaction, DuckDB 2.0 aborts the
+  transaction on a native submission or flush failure; roll it back, because
+  `commit()` throws a `TransactionException` instead of committing.
+  `close()` on a failed appender discards pending data; a closed appender
+  cannot be cleared or reopened.
 
 ```php
 try {

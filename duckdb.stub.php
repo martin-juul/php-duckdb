@@ -602,10 +602,13 @@ final class Connection
     public function queryAsync(string $sql): PendingQuery {}
 
     /**
-     * Single-threaded async: the query is executed in small slices by
-     * {@see PendingQuery::isReady()} / {@see PendingQuery::await()} on the
-     * calling thread. No worker threads are spawned, which is useful inside
-     * `dl()`-restricted environments or custom event loops.
+     * Polling async: the query is executed in small slices by
+     * {@see PendingQuery::isReady()} / {@see PendingQuery::await()}. No
+     * background worker is started, which is useful inside
+     * `dl()`-restricted environments or custom event loops. The slices run
+     * on the calling thread, or on the connection's helper thread when the
+     * connection has a PHP COPY format or scalar function; PHP callbacks
+     * still run on the calling thread.
      */
     public function queryPending(string $sql): PendingQuery {}
 
@@ -689,7 +692,9 @@ final class Connection
     /**
      * Commit the active transaction.
      *
-     * @throws TransactionException When no transaction is active.
+     * @throws TransactionException When no transaction is active, or when
+     *         DuckDB aborted the transaction: nothing is committed, the
+     *         transaction is rolled back and the connection leaves it.
      */
     public function commit(): void {}
 
@@ -1219,7 +1224,7 @@ final class Appender
 }
 
 /**
- * Version of the linked DuckDB library, e.g. `"v1.5.6"`.
+ * Version of the linked DuckDB library, e.g. `"v2.0.0"`.
  *
  * Also available as the global `duckdb_version()` for backwards
  * compatibility with pre-1.0 releases of this extension.

@@ -54,7 +54,8 @@ try {
 Notable categories (full list in [api.md](api.md#errortype-int)): `Parser`,
 `Binder`, `Catalog`, `Constraint`, `Transaction`, `Conversion`, `Io`, `Http`,
 `Interrupt`, `OutOfMemory`, `Permission`, `InvalidConfiguration`,
-`MissingExtension`, `InvalidInput`.
+`MissingExtension`, `InvalidInput`. DuckDB 2.0 adds `DataCorruption` (43) and
+`ResourceInUse` (44); both throw the base `DuckDB\Exception`.
 
 ## Where errors can come from
 
@@ -63,6 +64,9 @@ Notable categories (full list in [api.md](api.md#errortype-int)): `Parser`,
 | `new Database($path, $config)` | `DuckDB\Exception` with `ErrorType::InvalidConfiguration` for unknown options; `IOException` with `ErrorType::Io` for lock/permission failures; `ConnectionException` for unclassified open failures |
 | `query()` / `execute()` / `prepare()` | `ParserException`, `BinderException`, `CatalogException`, … |
 | `fetchRow()` mid-stream | the query's deferred error (e.g. `ConversionException`) |
+| Fetching a stream after a newer statement superseded it | `DuckDB\Exception` with `ErrorType::Invalid` ("This streaming result was invalidated by a newer query…") |
+| Any statement in a transaction that an earlier error aborted | `TransactionException` ("Current transaction is aborted (please ROLLBACK)") until `rollBack()` |
+| `commit()` of an aborted transaction | `TransactionException`; nothing is committed, the transaction is rolled back and no transaction remains active |
 | `PendingQuery::await()` / `suspend()` | rethrows the background query's failure on the awaiting fiber/thread |
 | `Appender` methods | native submission or flush failures require `clear()` before reuse; conversion failures before submission leave it usable |
 | `COPY ... TO` a [PHP format](copy.md) | `BinderException` when `bind()` throws; `DuckDB\Exception` naming the format and method when `open()`, `write()` or `close()` throws. The handler's exception is the `getPrevious()` |

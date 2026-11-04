@@ -1,5 +1,9 @@
 # Typed binding benchmark
 
+The samples below were recorded with DuckDB 1.5.6 before extension 2.0.0 and
+have not been re-measured with DuckDB 2.0. Rerun the scripts against the
+linked engine before relying on these numbers.
+
 Run against the built extension:
 
 ```sh

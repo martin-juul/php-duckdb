@@ -2,8 +2,8 @@
 
 DuckDB runs in-process and has no async wire protocol. Background queries
 execute off the calling fiber/thread and notify it on completion. Polling
-queries instead execute in small slices on the calling thread. The driver
-also integrates with event loops.
+queries instead execute in small slices whenever the caller polls them. The
+driver also integrates with event loops.
 
 ## The two modes
 
@@ -12,22 +12,34 @@ also integrates with event loops.
 $pending = $conn->queryAsync('SELECT * FROM big_table');
 $pending = $conn->prepare('SELECT * FROM t WHERE id = ?')->executeAsync([$id]);
 
-// 2. Polling mode: no extension worker thread; isReady()/await() execute the query
-//    in small slices on the calling thread (good for dl()-restricted or
-//    single-threaded event-loop environments)
+// 2. Polling mode: no background worker; isReady()/await() execute the query
+//    in small slices (good for dl()-restricted or single-threaded
+//    event-loop environments)
 $pending = $conn->queryPending('SELECT * FROM big_table');
 ```
 
 Both return a `DuckDB\PendingQuery`. The result is consumable **exactly once**.
 
-Statements that use a [PHP COPY format](copy.md) need the request thread to run
-their handlers, so they work only in polling mode. `queryAsync()` and
-`executeAsync()` reject them. A polling query that runs a PHP format calls its
-handlers from `isReady()`, `await()` and `suspend()`; the handlers themselves
-must not suspend. Such a query, and any polling query on a connection with a
-PHP COPY format or scalar function registered, executes on the connection's
-helper thread: each `isReady()` call lets it run for about 1 ms while the
-calling thread runs the handlers it reaches.
+A polling query executes its slices on the calling thread. On a connection
+with a [PHP COPY format](copy.md) or [scalar function](scalar_functions.md)
+registered, it executes them on the connection's helper thread instead: each
+`isReady()` call lets it run for about 1 ms while the calling thread runs the
+PHP handlers it reaches. PHP code never runs on the helper.
+
+Statements that use a PHP COPY format or scalar function need the request
+thread to run their handlers, so they work only in polling mode.
+`queryAsync()` and `executeAsync()` reject them, and refuse to start inside a
+COPY handler on their own connection. A polling query that runs PHP handlers
+calls them from `isReady()`, `await()` and `suspend()`; the handlers
+themselves must not suspend.
+
+Starting a query, in either mode, supersedes the connection's open streaming
+result or unfinished pending query, as any other statement does; see
+[streaming caveats](query.md#streaming-queries-constant-memory). A superseded
+pending query throws "COPY statement superseded by another operation on its
+connection" when awaited, whatever statement it ran. An unfinished write is
+rolled back, or aborts the surrounding explicit transaction, so drive a
+pending write to completion before using its connection again.
 
 ## Consuming the result
 

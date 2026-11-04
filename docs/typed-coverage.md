@@ -1,9 +1,12 @@
 # Typed input coverage
 
-The coverage target is every user-facing type family in DuckDB 1.5.6. The
+The coverage target is every user-facing type family in DuckDB 1.5.6, the
+engine for which typed input was designed. The
 [matrix test](../tests/070_typed_value_matrix.phpt) checks native SQL `typeof`
 and equality through `bindValue()`, execution parameter arrays, `appendRow()`
-and `append()`. It also checks typed NULL through all four paths.
+and `append()`. It also checks typed NULL through all four paths. DuckDB 2.0
+adds `TIMESTAMPTZ_NS`, which has no dedicated class and is not part of the
+matrix; declare it with `new DuckDB\Value('TIMESTAMPTZ_NS', $value)`.
 
 | Family                  | Matrix cases                                                                     | Additional checks                                                                             |
 | ----------------------- | -------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
@@ -68,7 +71,9 @@ loaded to compare ordinary inputs with typed scalar and composite batches.
 Conversion cost depends on DuckDB settings, platform and workload; see
 [measured conversion overhead](../benchmarks/README.md).
 
-Validation with PHP 8.5.11 NTS and DuckDB 1.5.6 passes the phpize build and
+The validation below was recorded on DuckDB 1.5.x when typed input was added
+and has not been repeated for extension 2.0.0. Validation with PHP 8.5.11 NTS
+and DuckDB 1.5.6 passes the phpize build and
 81 PHPTs, with three optional-runtime tests skipped; AMPHP and ReactPHP tests
 pass separately with their dependencies installed. An isolated CMake build
 with PHP 8.5.11 and DuckDB 1.5.5 passes 80 PHPTs, with four optional-runtime
@@ -78,8 +83,8 @@ also passes without skipping. PHP 8.4 with DuckDB 1.5.6 passes the build and
 81 PHPTs, with three optional-runtime tests skipped. Every environment passes
 all 14 examples and both stress scripts.
 
-The full PHP 8.4 harness with the patched SDK passes all 79 Memcheck tests,
-with no warnings or errors and five existing exclusions. See the
+The full PHP 8.4 harness with the patched 1.5.6 SDK passed all 79 Memcheck
+tests, with no warnings or errors and five existing exclusions. See the
 [nullable integer persistence analysis](compatibility.md#memcheck-and-nullable-integer-persistence)
 for the engine patch and standalone regression. Distribution-provided engines
 need the corresponding backport.

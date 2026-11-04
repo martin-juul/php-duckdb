@@ -46,7 +46,7 @@ A partially read row batch cannot be fetched as Arrow. After `fetchRow()`,
 throws without discarding its unread rows. Continue reading rows until the
 batch boundary before switching. Row fetching after a complete Arrow batch
 is allowed. Streaming results retain the [one-stream rule](query.md): starting
-another execution on their connection invalidates them. Use a separate
+another execution on their connection supersedes them. Use a separate
 connection for destination queries and appenders.
 
 See the runnable [batch copy example](../examples/arrow.php).
@@ -129,7 +129,8 @@ or corrupting values. UUID, JSON and ENUM can still use DuckDB's ordinary
 Arrow representations when lossless conversion is disabled; native import may
 normalize their types to strings or dictionary values. Inspect `columns()` and
 the exported schema when preserving the exact type declaration matters.
-VARIANT Arrow export remains unsupported by the pinned engine and throws.
+VARIANT exports as the `arrow.parquet.variant` extension type and imports
+back to VARIANT through `Connection::dataChunkFromArrow()`.
 
 The bundled SDK includes an
 [Arrow engine patch](../packaging/duckdb/patches/README.md) that supplies implicit
@@ -163,7 +164,7 @@ reproduce the original DuckDB type declaration, Arrow metadata or dictionary
 encoding. Inspect `columns()` and the exported schema when these distinctions
 matter. Unsupported Arrow conversions throw; support is determined by the
 linked DuckDB engine. The implementation uses DuckDB's
-[Arrow conversion C API](https://github.com/duckdb/duckdb/blob/v1.5.6/src/include/duckdb.h).
+[Arrow conversion C API](https://github.com/duckdb/duckdb/blob/v2.0.0/src/include/duckdb.h).
 
 Batch appending requires a compatible destination table and no open piecemeal
 row. A native submission or flush failure puts the appender in a failed state;

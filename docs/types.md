@@ -46,7 +46,7 @@ Precision and edge notes:
   of overflowing the stack.
 - BIGNUM and VARIANT decode from fetched chunks in buffered, streaming and
   nested results. Their internal storage layouts are verified for DuckDB
-  1.5.5 and 1.5.6; other versions raise an explicit decoding error until audited.
+  2.0.x; other versions raise an explicit decoding error until audited.
 - VARIANT rendering is JSON text, with a nesting limit of 64. It preserves
   numeric digits without passing through PHP floats, but JSON does not retain
   DuckDB's source type tags. SQL NULL remains PHP `null`.

@@ -8,8 +8,8 @@ inside the PHP process, with no server, socket or daemon.
 - **Package**:
   [`martinjuul/duckdb`](https://packagist.org/packages/martinjuul/duckdb) (PIE),
   extension name `duckdb`
-- **Requirements**: PHP 8.2+; pinned builds target `libduckdb` v1.5.6 (see
-  [compatibility](compatibility.md))
+- **Requirements**: PHP 8.2+; DuckDB 2.0.x, with pinned builds targeting
+  `libduckdb` v2.0.0 (see [compatibility](compatibility.md))
 - **License**: MIT
 
 ## Installation
@@ -110,15 +110,20 @@ shows the counterparts in its thin, object-oriented interface:
 
 - A `Database` can back **many connections**; each `Connection` serializes the
   statements issued on it. Use one connection per thread/fiber of work.
+- PHP code runs only on the request thread. On a connection with a PHP COPY
+  format or scalar function, a helper thread that belongs to the connection
+  drives DuckDB while the request thread runs the PHP callbacks.
 - Async queries run on background worker threads that never touch PHP state;
   completion is reported through a file descriptor / stream you can poll or
   suspend a fiber on. See [async.md](async.md).
+- A new statement on a connection supersedes its open streaming or pending
+  result; see [streaming caveats](query.md#streaming-queries-constant-memory).
 - File databases take an **exclusive write lock** at open time. Only one
   process at a time can open a file for writing. See [connect.md](connect.md).
 
 ## Stability
 
-The current pinned builds target DuckDB 1.5.6. The driver uses two C entry
+The current pinned builds target DuckDB 2.0.0. The driver uses two C entry
 points deprecated upstream: `duckdb_pending_prepared_streaming` for streaming
 prepared execution and `duckdb_row_count` for materialized row counts. These
 internal dependencies do not deprecate the corresponding PHP methods.
@@ -126,9 +131,9 @@ Replacements must preserve supported behavior before they are adopted.
 
 BIGNUM and VARIANT results use chunk-based decoders adapted from DuckDB's
 implementation, without including or linking the C++ client. Their internal
-storage layouts are verified for 1.5.5 and 1.5.6; other runtime versions are
+storage layouts are verified for DuckDB 2.0.x; other runtime versions are
 rejected for these two result types until audited.
 
 See [compatibility](compatibility.md) for configured platform coverage and the
-1.5.6 API audit, and [migrations](migrations.md) for upgrade and rollback
-guidance.
+1.5.6 → 2.0.0 API audit, and [migrations](migrations.md) for upgrade and
+rollback guidance.

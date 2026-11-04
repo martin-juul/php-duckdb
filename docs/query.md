@@ -76,9 +76,22 @@ Streaming caveats:
 - `rowCount()` is **not meaningful** for streaming results (it reports only
   what has materialized so far).
 - A streaming result is bound to its connection: **starting a new execution
-  on the same connection invalidates the in-flight stream**, which then
-  throws on the next fetch. Keep one connection per active stream (or finish
-  consuming before reusing the connection).
+  on the same connection supersedes the in-flight stream**. Rows it already
+  holds, including the rest of its current chunk, and its metadata stay
+  readable; its next native fetch throws a `DuckDB\Exception` with
+  `ErrorType::Invalid` ("This streaming result was invalidated by a newer
+  query…"). Keep one connection per active stream (or finish consuming before
+  reusing the connection).
+- Statements, prepares, appender writes, transaction helpers and typed
+  conversions start an execution. `bindValue()`, `clearBindings()`,
+  `getTableNames()`, `dataChunkFromArrow()`, `DataChunk::toArrow()` and
+  function registration do not, and leave the stream readable.
+- DuckDB 2.0 itself refuses a new statement while a stream is open; the
+  extension supersedes the stream first so that the new statement runs.
+  Superseding a stream whose statement writes and has not finished rolls those
+  writes back under autocommit, or aborts the explicit transaction. A
+  streaming `INSERT … RETURNING` has finished its writes before its first row
+  arrives.
 - Errors that occur mid-stream (e.g. a conversion error in row 10 million)
   surface as an exception from `fetchRow()`/`fetchAll()` mid-iteration.
 

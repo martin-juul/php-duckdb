@@ -1,11 +1,13 @@
 # Compatibility
 
 The PHP extension and the embedded DuckDB engine have separate versions. This
-release uses extension **1.5.0**, and its pinned build recipes use **DuckDB
-1.5.6**. Typed values, Arrow, vectors, selection and custom COPY TO APIs are
-available starting with extension 1.4.0. Scalar functions, expressions,
-table-function metadata, custom logging and UTF-8 checks are available starting
-with extension 1.5.0. Before upgrading, check the versions loaded by the actual
+release uses extension **2.0.0**, which requires **DuckDB 2.0.x**; its pinned
+build recipes use **DuckDB 2.0.0**. DuckDB 1.5.x is not supported by extension
+2.0.0; see the [migration guide](migrations.md#upgrade-150--200). Typed
+values, Arrow, vectors, selection and custom COPY TO APIs are available
+starting with extension 1.4.0. Scalar functions, expressions, table-function
+metadata, custom logging and UTF-8 checks are available starting with
+extension 1.5.0. Before upgrading, check the versions loaded by the actual
 process:
 
 ```php
@@ -14,12 +16,13 @@ printf("PHP %s; extension %s; DuckDB %s\n",
 ```
 
 Public PHP [scalar functions](scalar_functions.md), including bind and
-worker-init callbacks, are available starting with extension 1.5.0. They
-require the pinned DuckDB 1.5.6 APIs. Callback support uses the request thread;
-worker-based `queryAsync()` and `executeAsync()` reject PHP scalar execution.
+worker-init callbacks, are available starting with extension 1.5.0. PHP
+callbacks run on the request thread, while a per-connection helper thread
+drives DuckDB; worker-based `queryAsync()` and `executeAsync()` reject PHP
+scalar execution.
 
 [Custom logging](logging.md) is available starting with extension 1.5.0 and
-requires the pinned DuckDB 1.5.6 log-storage APIs. Its callbacks copy entries
+uses DuckDB's log-storage C API. Its callbacks copy entries
 into a bounded native buffer and never execute PHP. Explicit draining works
 with synchronous, pending and background queries.
 
@@ -38,12 +41,12 @@ for this checkout. The job definitions are in [CI](../.github/workflows/ci.yml),
 [packaging](../.github/workflows/packaging.yml), and
 [Docker](../.github/workflows/docker.yml).
 
-| PHP | Source CI | Docker | Current local validation |
+| PHP | Source CI | Docker | Last recorded local validation |
 | --- | --------------------------------------- | --------------- | -------------------------------------------------------------------------------------------------------------------------- |
 | 8.2 | Linux and macOS | amd64 and arm64 | Amazon Linux 2023 x86_64, PHP 8.2.33: native package checks passed; 92 PHPTs passed, 4 optional-runtime tests skipped; 21 examples passed |
 | 8.3 | Linux and macOS | amd64 and arm64 | Amazon Linux 2023 x86_64, PHP 8.3.33: native package checks passed; 92 PHPTs passed, 4 optional-runtime tests skipped; 21 examples passed |
 | 8.4 | Linux and macOS; PIE install smoke test | amd64 and arm64 | Linux x86_64, PHP 8.4.26 NTS, DuckDB 1.5.6: full harness passed; 92 PHPTs passed, 4 optional-runtime tests skipped; 91 Valgrind tests passed |
-| 8.5 | Linux and macOS | amd64 and arm64 | Linux x86_64, PHP 8.5.11 NTS, DuckDB 1.5.6: full harness passed with patched Valgrind 3.27.1; 110 PHPTs passed, 3 optional-runtime tests skipped; 108 Memcheck tests, 24 examples and both stress scripts passed |
+| 8.5 | Linux and macOS | amd64 and arm64 | Linux x86_64, PHP 8.5.12 NTS, extension 2.0.0 with the patched DuckDB 2.0.0 SDK: build passed; 149 PHPTs passed, 3 optional-runtime tests skipped; 28 examples passed. Full Memcheck and stress stages not yet recorded for 2.0.0 |
 | 8.6-dev | Linux True Async ZTS | CI image only | Exact True Async CI image: build and 93 PHPTs passed, 3 optional-runtime tests skipped; 21 examples passed |
 
 The PHP 8.4 development environment passed all 21 example scripts, and PHP
@@ -79,24 +82,25 @@ and ReactPHP were the three unavailable integrations. Arrow cleanup detects
 whether the PHP headers provide the older saved-exception global, preserving
 exception state on both that layout and the PHP 8.6 runtime without the field.
 
-Earlier local validation before the Arrow changes also covered DuckDB 1.5.5
-and AMPHP/ReactPHP dependencies. Those combinations have not been rerun locally
-for Arrow in this checkout, and 1.5.5 is no longer supported.
+Apart from the PHP 8.5 row, which records extension 2.0.0, the table and the
+paragraphs above record validation of extension 1.5.0 on DuckDB 1.5.6. They
+are kept as history, have not been repeated for 2.0.0, and do not make DuckDB
+1.5.x a supported engine for extension 2.0.0.
 
 | Packaging target | PHP selection | DuckDB source | Architectures |
 | -------------------- | ---------------------------- | ---------------------- | ------------- |
-| Debian sid | Distribution PHP | Vendored 1.5.6 | amd64, arm64 |
-| Debian 13 trixie | Distribution PHP | Vendored 1.5.6 | amd64, arm64 |
-| Ubuntu 24.04 / 26.04 | Distribution PHP (8.3 / 8.5) | Vendored 1.5.6 | amd64, arm64 |
-| Ubuntu devel | Distribution PHP | Vendored 1.5.6 | amd64, arm64 |
-| Fedora 44 | Distribution PHP | Vendored 1.5.6 | amd64, arm64 |
-| AlmaLinux 9 / 10 | Remi PHP 8.2–8.5 | Vendored 1.5.6 | amd64, arm64 |
-| Amazon Linux 2023 | Distribution PHP 8.2–8.5 | Vendored 1.5.6 | amd64, arm64 |
-| Amazon Linux 2027 preview | Distribution PHP 8.5 | Vendored 1.5.6 | amd64, arm64 |
-| openSUSE Tumbleweed | Distribution PHP | Vendored 1.5.6 | amd64, arm64 |
-| macOS tarballs | PHP 8.2–8.5 | Vendored 1.5.6 | x86_64, arm64 |
-| Windows ZIPs | PHP 8.2–8.5, TS and NTS | Vendored 1.5.6 | x64 |
-| Docker | PHP 8.2–8.5 | Pinned 1.5.6 | amd64, arm64 |
+| Debian sid | Distribution PHP | Vendored 2.0.0 | amd64, arm64 |
+| Debian 13 trixie | Distribution PHP | Vendored 2.0.0 | amd64, arm64 |
+| Ubuntu 24.04 / 26.04 | Distribution PHP (8.3 / 8.5) | Vendored 2.0.0 | amd64, arm64 |
+| Ubuntu devel | Distribution PHP | Vendored 2.0.0 | amd64, arm64 |
+| Fedora 44 | Distribution PHP | Vendored 2.0.0 | amd64, arm64 |
+| AlmaLinux 9 / 10 | Remi PHP 8.2–8.5 | Vendored 2.0.0 | amd64, arm64 |
+| Amazon Linux 2023 | Distribution PHP 8.2–8.5 | Vendored 2.0.0 | amd64, arm64 |
+| Amazon Linux 2027 preview | Distribution PHP 8.5 | Vendored 2.0.0 | amd64, arm64 |
+| openSUSE Tumbleweed | Distribution PHP | Vendored 2.0.0 | amd64, arm64 |
+| macOS tarballs | PHP 8.2–8.5 | Vendored 2.0.0 | x86_64, arm64 |
+| Windows ZIPs | PHP 8.2–8.5, TS and NTS | Vendored 2.0.0 | x64 |
+| Docker | PHP 8.2–8.5 | Pinned 2.0.0 | amd64, arm64 |
 
 Amazon Linux packaging uses the shared patched SDK. The 2027 target is an
 [evaluation preview](https://docs.aws.amazon.com/linux/al2027/ug/container-base.html),
@@ -137,21 +141,26 @@ Valgrind coverage is claimed.
 
 | Engine | Status |
 | ------------------------------ | ---------------------------------------------------------------------------------------------------- |
-| 1.5.6 | Current pinned target; matching headers and library required |
-| 1.5.5 and older | Not supported: COPY functions became stable C API in 1.5.6 |
+| 2.0.0 | Current pinned target; matching headers and library required |
+| Later 2.0.x | Supported target series; build and run the suite against the actual library before deployment |
+| 1.5.x and older | Not supported by extension 2.0.0; use extension 1.5.0 with DuckDB 1.5.6 |
 | External library (manual source builds) | Validate the actual library separately; packaging recipes use the shared patched SDK |
-| Other older or future versions | Unverified; build and run the suite before deployment |
+| Other future versions | Unverified; build and run the suite before deployment |
 
 The build checks for the required C API functions, including the COPY
-function, client context and statement extraction APIs. It does not rely on
-the version macros introduced in DuckDB 1.5.6, so distribution SDKs without
-them still build when they provide those functions. The minimum supported
-engine is 1.5.6, which stabilized the COPY function API.
+function, client context and statement extraction APIs. It does not detect
+the engine version at build or run time: the extension relies on DuckDB 2.0
+behavior, such as its open-result rule and transaction invalidation, that a
+1.5.x library with the same functions does not have.
 
 All packaging recipes use the pinned patched SDK. Manual external-library
 builds must provide the required APIs and validate Arrow transaction/CRS
-behavior. They also lose two guarantees of [PHP COPY formats](copy.md), which
-the bundled patch adds to DuckDB's binder:
+behavior. An unpatched DuckDB 2.0.0 library also fails a `LEFT JOIN` that
+brings in a fixed-size `ARRAY` column when some rows are unmatched, and
+correlated scalar subqueries that return an `ARRAY`; see the
+[patch inventory](../packaging/duckdb/patches/README.md). External libraries
+also lose two guarantees of [PHP COPY formats](copy.md), which the bundled
+patch adds to DuckDB's binder:
 
 - With the patch, a connection that did not register a format behaves as if
   it did not exist: `FORMAT name` gets DuckDB's missing-format error and a
@@ -161,7 +170,36 @@ the bundled patch adds to DuckDB's binder:
   are rejected when a statement is bound. Without it, they fail at runtime,
   when a second output file starts.
 
+## C API audit: 1.5.6 → 2.0.0
+
+Comparing the 1.5.6 and 2.0.0 `duckdb.h` headers finds 546 and 548 function
+declarations: two functions are added and none are removed or change
+signature. The additions, `duckdb_create_timestamp_tz_ns()` and
+`duckdb_get_timestamp_tz_ns()`, create and read `TIMESTAMP_TZ_NS` values; the
+extension does not need them. The header still defaults `DUCKDB_API_VERSION`
+to 1.5.6, so the stable v1 C API that this driver uses is unchanged. DuckDB
+2.0 also introduces a separate v2 C API; the driver does not use it.
+
+| Change | PHP binding status |
+| --- | --- |
+| Type id 42, `DUCKDB_TYPE_TIMESTAMP_TZ_NS` | Results decode to UTC `DateTimeImmutable` and report `TIMESTAMPTZ_NS`; see [types](types.md) |
+| Error codes 43 (`DATA_CORRUPTION`) and 44 (`RESOURCE_IN_USE`) | `ErrorType::DataCorruption` and `ErrorType::ResourceInUse` |
+| Open streaming or pending results refuse a new statement, appender flush or close with `RESOURCE_IN_USE` | The extension supersedes the open result first, as DuckDB 1.5 did; see [migrations](migrations.md#open-results) |
+| Destroying an unfinished statement that may write rolls it back, or aborts the explicit transaction | Documented; `Connection::commit()` throws for an aborted transaction |
+| Prepared-statement results report `EXECUTE` as their statement type | The extension reports the prepared statement's own type |
+| VARIANT Arrow export, as `arrow.parquet.variant` | Available through `Result::arrowSchema()` and `fetchArrowChunk()` |
+
+DuckDB 2.0 also changes engine behavior that reaches PHP without a C API
+change: any error aborts an explicit transaction, scalar `bind` callbacks
+receive argument types after the implicit cast, COPY `finalize` runs on a
+separate task pool, and database files are written in a storage format that
+DuckDB 1.5 cannot read. The [migration guide](migrations.md#upgrade-150--200)
+describes each change and what to do about it.
+
 ## C API audit: 1.5.5 → 1.5.6
+
+This earlier audit records the API surface that extension 1.5.0 adopted; its
+binding status still applies to extension 2.0.0.
 
 Comparing the tagged
 [1.5.5 header](https://github.com/duckdb/duckdb/blob/v1.5.5/src/include/duckdb.h)
@@ -215,7 +253,7 @@ adds internal C++ interfaces for DuckDB engine extensions, not functions to the
 C API used by this PHP driver. They need no PHP aliases. The new
 [`enable_optimistic_write` setting](config.md) is already available through PHP
 configuration and SQL. Engine query, storage, and Parquet fixes are picked up by
-linking 1.5.6; they do not require separate PHP methods.
+linking the engine; they do not require separate PHP methods.
 
 The four old Arrow wrapper types (`duckdb_arrow`, `duckdb_arrow_stream`,
 `duckdb_arrow_schema`, `duckdb_arrow_array`) become deprecated in 1.5.6. They
@@ -237,21 +275,22 @@ provide equivalent behavior. See [migration strategy](migrations.md).
 
 BIGNUM and VARIANT result decoding uses C API accessors with algorithms adapted
 from DuckDB's C++ implementation. The extension has no C++ client dependency.
-Their internal storage formats are audited for exactly 1.5.5 and 1.5.6; other
-versions raise a decoding error for these types until audited. The decoders
+Their internal storage formats are audited for DuckDB 2.0.x, including
+VARIANT's nanosecond time-zone timestamp tag (34); other versions raise a
+decoding error for these types until audited. The decoders
 check layout and payload bounds and retain DuckDB's MIT attribution.
 
 ## Memcheck and nullable integer persistence
 
-The current full PHP 8.4.26 harness passes with the patched DuckDB 1.5.6 SDK:
-92 PHPTs pass with four optional-runtime skips, all 91 Memcheck tests pass,
-and all 21 example scripts and both stress scripts pass. Five existing Memcheck
-exclusions remain. See the platform coverage above for the container and
-host Valgrind limitations. Earlier native persistence validation also passed
-under Memcheck.
+For extension 1.5.0, the full PHP 8.4.26 harness passed with the patched
+DuckDB 1.5.6 SDK: 92 PHPTs passed with four optional-runtime skips, all 91
+Memcheck tests passed, and all 21 example scripts and both stress scripts
+passed. Five Memcheck exclusions remained. See the platform coverage above for
+the container and host Valgrind limitations.
 
-DuckDB 1.5.6 writes uninitialized bitpacking bytes while persisting nullable
-integers. The [standalone C reproducer](../tests/native/nullable_bitpacking.c)
+Unpatched DuckDB 2.0.0, like 1.5.6, writes uninitialized bitpacking bytes
+while persisting nullable integers. The
+[standalone C reproducer](../tests/native/nullable_bitpacking.c)
 uses only DuckDB's C API and reproduces the error without PHP or a C++ client.
 The minimal SQL is:
 
@@ -269,8 +308,8 @@ SET disabled_compression_methods = 'bitpacking';
 ```
 
 The setting applies database-wide, including other connections. Passing it
-only through the `Database` constructor is ineffective on DuckDB 1.5.5 and
-1.5.6; apply it through SQL. SQL can also restore the default with
+only through the `Database` constructor is ineffective on DuckDB 1.5.x and
+2.0.0; apply it through SQL. SQL can also restore the default with
 `SET disabled_compression_methods = ''`.
 
 The SQL workaround eliminates the focused reproducer's Memcheck error, but
@@ -281,9 +320,9 @@ workaround. Repository SDK builds instead apply a
 [small engine patch](../packaging/duckdb/patches/nullable-bitpacking.patch):
 invalid slots receive the group minimum before subtraction, so their packed
 value is a defined zero. The same 62-case native regression reports 49
-Memcheck errors with the original SDK and zero with the patched SDK, with no
-lost allocations. Both persistence benchmarks retain their original file
-sizes with the patch.
+Memcheck errors with the unpatched 2.0.0 SDK and zero with the patched SDK,
+with no lost allocations. Both persistence benchmarks retain their original
+file sizes with the patch.
 
 All packaging recipes and Docker builds use this patched SDK. Manually
 supplied external engines need an equivalent upstream or distribution

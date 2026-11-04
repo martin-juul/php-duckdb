@@ -52,10 +52,11 @@ string written to an `INTEGER` vector is cast; an out-of-range integer throws
 
 Plain PHP booleans, integers, floats and strings that need no conversion are
 written directly. Other input runs one conversion statement per batch on the
-supplied connection. Like typed binding, that execution invalidates a
-streaming result open on the same connection; use a separate connection for
-vector writes while streaming. Any connection can convert input for a vector:
-its type is fixed when the vector is created.
+supplied connection. Like typed binding, that execution supersedes a
+streaming or pending result open on the same connection; use a separate
+connection for vector writes while streaming. A conversion error leaves an
+explicit transaction on that connection usable. Any connection can convert
+input for a vector: its type is fixed when the vector is created.
 
 `setValues()` requires a list. It validates and converts every value before
 changing a row, so a rejected value leaves the vector unchanged. `set()` and

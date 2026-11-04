@@ -1,5 +1,5 @@
 /* This is a generated file, edit the .stub.php file instead.
- * Stub hash: 6e5b53b966b960c55b426bbefbc244c553aae4dc */
+ * Stub hash: 9137ff41b0a5233addd50791b7a186de39c09c1a */
 
 ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_DuckDB_version, 0, 0, IS_STRING, 0)
 ZEND_END_ARG_INFO()
