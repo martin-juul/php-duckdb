@@ -759,9 +759,19 @@ bool duckdb_resolve_param_index(duckdb_prepared_statement stmt, zval *param, idx
 /* Bind an array of parameters (list = positional, assoc = named).
  * Returns false and throws on failure. */
 bool duckdb_bind_params_array(duckdb_prepared_statement stmt, HashTable *params, conn_inner *conn);
-/* Conversion runs on the PHP thread with conn->mutex held. */
+/* Conversion statements prepared on one connection and reused by later
+ * conversions with the same SQL text, which skips parsing and planning.
+ * Each use still rebinds with the new values. Destroy the cache before its
+ * connection. */
+struct conversion_statements {
+    static constexpr size_t capacity = 4;
+    /* Least recently used first. */
+    std::vector<std::pair<std::string, scoped_duckdb_prepared>> entries;
+};
+/* Conversion runs on the PHP thread with conn->mutex held. `statements`,
+ * when given, must belong to `conn`. */
 bool duckdb_convert_values(conn_inner *conn, const std::vector<zval *> &inputs,
-                          std::vector<scoped_duckdb_value> &outputs);
+                          std::vector<scoped_duckdb_value> &outputs, conversion_statements *statements = nullptr);
 bool duckdb_value_contains_typed(zval *value);
 void duckdb_register_value_class();
 zend_class_entry *duckdb_value_class_entry();

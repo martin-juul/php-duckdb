@@ -47,6 +47,9 @@ struct scalar_registry {
     uint64_t next = 0;
     std::unordered_map<uint64_t, entry> objects;
     std::shared_ptr<conn_inner> conversion;
+    /* Result conversions on `conversion`; declared after it so they are
+     * destroyed before it disconnects. */
+    conversion_statements statements;
 };
 
 struct scalar_slot {
@@ -417,22 +420,42 @@ static bool write_results(conn_inner &conn, const scalar_bind &bind, zval *resul
         error = "ScalarExecutor::execute() must return a list containing exactly one value per input row";
         return false;
     }
+    scoped_duckdb_logical_type target_type(duckdb_vector_get_column_type(output));
+    vector_fast_kind fast = duckdb_vector_fast_kind(target_type.get());
+
+    /* NULLs and plain PHP scalars whose cast to a primitive return type is
+     * an identity are written directly. Only the other rows go through
+     * typed conversion, so they keep DuckDB's casts and errors. */
     std::vector<zval> wrappers(rows);
     std::vector<zval *> inputs;
+    std::vector<idx_t> targets;
+    idx_t row = 0;
     zval *value;
     bool ok = true;
     ZEND_HASH_FOREACH_VAL(Z_ARRVAL_P(results), value) {
-        zval *wrapper = &wrappers[inputs.size()];
-        object_init_ex(wrapper, duckdb_value_class_entry());
-        inputs.push_back(wrapper);
-        if (!duckdb_value_initialize(wrapper, bind.slot->result, value)) {
-            ok = false;
-            break;
+        ZVAL_DEREF(value);
+        if (fast != vector_fast_kind::none && Z_TYPE_P(value) == IS_NULL) {
+            duckdb_vector_ensure_validity_writable(output);
+            duckdb_validity_set_row_invalid(duckdb_vector_get_validity(output), row);
+        } else if (duckdb_vector_can_write_fast(fast, value)) {
+            duckdb_vector_write_fast(output, fast, row, value);
+        } else {
+            zval *wrapper = &wrappers[inputs.size()];
+            object_init_ex(wrapper, duckdb_value_class_entry());
+            inputs.push_back(wrapper);
+            targets.push_back(row);
+            if (!duckdb_value_initialize(wrapper, bind.slot->result, value)) {
+                ok = false;
+                break;
+            }
         }
+        row++;
     } ZEND_HASH_FOREACH_END();
+
     std::vector<scoped_duckdb_value> converted;
     if (ok && !inputs.empty()) {
-        ok = duckdb_convert_values(conn.scalar_state->conversion.get(), inputs, converted);
+        ok = duckdb_convert_values(conn.scalar_state->conversion.get(), inputs, converted,
+                                   &conn.scalar_state->statements);
     }
     for (auto *wrapper : inputs) {
         duckdb_callback_zval_release(&conn, wrapper);
@@ -444,20 +467,23 @@ static bool write_results(conn_inner &conn, const scalar_bind &bind, zval *resul
         }
         return false;
     }
-    scoped_duckdb_logical_type target_type(duckdb_vector_get_column_type(output));
+    if (converted.empty()) {
+        return true;
+    }
+
     duckdb_scoped<duckdb_vector, duckdb_destroy_vector> constant(duckdb_create_vector(target_type.get(), 1));
     scoped_duckdb_selection selection(duckdb_create_selection_vector(1));
     if (!constant || !selection) {
         throw std::bad_alloc();
     }
     duckdb_selection_vector_get_data_ptr(selection.get())[0] = 0;
-    for (idx_t row = 0; row < rows; row++) {
-        if (!duckdb_vector_types_equal(duckdb_get_value_type(converted[row].get()), target_type.get())) {
+    for (size_t i = 0; i < converted.size(); i++) {
+        if (!duckdb_vector_types_equal(duckdb_get_value_type(converted[i].get()), target_type.get())) {
             error = "Scalar result conversion produced a different logical type";
             return false;
         }
-        duckdb_vector_reference_value(constant.get(), converted[row].get());
-        duckdb_vector_copy_sel(constant.get(), output, selection.get(), 1, 0, row);
+        duckdb_vector_reference_value(constant.get(), converted[i].get());
+        duckdb_vector_copy_sel(constant.get(), output, selection.get(), 1, 0, targets[i]);
     }
     return true;
 }

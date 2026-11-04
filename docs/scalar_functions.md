@@ -80,6 +80,10 @@ exact decimal, binary or nested values. The resulting SQL type is always the
 registered type. NULL is valid for any registered output type. Wrong row
 counts, array keys or values that cannot be converted fail the statement.
 
+For a primitive return type, NULL and plain PHP booleans, integers, floats
+and strings that need no conversion are written directly. The other values of
+a batch run one conversion statement, with the same casts and errors.
+
 Output conversion uses a private connection to the same database because the
 executing connection is busy inside the callback. Its session settings use
 their defaults and can differ from settings on the registering connection.

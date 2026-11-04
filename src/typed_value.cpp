@@ -995,8 +995,46 @@ bool duckdb_initialize_typed_registry(db_inner *database) {
     return initialize_registry(database);
 }
 
+/* Take the statement prepared for `sql` out of the cache, or prepare it. */
+static bool take_statement(conn_inner *c, conversion_statements *statements, const std::string &sql,
+                           scoped_duckdb_prepared &p, const operation &op) {
+    if (statements) {
+        auto &entries = statements->entries;
+        for (auto it = entries.begin(); it != entries.end(); ++it) {
+            if (it->first == sql) {
+                p = std::move(it->second);
+                entries.erase(it);
+                return true;
+            }
+        }
+    }
+
+    if (duckdb_prepare(c->conn, sql.c_str(), p.out()) == DuckDBError) {
+        if (!op.error_message.empty()) {
+            throw_operation_error(op);
+        } else {
+            duckdb_throw_prepare_error(duckdb_prepare_error(p.get()));
+        }
+        return false;
+    }
+    return true;
+}
+
+/* Keep a statement whose conversion succeeded for the next use of `sql`. */
+static void keep_statement(conversion_statements *statements, std::string &sql, scoped_duckdb_prepared &p) {
+    if (!statements) {
+        return;
+    }
+
+    auto &entries = statements->entries;
+    if (entries.size() >= conversion_statements::capacity) {
+        entries.erase(entries.begin());
+    }
+    entries.emplace_back(std::move(sql), std::move(p));
+}
+
 bool duckdb_convert_values(conn_inner *c, const std::vector<zval *> &inputs,
-                           std::vector<scoped_duckdb_value> &out) {
+                           std::vector<scoped_duckdb_value> &out, conversion_statements *statements) {
     bool typed = false;
     for (auto *v : inputs)
         if (duckdb_value_contains_typed(v)) {
@@ -1048,11 +1086,7 @@ bool duckdb_convert_values(conn_inner *c, const std::vector<zval *> &inputs,
      * even when every explicit cast already inferred its parameter type. */
         sql += ", " + b.parameter(duckdb_create_int64(0)) + ")";
         scoped_duckdb_prepared p;
-        if (duckdb_prepare(c->conn, sql.c_str(), p.out()) == DuckDBError) {
-            if (!op.error_message.empty())
-                throw_operation_error(op);
-            else
-                duckdb_throw_prepare_error(duckdb_prepare_error(p.get()));
+        if (!take_statement(c, statements, sql, p, op)) {
             return false;
         }
         for (size_t i = 0; i < b.params.size(); i++)
@@ -1061,9 +1095,10 @@ bool duckdb_convert_values(conn_inner *c, const std::vector<zval *> &inputs,
                 return false;
             }
         /* Creating the pending query rebinds with the bound values, so the
-         * capture has folded every input. Executing it would raise a failed
-         * cast again as a statement error, which aborts the user's
-         * transaction, so the pending query is discarded unexecuted. */
+         * capture has folded every input, also for a reused statement.
+         * Executing it would raise a failed cast again as a statement error,
+         * which aborts the user's transaction, so the pending query is
+         * discarded unexecuted. */
         duckdb_scoped<duckdb_pending_result, duckdb_destroy_pending> pending;
         if (duckdb_pending_prepared(p.get(), pending.out()) == DuckDBError) {
             if (!op.error_message.empty()) {
@@ -1084,6 +1119,8 @@ bool duckdb_convert_values(conn_inner *c, const std::vector<zval *> &inputs,
         }
         op.values.pop_back();
         out = std::move(op.values);
+        pending.reset();
+        keep_statement(statements, sql, p);
         return true;
     } catch (const std::exception &e) {
         if (!EG(exception))
