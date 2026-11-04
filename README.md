@@ -528,9 +528,9 @@ DuckDB 2.0 aborts an explicit transaction on any error inside it; later
 statements fail until it is rolled back (DuckDB's
 `default_transaction_invalidation_policy` setting can relax this for parser
 and binder errors). `commit()` never reports success for an aborted
-transaction: it rolls back and throws a `TransactionException`, and the
-`rollBack()` of a surrounding `catch` block then succeeds without doing
-anything, so the original exception reaches the caller. Plain
+transaction: it throws a `TransactionException` and leaves the aborted
+transaction open, so the `rollBack()` of a surrounding `catch` block ends it
+and the original exception reaches the caller. Plain
 SQL (`BEGIN`/`COMMIT`/`ROLLBACK`) also works, but a raw `COMMIT` of an aborted
 transaction rolls back silently. See the
 [migration guide](docs/migrations.md#transactions).

@@ -693,8 +693,8 @@ final class Connection
      * Commit the active transaction.
      *
      * @throws TransactionException When no transaction is active, or when
-     *         DuckDB aborted the transaction: nothing is committed, the
-     *         transaction is rolled back and the connection leaves it.
+     *         DuckDB aborted the transaction: nothing is committed, and the
+     *         aborted transaction stays open until rollBack() ends it.
      */
     public function commit(): void {}
 

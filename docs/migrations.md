@@ -42,11 +42,11 @@ usable after parser and binder errors.
 
 `Connection::commit()` now throws a `TransactionException` (code 10,
 `ErrorType::Transaction`) when DuckDB has aborted the transaction, for any
-cause: "Transaction was aborted, so nothing was committed; it has been rolled
-back". Extension 1.5.0 returned normally while DuckDB discarded the work. The
-connection is outside the transaction afterwards. The first `rollBack()` that
-follows such a `commit()` succeeds without doing anything, so the usual
-pattern rethrows the commit error rather than a "no transaction is active"
+cause: "Transaction was aborted, so nothing was committed; call rollBack() to
+end it". Extension 1.5.0 returned normally while DuckDB discarded the work.
+The aborted transaction stays open, as DuckDB keeps it: other statements fail
+with "Current transaction is aborted (please ROLLBACK)" until `rollBack()`
+ends it. The usual pattern therefore rolls back and rethrows the commit
 error:
 
 ```php
@@ -59,9 +59,6 @@ try {
     throw $e;
 }
 ```
-
-Any other statement on the connection ends that allowance, so a later
-`rollBack()` without a transaction still throws.
 
 A raw `COMMIT` statement keeps DuckDB's behavior: it rolls back an aborted
 transaction and reports success. Use `commit()` when the application must

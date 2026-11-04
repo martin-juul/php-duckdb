@@ -1,5 +1,5 @@
 --TEST--
-Transactions: commit() throws for a transaction DuckDB aborted, and commits a healthy one as before
+Transactions: commit() throws for a transaction DuckDB aborted and leaves it for rollBack(), and commits a healthy one as before
 --SKIPIF--
 <?php require_once __DIR__ . '/skipif.inc'; ?>
 --FILE--
@@ -50,8 +50,10 @@ $conn->beginTransaction();
 $conn->query('INSERT INTO t VALUES (1)');
 report('failing query', fn () => $conn->query('SELECT * FROM missing'));
 report('commit', fn () => $conn->commit());
-var_dump(count_rows($conn));
+report('query in the aborted transaction', fn () => count_rows($conn));
 report('rollBack after the failed commit', fn () => $conn->rollBack());
+var_dump(count_rows($conn));
+report('second rollBack', fn () => $conn->rollBack());
 
 echo "-- refused statements beside a read-only stream inside a transaction\n";
 $conn = fresh_connection();
@@ -103,7 +105,7 @@ var_dump(count_rows($conn));
 echo "-- commit without a transaction\n";
 report('commit', fn () => $conn->commit());
 
-echo "-- rollBack in the catch block of a commit() that rolled back\n";
+echo "-- rollBack in the catch block of a failed commit()\n";
 $conn = fresh_connection();
 $conn->beginTransaction();
 $conn->query('INSERT INTO t VALUES (1)');
@@ -120,15 +122,17 @@ try {
 var_dump(count_rows($conn));
 report('second rollBack', fn () => $conn->rollBack());
 
-echo "-- rollBack after another statement keeps its error\n";
+echo "-- the aborted transaction stays until rollBack()\n";
 $conn->beginTransaction();
 try {
     $conn->query('SELECT * FROM missing');
 } catch (DuckDB\Exception $e) {
 }
 report('commit', fn () => $conn->commit());
-$conn->query('SELECT 1');
+report('query', fn () => $conn->query('SELECT 1'));
+report('commit again', fn () => $conn->commit());
 report('rollBack', fn () => $conn->rollBack());
+report('query after rollBack', fn () => $conn->query('SELECT 1'));
 
 echo "-- rollBack after a transaction begun through queryAsync()\n";
 $conn = fresh_connection();
@@ -138,9 +142,11 @@ try {
 } catch (DuckDB\Exception $e) {
 }
 report('commit', fn () => $conn->commit());
+report('queryAsync in the aborted transaction', fn () => $conn->queryAsync('SELECT 1')->await());
+report('rollBack', fn () => $conn->rollBack());
 $conn->queryAsync('BEGIN TRANSACTION')->await();
 $conn->queryAsync('INSERT INTO t VALUES (1)')->await();
-report('rollBack', fn () => $conn->rollBack());
+report('rollBack of the queryAsync() transaction', fn () => $conn->rollBack());
 var_dump(count_rows($conn));
 ?>
 --EXPECT--
@@ -155,9 +161,11 @@ int(300000)
 int(300001)
 -- SQL error inside a transaction
 failing query: DuckDB\CatalogException code=13 Catalog Error: Table with name missing does not exist!
-commit: DuckDB\TransactionException code=10 Transaction was aborted, so nothing was committed; it has been rolled back
+commit: DuckDB\TransactionException code=10 Transaction was aborted, so nothing was committed; call rollBack() to end it
+query in the aborted transaction: DuckDB\TransactionException code=10 TransactionContext Error: Current transaction is aborted (please ROLLBACK)
+rollBack after the failed commit: ok
 int(0)
-rollBack after the failed commit: DuckDB\TransactionException code=10 TransactionContext Error: cannot rollback - no transaction is active
+second rollBack: DuckDB\TransactionException code=10 TransactionContext Error: cannot rollback - no transaction is active
 -- refused statements beside a read-only stream inside a transaction
 array(1) {
   ["i"]=>
@@ -195,14 +203,19 @@ bool(true)
 int(3)
 -- commit without a transaction
 commit: DuckDB\TransactionException code=10 TransactionContext Error: cannot commit - no transaction is active
--- rollBack in the catch block of a commit() that rolled back
-caught: Transaction was aborted, so nothing was committed; it has been rolled back
+-- rollBack in the catch block of a failed commit()
+caught: Transaction was aborted, so nothing was committed; call rollBack() to end it
 int(0)
 second rollBack: DuckDB\TransactionException code=10 TransactionContext Error: cannot rollback - no transaction is active
--- rollBack after another statement keeps its error
-commit: DuckDB\TransactionException code=10 Transaction was aborted, so nothing was committed; it has been rolled back
-rollBack: DuckDB\TransactionException code=10 TransactionContext Error: cannot rollback - no transaction is active
--- rollBack after a transaction begun through queryAsync()
-commit: DuckDB\TransactionException code=10 Transaction was aborted, so nothing was committed; it has been rolled back
+-- the aborted transaction stays until rollBack()
+commit: DuckDB\TransactionException code=10 Transaction was aborted, so nothing was committed; call rollBack() to end it
+query: DuckDB\TransactionException code=10 TransactionContext Error: Current transaction is aborted (please ROLLBACK)
+commit again: DuckDB\TransactionException code=10 Transaction was aborted, so nothing was committed; call rollBack() to end it
 rollBack: ok
+query after rollBack: ok
+-- rollBack after a transaction begun through queryAsync()
+commit: DuckDB\TransactionException code=10 Transaction was aborted, so nothing was committed; call rollBack() to end it
+queryAsync in the aborted transaction: DuckDB\TransactionException code=10 TransactionContext Error: Current transaction is aborted (please ROLLBACK)
+rollBack: ok
+rollBack of the queryAsync() transaction: ok
 int(0)
