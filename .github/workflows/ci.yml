@@ -167,6 +167,9 @@ jobs:
           cc -std=c11 -Wall -Wextra -Werror -I/opt/duckdb/include \
             tests/native/c_api_copy_functions.c -L/opt/duckdb/lib -lduckdb \
             -o "$native_dir/c-api-copy-functions"
+          cc -std=c11 -Wall -Wextra -Werror -I/opt/duckdb/include \
+            tests/native/array_join_gather.c -L/opt/duckdb/lib -lduckdb \
+            -o "$native_dir/array-join-gather"
           cc -std=c11 -Wall -Wextra -Werror -pthread -I/opt/duckdb/include \
             tests/native/pending_prepared_callbacks.c -L/opt/duckdb/lib -lduckdb \
             -o "$native_dir/pending-prepared-callbacks"
@@ -187,6 +190,9 @@ jobs:
 
           "$native_dir/c-api-copy-functions"
           memcheck "$native_dir/c-api-copy-functions"
+
+          "$native_dir/array-join-gather"
+          memcheck "$native_dir/array-join-gather"
 
           "$native_dir/arrow-geometry"
           memcheck "$native_dir/arrow-geometry"

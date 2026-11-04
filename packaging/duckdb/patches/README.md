@@ -1,6 +1,6 @@
 # DuckDB engine patches
 
-This repository carries three DuckDB source patches. SDK builds apply them
+This repository carries four DuckDB source patches. SDK builds apply them
 before compiling `libduckdb`; all are included in the libraries shipped by
 those builds. The PHP extension still links through DuckDB's public C API.
 
@@ -11,11 +11,13 @@ those builds. The PHP extension still links through DuckDB's public C API.
 | [nullable-bitpacking.patch](nullable-bitpacking.patch) | DuckDB 2.0.0, pinned in [source.json](../source.json) | Initialize NULL slots before frame-of-reference bitpacking | Local fix developed for this repository; not fixed upstream in 2.0.0; no upstream issue, PR or merge reference is recorded here |
 | [arrow-geometry.patch](arrow-geometry.patch) | DuckDB 2.0.0, pinned in [source.json](../source.json) | Run C Arrow conversions in a transaction and preserve declared geometry CRS on import | Local fix developed for this repository; not fixed upstream in 2.0.0; no upstream issue, PR or merge reference is recorded here |
 | [c-api-copy-functions.patch](c-api-copy-functions.patch) | DuckDB 2.0.0, pinned in [source.json](../source.json) | Reject parallel COPY modes and EXPORT DATABASE for C API copy functions; let their bind callbacks decline a binding | Local change developed for this repository; not in upstream 2.0.0; no upstream issue, PR or merge reference is recorded here |
+| [array-join-gather.patch](array-join-gather.patch) | DuckDB 2.0.0, pinned in [source.json](../source.json) | Store ARRAY values gathered by a hash join at the matched rows, not the first rows of the output | Local fix developed for this repository; not fixed upstream in 2.0.0; no upstream issue, PR or merge reference is recorded here |
 
-The patches are maintained against this exact source baseline. They were
-rebased from DuckDB 1.5.6 onto 2.0.0, where the C API sources moved to
-`src/main/capi/v1/`. Each native regression below still fails on the unpatched
-2.0.0 library, so 2.0.0 contains none of the fixes. Their presence does not
+The patches are maintained against this exact source baseline. The first
+three were rebased from DuckDB 1.5.6 onto 2.0.0, where the C API sources moved
+to `src/main/capi/v1/`; the ARRAY join gather patch was written against 2.0.0.
+Each native regression below still fails on the unpatched 2.0.0 library, so
+2.0.0 contains none of the fixes. Their presence does not
 establish whether another DuckDB release contains the same defect or an
 equivalent fix.
 
@@ -129,9 +131,61 @@ one global state and serial sinks, so the patch leaves it allowed.
 `BATCHES_PER_FILE` already fails for these formats because they implement no
 batch callbacks.
 
+## ARRAY join gather
+
+A hash join stores the build side's rows in a row layout and gathers the
+build columns of matched probe rows back into vectors. That gather cannot
+produce fixed-size ARRAY vectors directly: for a column that contains an
+ARRAY, the engine gathers the value as a LIST and then casts it to the ARRAY
+type. The gather writes row `i` to output position `target_sel[i]`, but the
+original cast converts output positions `0` to `count - 1`. When the target
+selection is not the identity, it reads list entries that were never written
+and never converts some of the gathered rows.
+
+DuckDB 2.0.0 reaches this path with a non-identity selection in two places.
+A LEFT JOIN whose build keys are unique gathers only the matched probe rows,
+straight into their output positions; 2.0.0 added this path. A SINGLE join,
+which DuckDB plans for a correlated scalar subquery, does the same; DuckDB
+1.5.6 already fails such a subquery that returns an ARRAY, while its LEFT
+JOIN works. A RIGHT JOIN that the optimizer turns into such a LEFT JOIN also
+reaches the path. The
+unwritten list entries make the query fail with
+`Conversion Error: Cannot cast list with length 0 to array with length 2`,
+with a garbage length, with an internal allocation error that invalidates
+the database, or with a segmentation fault. Whether a query takes this path
+depends on the plan: with the `join_order` optimizer disabled, the reproducer
+builds its hash table on the other side and reads the ARRAY column from the
+probe side, so it succeeds.
+
+The patch gathers into positions `0` to `count - 1` of the temporary LIST
+vector and casts those rows into a temporary ARRAY vector. It then copies
+each row to its target position and leaves the other output rows untouched.
+An identity selection keeps the original direct cast. The same change
+applies to a STRUCT that contains an ARRAY, which the engine gathers as a
+STRUCT of LISTs. This changes an engine-internal gather, with no public API,
+ABI or storage format change.
+
+The [native regression](../../../tests/native/array_join_gather.c) covers
+unmatched rows at the start, middle and end of a chunk, NULL arrays and NULL
+elements, VARCHAR, STRUCT, LIST and ARRAY elements, a STRUCT containing an
+ARRAY, a LIST of ARRAYs, several chunks, chunks without any match, scalar
+subqueries, and RIGHT, FULL, INNER and duplicate-key joins. Its header gives
+compile and Memcheck commands. The unpatched 2.0.0 library fails 17 of its 23
+checks in every run. Its LIST of ARRAYs case reads list entries that the
+gather never wrote and passes, fails or crashes the process with a
+segmentation fault, depending on the run. Memcheck reports no errors for these
+stale reads on the unpatched library; the value checks detect them. The
+FULL, INNER, duplicate-key, all-matched and last-row-unmatched cases do not
+reach the faulty cast and pass there. The patched SDK passes all 23, normally
+and under Valgrind with zero errors or lost allocations. With the patched SDK,
+the PHP harness passes the
+[LEFT JOIN regression](../../../tests/152_array_left_join.phpt), which fetches
+the original reproducer and a multi-chunk nested ARRAY join buffered and
+streaming.
+
 ## Which builds include them
 
-The POSIX, Windows and Solaris SDK builders apply all three patches. Docker
+The POSIX, Windows and Solaris SDK builders apply all four patches. Docker
 images and packages that build a vendored SDK consequently ship a patched
 engine. Builds linked to an external or distribution-provided `libduckdb` use
 that library as provided; the PHP extension build does not patch it. See the
@@ -140,8 +194,9 @@ source.
 
 The source archive is pinned by hash, and patch application must succeed
 cleanly. Installed SDKs carry `source.json`, `nullable-bitpacking.patch`,
-`arrow-geometry.patch`, `c-api-copy-functions.patch`, build metadata and
-DuckDB's license under `share/duckdb-sdk/`. Every patch hash enters the SDK
+`arrow-geometry.patch`, `c-api-copy-functions.patch`,
+`array-join-gather.patch`, build metadata and DuckDB's license under
+`share/duckdb-sdk/`. Every patch hash enters the SDK
 identity, and cache verification requires every patch artifact and its
 checksum. Use that metadata to identify our build: the patches do not change
 DuckDB's reported `2.0.0` version.

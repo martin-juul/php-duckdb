@@ -56,9 +56,10 @@ to a file when a persistent compilation log is needed.
 
 `build-sdk.sh` uses the shared [source pin](../duckdb/source.json) and
 [nullable-bitpacking patch](../duckdb/patches/nullable-bitpacking.patch), plus
-the [Arrow conversion/geometry patch](../duckdb/patches/arrow-geometry.patch)
-and the [C API copy-function patch](../duckdb/patches/c-api-copy-functions.patch).
-It verifies the archive SHA-256 and applies all three patches without fuzz. Set
+the [Arrow conversion/geometry patch](../duckdb/patches/arrow-geometry.patch),
+the [C API copy-function patch](../duckdb/patches/c-api-copy-functions.patch)
+and the [ARRAY join gather patch](../duckdb/patches/array-join-gather.patch).
+It verifies the archive SHA-256 and applies all four patches without fuzz. Set
 `DUCKDB_SOURCE_ARCHIVE` to a local copy of that exact archive for an offline
 engine build. Dependency resolution still needs the installed IPS image
 and its publishers. The shared Linux/macOS SDK builder rejects SunOS, so

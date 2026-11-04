@@ -52,7 +52,8 @@ All [engine patches](duckdb/patches/README.md) are built into the shipped
 library. The nullable bitpacking patch initializes unused NULL slots; the
 Arrow patch supplies conversion transactions and preserves declared geometry
 CRS metadata; the copy-function patch makes binding of C API COPY formats
-deterministic. Patches, source pins, build metadata and DuckDB's license
+deterministic; the ARRAY join gather patch stores joined ARRAY values at the
+right rows. Patches, source pins, build metadata and DuckDB's license
 accompany the SDK under `share/duckdb-sdk/`. Cache verification requires every
 patch artifact and its checksum. Existing release assets are not replaced;
 the release workflow builds from its release commit.

@@ -67,7 +67,8 @@ commit=$(pin commit)
 patch_file=$root/packaging/duckdb/$(pin patch)
 arrow_patch_file=$root/packaging/duckdb/patches/arrow-geometry.patch
 copy_function_patch_file=$root/packaging/duckdb/patches/c-api-copy-functions.patch
-for required_patch in "$patch_file" "$arrow_patch_file" "$copy_function_patch_file"; do
+array_join_patch_file=$root/packaging/duckdb/patches/array-join-gather.patch
+for required_patch in "$patch_file" "$arrow_patch_file" "$copy_function_patch_file" "$array_join_patch_file"; do
     [ -f "$required_patch" ] || {
         echo "Pinned DuckDB patch missing: $required_patch" >&2
         exit 2
@@ -87,6 +88,7 @@ gtar -xzf "$archive" -C "$work/source" --strip-components=1
 (cd "$work/source" && gpatch -p1 -F 0 -t < "$patch_file")
 (cd "$work/source" && gpatch -p1 -F 0 -t < "$arrow_patch_file")
 (cd "$work/source" && gpatch -p1 -F 0 -t < "$copy_function_patch_file")
+(cd "$work/source" && gpatch -p1 -F 0 -t < "$array_join_patch_file")
 cmake -S "$work/source" -B "$work/build" -G 'Unix Makefiles' \
     -DCMAKE_MAKE_PROGRAM="$(command -v gmake)" -DCMAKE_BUILD_TYPE=Release \
     -DCMAKE_C_COMPILER="$CC" -DCMAKE_CXX_COMPILER="$CXX" \
@@ -107,10 +109,12 @@ cp "$manifest" "$metadata/source.json"
 cp "$patch_file" "$metadata/nullable-bitpacking.patch"
 cp "$arrow_patch_file" "$metadata/arrow-geometry.patch"
 cp "$copy_function_patch_file" "$metadata/c-api-copy-functions.patch"
+cp "$array_join_patch_file" "$metadata/array-join-gather.patch"
 {
     echo "source_commit=$commit; source_sha256=$(pin sha256)"
     echo "patch_sha256=$(hash "$patch_file"); arrow_patch_sha256=$(hash "$arrow_patch_file")"
     echo "copy_function_patch_sha256=$(hash "$copy_function_patch_file")"
+    echo "array_join_patch_sha256=$(hash "$array_join_patch_file")"
     echo "builder_sha256=$(hash "$0")"
     echo 'builtins=core_functions,parquet,json,icu,autocomplete; native_arch=OFF'
     echo 'optimization_profile=NONE'
@@ -136,6 +140,7 @@ names = [
     'share/duckdb-sdk/nullable-bitpacking.patch',
     'share/duckdb-sdk/arrow-geometry.patch',
     'share/duckdb-sdk/c-api-copy-functions.patch',
+    'share/duckdb-sdk/array-join-gather.patch',
 ]
 pins = {name: hashlib.sha256((prefix / name).read_bytes()).hexdigest() for name in names}
 (prefix / 'share/duckdb-sdk/artifacts.json').write_text(json.dumps(pins, indent=2) + '\n')
