@@ -28,6 +28,8 @@ Set `DUCKDB_SOURCE_ARCHIVE` to use an already downloaded archive; the same hash
 check applies. `DUCKDB_SDK_PREFIX`, `DUCKDB_BUILD_DIR` and `DUCKDB_BUILD_JOBS`
 provide defaults for the command-line options. Without a worker override,
 [CPU and memory availability](../resources/README.md) determine parallelism.
+After the SDK is installed and verified, the builder deletes the `source` and
+`build` trees in the work directory; only the build metadata stays.
 
 The Release build links core functions, Parquet, JSON, ICU and autocomplete
 into the library. Extension autoloading and automatic installation keep

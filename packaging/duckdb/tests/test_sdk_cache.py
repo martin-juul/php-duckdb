@@ -216,6 +216,8 @@ else:
         metadata = (self.prefix / "share/duckdb-sdk/build.txt").read_bytes()
         self.assertEqual(fingerprint, hashlib.sha256(metadata).hexdigest())
         self.assertEqual(self.builds(), 1)
+        self.assertFalse((self.work / "source").exists())
+        self.assertFalse((self.work / "build").exists())
         self.assertIn("Reusing verified", self.build().stdout)
         self.assertEqual(self.builds(), 1)
 

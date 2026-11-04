@@ -376,4 +376,9 @@ verify_sdk "$prefix" || {
     exit 1
 }
 publish_sdk_cache
+
+# The installed SDK is complete, so drop the engine source and build trees.
+# Builds compiled with -g leave several gigabytes of objects here, and the
+# next build starts from a clean tree anyway.
+rm -rf "$source_dir" "$build_dir"
 echo "Installed patched DuckDB SDK $fingerprint at $prefix"
