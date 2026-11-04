@@ -251,13 +251,6 @@ void copy_session::service() {
     }
 }
 
-void copy_session::wait_for_work(std::chrono::milliseconds timeout) {
-    std::unique_lock<std::mutex> lock(mutex);
-    cv.wait_for(lock, timeout, [this] {
-        return !open || !queue.empty();
-    });
-}
-
 void copy_session::close(const std::string &reason) {
     {
         std::lock_guard<std::mutex> lock(mutex);
@@ -450,21 +443,6 @@ bool duckdb_session_lease(conn_inner &conn, copy_session &session, const std::fu
     }
     lease_depth--;
     return true;
-}
-
-duckdb_pending_state duckdb_session_step(copy_session &session, duckdb_pending_result pending) {
-    session.service();
-
-    duckdb_pending_state state;
-    {
-        driver_away away(nullptr);
-        state = duckdb_pending_execute_task(pending);
-    }
-
-    if (state == DUCKDB_PENDING_NO_TASKS_AVAILABLE) {
-        session.wait_for_work(std::chrono::milliseconds(1));
-    }
-    return state;
 }
 
 /* Helper thread: execute a pending query until it is ready or fails. When

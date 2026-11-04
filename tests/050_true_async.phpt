@@ -94,6 +94,19 @@ Async\await($ticker2);
 echo $pollingSum === 1249999975000000 ? "polling-result-ok\n" : "polling-result-BAD($pollingSum)\n";
 echo $ticks2 >= 5 ? "polling-responsive\n" : "polling-BLOCKED($ticks2)\n";
 
+// --- Pumped polling mode: a COPY to a PHP format progresses on the --------
+// --- connection's helper thread while its callbacks run in this coroutine.
+require __DIR__ . '/copy.inc';
+$copyDir = copy_scratch();
+$copied = Async\await(Async\spawn(function () use ($copyDir) {
+    $conn = (new Database(':memory:', ['threads' => 4]))->connect();
+    $conn->registerCopyToFunction('lines', new LinesFormat());
+    return $conn->queryPending("COPY (SELECT range AS i FROM range(5000) ORDER BY i) TO '$copyDir/a.lines' (FORMAT lines)")
+        ->suspend()->fetchRow(FetchMode::Num)[0];
+}));
+$inOrder = array_column(copy_lines("$copyDir/a.lines"), 0) === range(0, 4999);
+echo $copied === 5000 && $inOrder ? "pumped-polling-ok\n" : "pumped-polling-BAD($copied)\n";
+
 // --- Prepared statement ----------------------------------------------------
 $stmtResult = Async\await(Async\spawn(function () use ($mk) {
     $conn = $mk();
@@ -128,6 +141,7 @@ overlap-results-ok
 overlap-ok
 polling-result-ok
 polling-responsive
+pumped-polling-ok
 statement-ok
 cancelled: Async\AsyncCancellation
 isCancelled-ok

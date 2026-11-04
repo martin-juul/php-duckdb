@@ -24,7 +24,10 @@ Statements that use a [PHP COPY format](copy.md) need the request thread to run
 their handlers, so they work only in polling mode. `queryAsync()` and
 `executeAsync()` reject them. A polling query that runs a PHP format calls its
 handlers from `isReady()`, `await()` and `suspend()`; the handlers themselves
-must not suspend.
+must not suspend. Such a query, and any polling query on a connection with a
+PHP COPY format or scalar function registered, executes on the connection's
+helper thread: each `isReady()` call lets it run for about 1 ms while the
+calling thread runs the handlers it reaches.
 
 ## Consuming the result
 

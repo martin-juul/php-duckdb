@@ -68,6 +68,19 @@ $pollingSum = Amp\async(
 )->await();
 echo $pollingSum === 1249999975000000 ? "polling-result-ok\n" : "polling-result-BAD($pollingSum)\n";
 
+// --- Pumped polling mode: a COPY to a PHP format progresses on the --------
+// --- connection's helper thread while its callbacks run in this fiber. ----
+require __DIR__ . '/copy.inc';
+$copyDir = copy_scratch();
+$copied = Amp\async(function () use ($copyDir) {
+    $conn = (new Database(':memory:', ['threads' => 4]))->connect();
+    $conn->registerCopyToFunction('lines', new LinesFormat());
+    return $conn->queryPending("COPY (SELECT range AS i FROM range(5000) ORDER BY i) TO '$copyDir/a.lines' (FORMAT lines)")
+        ->suspend()->fetchRow(FetchMode::Num)[0];
+})->await();
+$inOrder = array_column(copy_lines("$copyDir/a.lines"), 0) === range(0, 4999);
+echo $copied === 5000 && $inOrder ? "pumped-polling-ok\n" : "pumped-polling-BAD($copied)\n";
+
 // --- Prepared statement ----------------------------------------------------
 $stmtResult = Amp\async(function () use ($mk) {
     $stmt = $mk()->prepare('SELECT ?::INT + 1');
@@ -96,6 +109,7 @@ loop-responsive
 overlap-results-ok
 overlap-ok
 polling-result-ok
+pumped-polling-ok
 statement-ok
 catalog-ok
 toplevel-ok

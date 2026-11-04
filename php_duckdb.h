@@ -404,7 +404,7 @@ struct async_task {
     duckdb_result result = {};
     /* POLLING, until executed: the registered pending query. It owns the
      * native pending handle and, on a pumped connection, the session that
-     * services COPY callbacks between slices. */
+     * services PHP callbacks while the connection's helper runs a slice. */
     std::shared_ptr<open_result> record;
     /* POLLING keeps its prepared statement alive for as long as the pending
      * result may reference it (duckdb_pending_prepared does NOT take

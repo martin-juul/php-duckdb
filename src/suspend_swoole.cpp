@@ -108,7 +108,8 @@ static void duckdb_pending_suspend_swoole(php_duckdb_pending_object *intern, std
             ok = duckdb_call_php("Swoole\\Coroutine::waitEvent", 3, args, &rv);
         } else {
             /* Polling mode has no completion descriptor: duckdb_task_step
-             * above executes one slice of the query on THIS thread, so the
+             * above executes one slice of the query before returning (on
+             * the connection's helper thread when it is pumped), so the
              * loop makes real progress; yield the coroutine briefly between
              * slices so peers get scheduler time. */
             ZVAL_DOUBLE(&args[0], 0.001);

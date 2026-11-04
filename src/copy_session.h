@@ -84,8 +84,6 @@ struct copy_session {
 
     /* Request thread: run every queued request. */
     void service();
-    /* Request thread: wait up to `timeout` for queued work. */
-    void wait_for_work(std::chrono::milliseconds timeout);
     /* Any thread: fail queued and future requests and wake waiters. */
     void close(const std::string &reason);
     /* DuckDB thread: queue `request` and wait until the request thread ran
@@ -124,9 +122,6 @@ std::shared_ptr<copy_session> duckdb_session_find_bind(db_inner &db, idx_t conne
 bool duckdb_session_lease(conn_inner &conn, copy_session &session, const std::function<void()> &work,
                           std::string &error);
 
-/* Drive one slice of a pending result on the request thread, servicing the
- * session first. */
-duckdb_pending_state duckdb_session_step(copy_session &session, duckdb_pending_result pending);
 
 /* Execute a prepared statement through the pump: bind callbacks run while
  * it starts on the request thread, then a lease executes it. Caller holds
