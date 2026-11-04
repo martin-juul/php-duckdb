@@ -76,18 +76,18 @@ DuckDB rejects a binding, the driver throws a typed exception, usually
 
 ## Native query-shape limitation
 
-With the pinned DuckDB 1.5.6 engine, this prepared query raises
-`InternalException` (`Invalid PhysicalType for GetTypeIdSize`) when `$value`
-is bound to a VARCHAR, including a plain PHP string on its first execution:
+With the pinned DuckDB 2.0.0 engine, this prepared query reports
+`typeof($value)` as `UNKNOWN` when `$value` is bound to a VARCHAR, including a
+plain PHP string on its first execution:
 
 ```sql
 SELECT typeof($value), COALESCE($value::VARCHAR, 'NULL')
 ```
 
-The same failure reproduces through the native C API. It is not limited to
-switching parameter types or to typed PHP wrappers. Removing either
-`typeof` or `COALESCE` avoids the failing combination. When both outputs are
-needed, introduce the parameter once in a derived table:
+DuckDB 1.5.6 raised `InternalException` (`Invalid PhysicalType for
+GetTypeIdSize`) for the same query. The behavior is not limited to typed PHP
+wrappers. Removing `COALESCE` makes `typeof($value)` report `VARCHAR`. When
+both outputs are needed, introduce the parameter once in a derived table:
 
 ```sql
 SELECT typeof(v), COALESCE(v::VARCHAR, 'NULL')

@@ -75,10 +75,26 @@ Streaming caveats:
 
 - `rowCount()` is **not meaningful** for streaming results (it reports only
   what has materialized so far).
-- A streaming result is bound to its connection: **starting a new execution
-  on the same connection invalidates the in-flight stream**, which then
-  throws on the next fetch. Keep one connection per active stream (or finish
-  consuming before reusing the connection).
+- A streaming result holds its connection until it drains, fails or is
+  released (unset, or its last reference dropped). **While it is open, DuckDB
+  refuses every new execution on that connection** with a `DuckDB\Exception`
+  whose `getErrorType()` is `ErrorType::ResourceInUse` ("connection has an
+  open result; drain or destroy it before starting a new query"). The refused
+  statement never runs, so it does not abort an open transaction, and the
+  stream stays readable. Keep one connection per active stream, or finish
+  consuming it before reusing the connection. Reassigning a variable that
+  holds an undrained stream is refused as well, because PHP runs the new query
+  before releasing the old stream; `unset()` it first.
+- Statements, prepares, transaction helpers, `queryAsync()`, typed
+  conversions and appender operations that write to the table (`endRow()`,
+  `appendRow()`, `appendChunk()`, `appendArrow()`, `flush()` and `close()`)
+  are refused. `bindValue()`, `clearBindings()`, `getTableNames()`,
+  `dataChunkFromArrow()`, `DataChunk::toArrow()`, function registration,
+  creating an appender and buffering appender values are not.
+- Releasing a stream whose statement writes and has not finished rolls those
+  writes back under autocommit, or aborts the explicit transaction. A
+  streaming `INSERT … RETURNING` has finished its writes before its first row
+  arrives.
 - Errors that occur mid-stream (e.g. a conversion error in row 10 million)
   surface as an exception from `fetchRow()`/`fetchAll()` mid-iteration.
 

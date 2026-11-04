@@ -14,6 +14,7 @@ extern "C" {
 #include "ext/json/php_json.h"
 }
 #include "php_duckdb.h"
+#include "copy.h"
 
 #if defined(ZTS) && defined(COMPILE_DL_DUCKDB)
 #define DUCKDB_TSRMLS_CACHE_UPDATE() ZEND_TSRMLS_CACHE_UPDATE()
@@ -413,7 +414,7 @@ PHP_METHOD(DuckDB_Value, getType) {
     RETURN_STR_COPY(v->type);
 }
 
-PHP_METHOD(DuckDB_Value, toString) {
+DUCKDB_COPY_METHOD(DuckDB_Value, toString) {
     DUCKDB_TSRMLS_CACHE_UPDATE();
     zval *connection;
 
@@ -433,11 +434,10 @@ PHP_METHOD(DuckDB_Value, toString) {
 
     try {
         std::unique_lock<std::mutex> lock;
-        if (!duckdb_conn_enter(*conn, lock)) {
+        if (!duckdb_conn_enter(*conn, lock, conn_entry::statement_start)) {
             RETURN_THROWS();
         }
         std::vector<scoped_duckdb_value> values;
-        // Conversion advances the execution epoch for the whole operation.
         if (!duckdb_convert_values(conn.get(), {ZEND_THIS}, values)) {
             RETURN_THROWS();
         }
@@ -701,9 +701,11 @@ void capture_bind(duckdb_bind_info info) {
         duckdb_error_data err = duckdb_expression_fold(ctx, expr, &v);
         duckdb_destroy_expression(&expr);
         if (duckdb_error_data_has_error(err)) {
+            /* Keep the error for the PHP thread instead of failing the bind:
+             * DuckDB 2.0 aborts an explicit transaction on any statement
+             * error, and a failed conversion leaves the transaction usable. */
             active->error_type = duckdb_error_data_error_type(err);
             active->error_message = duckdb_error_data_message(err);
-            duckdb_scalar_function_bind_set_error(info, duckdb_error_data_message(err));
             duckdb_destroy_error_data(&err);
             if (v)
                 duckdb_destroy_value(&v);
@@ -993,8 +995,46 @@ bool duckdb_initialize_typed_registry(db_inner *database) {
     return initialize_registry(database);
 }
 
+/* Take the statement prepared for `sql` out of the cache, or prepare it. */
+static bool take_statement(conn_inner *c, conversion_statements *statements, const std::string &sql,
+                           scoped_duckdb_prepared &p, const operation &op) {
+    if (statements) {
+        auto &entries = statements->entries;
+        for (auto it = entries.begin(); it != entries.end(); ++it) {
+            if (it->first == sql) {
+                p = std::move(it->second);
+                entries.erase(it);
+                return true;
+            }
+        }
+    }
+
+    if (duckdb_prepare(c->conn, sql.c_str(), p.out()) == DuckDBError) {
+        if (!op.error_message.empty()) {
+            throw_operation_error(op);
+        } else {
+            duckdb_throw_prepare_error(duckdb_prepare_error(p.get()));
+        }
+        return false;
+    }
+    return true;
+}
+
+/* Keep a statement whose conversion succeeded for the next use of `sql`. */
+static void keep_statement(conversion_statements *statements, std::string &sql, scoped_duckdb_prepared &p) {
+    if (!statements) {
+        return;
+    }
+
+    auto &entries = statements->entries;
+    if (entries.size() >= conversion_statements::capacity) {
+        entries.erase(entries.begin());
+    }
+    entries.emplace_back(std::move(sql), std::move(p));
+}
+
 bool duckdb_convert_values(conn_inner *c, const std::vector<zval *> &inputs,
-                           std::vector<scoped_duckdb_value> &out) {
+                           std::vector<scoped_duckdb_value> &out, conversion_statements *statements) {
     bool typed = false;
     for (auto *v : inputs)
         if (duckdb_value_contains_typed(v)) {
@@ -1011,7 +1051,6 @@ bool duckdb_convert_values(conn_inner *c, const std::vector<zval *> &inputs,
         out = std::move(values);
         return true;
     }
-    c->execution_epoch.fetch_add(1, std::memory_order_acq_rel);
     if (!duckdb_initialize_typed_registry(c->db.get()))
         return false;
     auto state = std::static_pointer_cast<capture_state>(c->db->typed_capture_state);
@@ -1047,11 +1086,7 @@ bool duckdb_convert_values(conn_inner *c, const std::vector<zval *> &inputs,
      * even when every explicit cast already inferred its parameter type. */
         sql += ", " + b.parameter(duckdb_create_int64(0)) + ")";
         scoped_duckdb_prepared p;
-        if (duckdb_prepare(c->conn, sql.c_str(), p.out()) == DuckDBError) {
-            if (!op.error_message.empty())
-                throw_operation_error(op);
-            else
-                duckdb_throw_prepare_error(duckdb_prepare_error(p.get()));
+        if (!take_statement(c, statements, sql, p, op)) {
             return false;
         }
         for (size_t i = 0; i < b.params.size(); i++)
@@ -1059,22 +1094,33 @@ bool duckdb_convert_values(conn_inner *c, const std::vector<zval *> &inputs,
                 duckdb_throw_prepare_error(duckdb_prepare_error(p.get()));
                 return false;
             }
-        duckdb_result result{};
-        if (duckdb_execute_prepared(p.get(), &result) == DuckDBError) {
+        /* Creating the pending query rebinds with the bound values, so the
+         * capture has folded every input, also for a reused statement.
+         * Executing it would raise a failed cast again as a statement error,
+         * which aborts the user's transaction, so the pending query is
+         * discarded unexecuted. */
+        duckdb_scoped<duckdb_pending_result, duckdb_destroy_pending> pending;
+        if (duckdb_pending_prepared(p.get(), pending.out()) == DuckDBError) {
             if (!op.error_message.empty()) {
-                duckdb_destroy_result(&result);
                 throw_operation_error(op);
-            } else
-                duckdb_throw_result_error(&result);
+            } else {
+                duckdb_throw_prepare_error(duckdb_pending_error(pending.get()));
+            }
             return false;
         }
-        duckdb_destroy_result(&result);
+
+        if (!op.error_message.empty()) {
+            throw_operation_error(op);
+            return false;
+        }
         if (op.values.size() != inputs.size() + 1) {
             duckdb_throw_msg("Typed conversion did not capture every native value");
             return false;
         }
         op.values.pop_back();
         out = std::move(op.values);
+        pending.reset();
+        keep_statement(statements, sql, p);
         return true;
     } catch (const std::exception &e) {
         if (!EG(exception))

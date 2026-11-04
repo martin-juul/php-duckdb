@@ -15,7 +15,7 @@ PHP 8.4/8.5) and architecture (`x64`). These packages support 64-bit Windows;
    `php --ini`. Set `extension_dir` to the extension directory if necessary.
 4. Restart PHP workers or your web server, then run `php --ri duckdb`.
 
-Both DLLs are required; use the bundled DuckDB 1.5.6 runtime with the extension.
+Both DLLs are required; use the bundled DuckDB 2.0.0 runtime with the extension.
 Install the Microsoft Visual C++ Redistributable for Visual Studio 2015–2022
 (x64), as required by the official Windows PHP builds: [Microsoft Visual C++
 Redistributable](https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist)
@@ -44,11 +44,11 @@ a separate automatically generated artifact.
 `build.ps1` calls [the SDK builder](../duckdb/build-sdk.ps1) to compile the
 source pinned in [source.json](../duckdb/source.json). The builder verifies the
 source archive's SHA-256, applies the nullable-bitpacking, Arrow
-conversion/geometry and C API copy-function patches with exact context, and
-builds a Release DLL with Visual Studio 2022 x64. It includes core functions,
-Parquet, JSON, ICU and autocomplete, enables extension autoloading and
-automatic installation, and disables host-specific CPU optimization. It
-preserves upstream's static CRT and unity build defaults. Set
+conversion/geometry, C API copy-function, ARRAY join gather and optional index
+patches with exact context, and builds a Release DLL with Visual Studio 2022
+x64. It includes core functions, Parquet, JSON, ICU and autocomplete, enables extension
+autoloading and automatic installation, and disables host-specific CPU
+optimization. It preserves upstream's static CRT and unity build defaults. Set
 `DUCKDB_DISABLE_UNITY=ON` to disable unity builds when memory is limited. The
 installed SDK contains only the C header, DLL, import library and build
 provenance; the PHP extension has no C++ client dependency. PHP 8.2/8.3 still

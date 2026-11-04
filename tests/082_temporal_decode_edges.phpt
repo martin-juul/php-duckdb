@@ -12,7 +12,7 @@ $cases = [
     'TIMESTAMP_S negative infinity' => ["TIMESTAMP_S '-infinity'", '-infinity'],
     'TIMESTAMP_MS positive infinity' => ["TIMESTAMP_MS 'infinity'", 'infinity'],
     'TIMESTAMP_MS negative infinity' => ["TIMESTAMP_MS '-infinity'", '-infinity'],
-    // Match DuckDB's ns-to-us cast: integer division truncates toward the epoch.
+    // Sub-microsecond digits are truncated toward the epoch, as in 1.5.
     'TIMESTAMP_NS before epoch' => ["TIMESTAMP_NS '1969-12-31 23:59:59.999999999'",
         new DateTimeImmutable('1970-01-01 00:00:00 UTC')],
     'TIMETZ positive offset seconds' => ["TIMETZ '12:34:56.123456+02:03:04'", '12:34:56.123456+02:03:04'],

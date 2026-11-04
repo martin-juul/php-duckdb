@@ -1,14 +1,18 @@
 /*
- * VARIANT result rendering adapted from DuckDB v1.5.5/v1.5.6:
- * src/common/types/variant/variant.cpp, variant_visitor.hpp,
- * src/function/scalar/variant/variant_utils.cpp,
+ * VARIANT result rendering adapted from DuckDB v2.0.0:
+ * src/common/types/variant/variant.cpp, src/include/duckdb/common/types/
+ * variant.hpp (type tags), variant_visitor.hpp, src/common/types.cpp
+ * (LogicalType::VARIANT layout), src/function/scalar/variant/variant_utils.cpp,
  * src/function/cast/variant/to_json.cpp, and src/common/types/geometry.cpp.
- * https://github.com/duckdb/duckdb/tree/v1.5.6/src/common/types/variant
+ * https://github.com/duckdb/duckdb/tree/v2.0.0/src/common/types/variant
  * Only the public duckdb.h C API is used. No DuckDB C++ client dependency.
  * The output matches CAST(value AS JSON)::VARCHAR, not CAST(value AS VARCHAR).
  * SQL NULL is PHP NULL; a valid VARIANT null is the JSON string "null".
+ * Compared with v1.5.6, the vector layout and tags 0-33 are unchanged; v2.0.0
+ * adds tag 34 (TIMESTAMP_NANOS_TZ), sorts object keys, and writes a leading
+ * zero for decimals whose digits are all fractional.
  *
- * Copyright 2018-2025 Stichting DuckDB Foundation
+ * Copyright 2018-2026 Stichting DuckDB Foundation
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -787,7 +791,15 @@ struct Decoder {
                                                       : reader.native<int16_t>();
                     number = {uint64_t(small), small < 0 ? -1 : 0};
                 }
-                return scalar(duckdb_create_decimal({uint8_t(width), uint8_t(scale), number}));
+                auto rendered = scalar(duckdb_create_decimal({uint8_t(width), uint8_t(scale), number}));
+
+                /* DuckDB 2.0's JSON cast restores the integer digit that
+                 * Decimal::ToString omits when every digit is fractional. */
+                if (width == scale) {
+                    rendered.insert(rendered[0] == '-' ? 1 : 0, 1, '0');
+                }
+
+                return rendered;
             }
             case 16:
             case 17:
@@ -893,6 +905,13 @@ struct Decoder {
                     }
                 }
                 if (tag == 29) {
+                    /* DuckDB 2.0's JSON cast orders object keys bytewise. */
+                    std::sort(fields.begin(), fields.end(),
+                              [](const std::pair<std::string, std::string> &left,
+                                 const std::pair<std::string, std::string> &right) {
+                                  return left.first < right.first;
+                              });
+
                     for (size_t i = 0; i < fields.size(); ++i) {
                         if (i) {
                             result += ',';
@@ -905,6 +924,10 @@ struct Decoder {
                 result += tag == 29 ? '}' : ']';
                 return result;
             }
+            case 34:
+                text = scalar(duckdb_create_timestamp_tz_ns(reader.native<duckdb_timestamp_ns>()));
+                quoted = true;
+                break;
             default:
                 invalid("Unsupported VARIANT type tag");
         }
@@ -922,15 +945,16 @@ bool duckdb_decode_variant(duckdb_vector vector, idx_t row, zval *out) {
     try {
         static const bool supported_format = [] {
             const char *version = duckdb_library_version();
-            return version &&
-                   (std::strcmp(version, "v1.5.5") == 0 ||
-                    std::strcmp(version, "1.5.5") == 0 ||
-                    std::strcmp(version, "v1.5.6") == 0 ||
-                    std::strcmp(version, "1.5.6") == 0);
+
+            if (!version) {
+                return false;
+            }
+
+            return std::strncmp(version, "v2.0.", 5) == 0 || std::strncmp(version, "2.0.", 4) == 0;
         }();
 
         if (!supported_format) {
-            invalid("VARIANT result decoding requires verified DuckDB 1.5.5 or 1.5.6 layout");
+            invalid("VARIANT result decoding requires verified DuckDB 2.0.x layout");
         }
 
         require_type(vector, DUCKDB_TYPE_VARIANT);

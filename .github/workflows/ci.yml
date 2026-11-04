@@ -149,17 +149,58 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y valgrind
 
-      - name: Verify engine checkpoint regression
+      # Build every tests/native regression as its header describes, then run
+      # it normally and under Memcheck. Each checkpoint run needs a new file.
+      - name: Verify native engine regressions
         env:
           LD_LIBRARY_PATH: /opt/duckdb/lib
         run: |
+          set -eu
+          native_dir=$(mktemp -d)
+
+          cc -std=c11 -Wall -Wextra -Werror -I/opt/duckdb/include \
+            tests/native/nullable_bitpacking.c -L/opt/duckdb/lib -lduckdb \
+            -o "$native_dir/nullable-bitpacking"
           cc -std=c11 -Wall -Wextra -Werror -I/opt/duckdb/include \
             tests/native/nullable_bitpacking_matrix.c -L/opt/duckdb/lib -lduckdb \
-            -o /tmp/nullable-bitpacking
-          test_dir=$(mktemp -d)
-          valgrind --fair-sched=try --error-exitcode=99 --leak-check=full \
-            --errors-for-leak-kinds=definite \
-            /tmp/nullable-bitpacking "$test_dir/checkpoint.duckdb"
+            -o "$native_dir/nullable-bitpacking-matrix"
+          cc -std=c11 -Wall -Wextra -Werror -I/opt/duckdb/include \
+            tests/native/c_api_copy_functions.c -L/opt/duckdb/lib -lduckdb \
+            -o "$native_dir/c-api-copy-functions"
+          cc -std=c11 -Wall -Wextra -Werror -I/opt/duckdb/include \
+            tests/native/array_join_gather.c -L/opt/duckdb/lib -lduckdb \
+            -o "$native_dir/array-join-gather"
+          cc -std=c11 -Wall -Wextra -Werror -pthread -I/opt/duckdb/include \
+            tests/native/pending_prepared_callbacks.c -L/opt/duckdb/lib -lduckdb \
+            -o "$native_dir/pending-prepared-callbacks"
+          c++ -std=c++17 -Wall -Wextra -Werror -I/opt/duckdb/include \
+            tests/native/arrow_geometry.cpp -L/opt/duckdb/lib -lduckdb \
+            -o "$native_dir/arrow-geometry"
+
+          memcheck() {
+            valgrind --fair-sched=try --error-exitcode=99 --leak-check=full \
+              --errors-for-leak-kinds=definite "$@"
+          }
+
+          "$native_dir/nullable-bitpacking" "$native_dir/bitpacking.duckdb"
+          memcheck "$native_dir/nullable-bitpacking" "$native_dir/bitpacking-memcheck.duckdb"
+
+          "$native_dir/nullable-bitpacking-matrix" "$native_dir/matrix.duckdb"
+          memcheck "$native_dir/nullable-bitpacking-matrix" "$native_dir/matrix-memcheck.duckdb"
+
+          "$native_dir/c-api-copy-functions"
+          memcheck "$native_dir/c-api-copy-functions"
+
+          "$native_dir/array-join-gather"
+          memcheck "$native_dir/array-join-gather"
+
+          "$native_dir/arrow-geometry"
+          memcheck "$native_dir/arrow-geometry"
+
+          # Memcheck slows the callback threads; widen each bounded wait so a
+          # deadlock still fails as a timeout instead of hanging the job.
+          "$native_dir/pending-prepared-callbacks"
+          PENDING_PROBE_TIMEOUT_SECONDS=120 memcheck "$native_dir/pending-prepared-callbacks"
 
       - name: Harness (build + unit + Swoole examples)
         env:

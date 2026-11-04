@@ -1,12 +1,15 @@
 /*
- * BIGNUM decoding adapted from DuckDB v1.5.6:
- * src/common/types/bignum.cpp, Bignum::GetByteArray/Bignum::BignumToVarchar,
- * and src/include/duckdb/common/types/bignum.hpp (format constants).
- * https://github.com/duckdb/duckdb/blob/v1.5.6/src/common/types/bignum.cpp
+ * BIGNUM decoding adapted from DuckDB v2.0.0:
+ * src/common/types/bignum.cpp, Bignum::GetByteArray/Bignum::SetHeader/
+ * Bignum::BignumToVarchar, and src/include/duckdb/common/types/bignum.hpp
+ * (format constants).
+ * https://github.com/duckdb/duckdb/blob/v2.0.0/src/common/types/bignum.cpp
  * This uses only duckdb.h; no DuckDB C++ client headers or symbols are needed.
- * The format is also validated against DuckDB v1.5.5.
+ * The stored format (3-byte header, constants, byte order) is unchanged from
+ * v1.5.6. v2.0.0 converts large values with a subquadratic algorithm; this
+ * file keeps the v1.5.6 CPython/Knuth conversion, which yields the same digits.
  *
- * Copyright 2018-2025 Stichting DuckDB Foundation
+ * Copyright 2018-2026 Stichting DuckDB Foundation
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -58,16 +61,16 @@ bool duckdb_decode_bignum(duckdb_vector vec, idx_t row, zval *out) {
      * stable C API. Cache the runtime gate, not a promise about future formats. */
     static const bool supported_format = [] {
         const char *version = duckdb_library_version();
-        return version &&
-               (std::strcmp(version, "v1.5.5") == 0 ||
-                std::strcmp(version, "1.5.5") == 0 ||
-                std::strcmp(version, "v1.5.6") == 0 ||
-                std::strcmp(version, "1.5.6") == 0);
+
+        if (!version) {
+            return false;
+        }
+
+        return std::strncmp(version, "v2.0.", 5) == 0 || std::strncmp(version, "2.0.", 4) == 0;
     }();
 
     if (!supported_format) {
-        return invalid_bignum(
-            "BIGNUM decoding requires a validated DuckDB 1.5.5 or 1.5.6 storage format");
+        return invalid_bignum("BIGNUM decoding requires a validated DuckDB 2.0.x storage format");
     }
 
     auto *cells = static_cast<duckdb_string_t *>(duckdb_vector_get_data(vec));

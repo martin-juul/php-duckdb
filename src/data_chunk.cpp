@@ -68,9 +68,9 @@ std::shared_ptr<data_chunk_data> duckdb_data_chunk_from_zval(zval *value) {
     return data;
 }
 
-void duckdb_data_chunk_wrap(zval *return_value, std::shared_ptr<data_chunk_data> data) {
+void duckdb_data_chunk_wrap(zval *return_value, const std::shared_ptr<data_chunk_data> &data) {
     object_init_ex(return_value, duckdb_data_chunk_ce);
-    data_chunk_object(Z_OBJ_P(return_value))->data = std::move(data);
+    data_chunk_object(Z_OBJ_P(return_value))->data = data;
 }
 
 /* DuckDB's importer can borrow some columns while materializing others. Use
@@ -80,8 +80,9 @@ static void borrowed_arrow_release(ArrowArray *array) {
     array->release = nullptr;
 }
 
-/* DuckDB 1.5.6's C importer omits the root offset for data conversion,
- * and its nested struct converter omits offsets inherited from ancestors.
+/* DuckDB's C importer (still in 2.0.0) omits the root offset for data
+ * conversion, and its nested struct converter omits offsets inherited from
+ * ancestors.
  * Normalize every struct into an offset-zero view: move its slice onto
  * its immediate children and independently rebase its validity bitmap.
  * Lists, fixed arrays and dictionaries retain their own offset semantics. */
@@ -331,7 +332,7 @@ PHP_METHOD(DuckDB_Connection, dataChunkFromArrow) {
         RETURN_THROWS();
     }
     std::unique_lock<std::mutex> lock;
-    if (!duckdb_conn_enter(*conn, lock)) {
+    if (!duckdb_conn_enter(*conn, lock, conn_entry::plain)) {
         RETURN_THROWS();
     }
     auto data = duckdb_import_arrow_chunk(conn.get(), arrow);
@@ -606,7 +607,7 @@ static void data_chunk_export(INTERNAL_FUNCTION_PARAMETERS, bool with_array) {
         RETURN_THROWS();
     }
     std::unique_lock<std::mutex> lock;
-    if (!duckdb_conn_enter(*conn, lock)) {
+    if (!duckdb_conn_enter(*conn, lock, conn_entry::plain)) {
         RETURN_THROWS();
     }
     duckdb_scoped<duckdb_arrow_options, duckdb_destroy_arrow_options> options;

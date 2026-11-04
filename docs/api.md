@@ -3,9 +3,9 @@
 This reference lists every class, method, enum and function exported by the
 extension. [`duckdb.stub.php`](../duckdb.stub.php) is the canonical source and
 also serves as the stub for IDEs and static analysis. This reference covers
-extension **1.5.0**, including typed values, Arrow, vectors, selection,
-custom COPY TO, scalar-function, expression, table-function metadata, logging
-and UTF-8 APIs.
+extension **2.0.0** on DuckDB 2.0.x, including typed values, Arrow, vectors,
+selection, custom COPY TO, scalar-function, expression, table-function
+metadata, logging and UTF-8 APIs.
 
 Namespace: `DuckDB`.
 
@@ -13,7 +13,7 @@ Namespace: `DuckDB`.
 
 ### `DuckDB\version(): string`
 
-Returns the version of the linked DuckDB library, e.g. `"v1.5.6"`. The global
+Returns the version of the linked DuckDB library, e.g. `"v2.0.0"`. The global
 `duckdb_version()` provides the same information for backwards compatibility.
 
 ### `DuckDB\vectorSize(): int`
@@ -69,7 +69,8 @@ Cases (backing value in parentheses): `Invalid` (0), `OutOfRange` (1),
 (28), `Interrupt` (29), `Fatal` (30), `Internal` (31), `InvalidInput` (32),
 `OutOfMemory` (33), `Permission` (34), `ParameterNotResolved` (35),
 `ParameterNotAllowed` (36), `Dependency` (37), `Http` (38), `MissingExtension`
-(39), `Autoload` (40), `Sequence` (41), `InvalidConfiguration` (42).
+(39), `Autoload` (40), `Sequence` (41), `InvalidConfiguration` (42),
+`DataCorruption` (43), `ResourceInUse` (44).
 
 ## Exceptions
 
@@ -199,7 +200,7 @@ Created via `Database::connect()`. Not constructible directly.
 | `query(string $sql): Result` | Execute SQL, buffer the full result in memory |
 | `queryStreaming(string $sql): Result` | Execute SQL, produce rows chunk-by-chunk (constant memory). `rowCount()` is not meaningful |
 | `queryAsync(string $sql): PendingQuery` | Run the query on a background worker thread |
-| `queryPending(string $sql): PendingQuery` | Single-threaded async: `isReady()`/`await()` execute the query in slices on the calling thread |
+| `queryPending(string $sql): PendingQuery` | Polling async: `isReady()`/`await()` execute the query in slices, on the calling thread or, with PHP COPY formats or scalar functions registered, on the connection's helper thread |
 | `execute(string $sql, array $params = []): Result` | Prepare + bind + execute in one call. List keys bind positionally (`?`/`$1`), string keys bind named parameters (`$name`/`:name`) |
 | `prepare(string $sql): Statement` | Prepare a statement with positional or named parameters |
 | `appender(string $table, ?string $schema = null, ?string $catalog = null): Appender` | Bulk inserter. Throws `CatalogException` when the table does not exist |
@@ -214,7 +215,7 @@ Created via `Database::connect()`. Not constructible directly.
 | `isClosed(): bool` | Whether `close()` has been called |
 | `queryProgress(): array` | `array{percentage: float, rowsProcessed: int, totalRowsToProcess: int}`; `percentage` is -1 when unavailable. Safe to call from another thread/fiber |
 | `beginTransaction(): void` | PDO-style transaction helpers. Throw `TransactionException` on invalid state |
-| `commit(): void` | |
+| `commit(): void` | Throws `TransactionException` when no transaction is active, or when DuckDB aborted the transaction; then nothing is committed and the transaction is rolled back |
 | `rollBack(): void` | |
 
 ## Scalar-function interfaces
@@ -224,7 +225,7 @@ available starting with extension 1.5.0.
 
 | Interface | Method | Description |
 | --- | --- | --- |
-| `ScalarFunction` | `bind(array $argumentTypes): ScalarBinding` | Validate resolved argument SQL types and return bound state. Binding may repeat. |
+| `ScalarFunction` | `bind(array $argumentTypes): ScalarBinding` | Validate the argument SQL types, resolved after the implicit cast to the declared parameter types, and return bound state. Binding may repeat. |
 | `ScalarExpressionFunction` | `bindExpressions(array $arguments): ScalarBinding` | Inspect a list of bound `Expression` arguments instead of type strings. Handles expire after this callback. |
 | `ScalarBinding` | `init(): ScalarExecutor` | Initialize one executing DuckDB worker; may run more than once per query. |
 | `ScalarExecutor` | `execute(DataChunk $arguments): array` | Return a list containing one value per input row, of the registered return type. The batch expires when the callback returns. |
@@ -365,9 +366,9 @@ Vectors remain usable after their connection and database close.
 | `copySelected(Vector $source, SelectionVector\|array $selection, int $targetOffset = 0): void` | Write source row `$selection[i]` to row `$targetOffset + i`; the source must have the same type |
 
 Indices outside the capacity throw `ValueError`. Converting input other than
-plain scalars of the vector's type executes on the supplied connection and
-invalidates its streaming result. See [vectors](vector.md) for conversion,
-ownership and chunk semantics.
+plain scalars of the vector's type executes on the supplied connection, which
+refuses it while a streaming result is open there. See [vectors](vector.md)
+for conversion, ownership and chunk semantics.
 
 ## `final class SelectionVector implements \Countable`
 
@@ -425,7 +426,7 @@ exactly once.
 
 | Method | Description |
 | -------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `isReady(): bool` | Non-blocking completion check. For `queryPending()` handles this also executes one task slice on the calling thread |
+| `isReady(): bool` | Non-blocking completion check. For `queryPending()` handles this also executes one task slice, on the calling thread or, on a connection with PHP COPY formats or scalar functions, for about 1 ms on the connection's helper thread |
 | `await(): Result` | Block until completion; throws on query failure |
 | `suspend(): Result` | Suspend the current fiber/coroutine until completion (Swoole 6+, True Async, AMPHP v3, react/async v4+, or generic fibers) |
 | `cancel(): void` | Idempotently cancel this pending query, including queued/startup worker work; observe `InterruptedException` when awaiting completion. Other queries are unaffected |

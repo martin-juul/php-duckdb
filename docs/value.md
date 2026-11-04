@@ -43,7 +43,8 @@ Every scalar constructor takes one argument, `mixed $value`. Every class accepts
 `DuckDB\Interval` remains the object for months/days/microseconds components
 and query results; `IntervalValue` supplies explicit typed input. The names
 `Float32`, `Varchar`, `ListValue` and `ArrayValue` avoid PHP reserved class
-names.
+names. `TIMESTAMPTZ_NS` has no dedicated class; declare it with
+`new DuckDB\Value('TIMESTAMPTZ_NS', $value)`.
 
 ## Parameterized classes and composites
 
@@ -141,10 +142,11 @@ immutable and reusable across connections; no rendered result or connection is
 stored in it. A closed connection raises `ConnectionException`, and invalid
 inputs raise the same conversion errors as binding.
 
-The conversion executes helper queries, so rendering can invalidate an active
-stream on the same connection, even if conversion fails. Buffered results and
-streams on other connections remain readable. There is no implicit `__toString()`:
-rendering needs an explicit connection for catalog types and session settings.
+The conversion executes helper queries, so rendering is refused with
+`ErrorType::ResourceInUse` while a stream or pending query is open on the same
+connection. Buffered results and streams on other connections do not matter.
+There is no implicit `__toString()`: rendering needs an explicit connection for
+catalog types and session settings.
 
 ## Conversion timing
 
@@ -162,8 +164,14 @@ long-running connection. No converted native value is cached.
 
 `append()` converts before submitting the affected value. `appendRow()` converts
 all values together before beginning the row. Conversion failure leaves the row
-untouched. Conversion executes SQL on the same connection and can invalidate an
-existing stream; binding a statement alone does not invalidate it.
+untouched. Conversion executes SQL on the same connection, so it is refused
+with `ErrorType::ResourceInUse` while a stream is open there; binding a statement
+alone runs no SQL and works.
+
+A conversion error, such as a value that cannot be cast, leaves an explicit
+transaction on the connection usable, although DuckDB 2.0 aborts a
+transaction on any failing statement. An unknown type name is the exception:
+resolving it raises a catalog error that aborts the transaction.
 
 Values are bound as parameters, never interpolated into conversion SQL. Type
 declarations accept quoted/qualified names, SQL aliases, nested types, ENUM

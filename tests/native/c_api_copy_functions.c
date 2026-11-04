@@ -14,8 +14,9 @@
  * DATABASE for C API copy functions at bind time. A bind callback declines a
  * binding by setting an error that starts with "[copy-function-declined]":
  * the format then behaves as if it were missing from the catalog. Built-in
- * formats keep their behavior. Each case prints "ok" or "FAIL"; the original
- * 1.5.6 engine fails the rejection and decline cases.
+ * formats keep their behavior. Each case prints "ok" or "FAIL"; the unpatched
+ * DuckDB 2.0.0 engine fails 10 of the 24 checks: the rejection and decline
+ * cases.
  */
 #define _XOPEN_SOURCE 700
 #include "duckdb.h"
@@ -226,12 +227,13 @@ int main(void) {
     /* Parallel output modes are rejected at bind time. */
     expect_error(connection, "PARTITION_BY rejected for capi_fmt",
                  "COPY items TO '%s/partitioned' (FORMAT capi_fmt, PARTITION_BY (a))", DUCKDB_ERROR_BINDER,
-                 "PARTITION_BY");
+                 "PARTITION_BY is not supported for C API copy function \"capi_fmt\"");
     expect_error(connection, "PER_THREAD_OUTPUT rejected for capi_fmt",
                  "COPY items TO '%s/per_thread' (FORMAT capi_fmt, PER_THREAD_OUTPUT true)", DUCKDB_ERROR_BINDER,
-                 "PER_THREAD_OUTPUT");
+                 "PER_THREAD_OUTPUT is not supported for C API copy function \"capi_fmt\"");
     expect_error(connection, "EXPORT DATABASE rejected for capi_fmt",
-                 "EXPORT DATABASE '%s/export_capi' (FORMAT capi_fmt)", DUCKDB_ERROR_BINDER, "EXPORT DATABASE");
+                 "EXPORT DATABASE '%s/export_capi' (FORMAT capi_fmt)", DUCKDB_ERROR_BINDER,
+                 "EXPORT DATABASE is not supported for C API copy function \"capi_fmt\"");
 
     /* A declined binding behaves like a missing format. */
     expect_error(connection, "declined explicit FORMAT is missing",
@@ -251,7 +253,7 @@ int main(void) {
                  "SELECT count(*) FROM read_csv('%s/fallback_partitioned.decline_fmt/*/*.csv', hive_partitioning = "
                  "true)",
                  10);
-    /* Keep the limit above the CSV header: 1.5.6 otherwise rotates without bound. */
+    /* Keep the limit above the CSV header so rotation writes a bounded file count. */
     expect_success(connection, "declined inferred format allows CSV FILE_SIZE_BYTES",
                    "COPY items TO '%s/fallback_rotated.decline_fmt' (FILE_SIZE_BYTES 1000)");
     expect_count(connection, "fallback rotation is CSV",

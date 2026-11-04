@@ -1,3 +1,11 @@
+php-duckdb (2.0.0-1) trixie; urgency=medium
+
+  * Release 2.0.0 on DuckDB 2.0; a helper thread drives DuckDB while PHP callbacks run.
+  * Open results refuse new statements with ResourceInUse, as in DuckDB 2.0; commit() throws for aborted transactions.
+  * Ship the pinned DuckDB 2.0.0 SDK with the rebased engine patch set.
+
+ -- Martin Juul Christiansen <code@juul.xyz>  Tue, 03 Nov 2026 23:30:00 +0100
+
 php-duckdb (1.5.0-1) trixie; urgency=medium
 
   * Release 1.5.0 with PHP scalar functions, expression inspection and custom logging.

@@ -1,5 +1,203 @@
 # Migrations
 
+## Upgrade 1.5.0 → 2.0.0
+
+Extension **2.0.0** requires DuckDB **2.0.x** and no longer builds or runs
+against DuckDB 1.5.x. The pinned engine moves from DuckDB 1.5.6 to **2.0.0**,
+built by the [patched SDK builder](../packaging/duckdb/README.md) with five
+local engine patches. PHP **8.2–8.5** remain supported. No PHP signatures
+change, and no PHP APIs are removed or newly deprecated. The major version
+marks the engine change and the behavior changes below; most come from DuckDB
+2.0 itself, which the extension documents rather than emulates.
+
+1. Record `PHP_VERSION`, `phpversion('duckdb')` and `DuckDB\version()` from
+   the deployed process. Retain the previous extension artifact and its
+   matching engine library, or the previous immutable image digest.
+2. Back up file databases with connections closed, and test against a
+   disposable copy. DuckDB 2.0 opens files written by 1.5, but a file that
+   DuckDB 2.0 writes at its default storage version can no longer be opened by
+   DuckDB 1.5.x. To keep a file readable by 1.5 during the transition, attach
+   it with `ATTACH 'file.duckdb' AS db (STORAGE_VERSION 'v1.5.0')`.
+3. Pin extension **2.0.0** and DuckDB **2.0.0** together. Rebuild `duckdb.so`
+   for the target PHP ABI against matching `duckdb.h` and `libduckdb`. Update
+   Composer requirements to `"ext-duckdb": "^2.0"`. Docker users move from
+   `1.5.0`, `1.5` and `1` tags to `2.0.0`, `2.0` and `2`; the moving PHP tags,
+   such as `8.4` and `latest`, follow the new release.
+4. Reinstall DuckDB engine extensions loaded with SQL `INSTALL`/`LOAD`. Binaries
+   downloaded for DuckDB 1.5 do not load into DuckDB 2.0.
+5. Run the application's tests, paying attention to transactions, interleaved
+   statements on one connection, PHP scalar functions and COPY formats, then
+   restart long-running PHP processes.
+
+### Transactions
+
+DuckDB 2.0 aborts an explicit transaction on **any** error inside it,
+including parser, binder and catalog errors that DuckDB 1.5 let the
+transaction survive. Every later statement in that transaction fails with a
+`TransactionException` ("Current transaction is aborted (please ROLLBACK)")
+until it is rolled back. DuckDB's `default_transaction_invalidation_policy`
+setting controls this. Setting it to `'SYNTACTIC_ERRORS_DO_NOT_INVALIDATE'`,
+through SQL `SET` or the `Database` configuration array, keeps the transaction
+usable after parser and binder errors.
+
+`Connection::commit()` now throws a `TransactionException` (code 10,
+`ErrorType::Transaction`) when DuckDB has aborted the transaction, for any
+cause: "Transaction was aborted, so nothing was committed; call rollBack() to
+end it". Extension 1.5.0 returned normally while DuckDB discarded the work.
+The aborted transaction stays open, as DuckDB keeps it: other statements fail
+with "Current transaction is aborted (please ROLLBACK)" until `rollBack()`
+ends it. The usual pattern therefore rolls back and rethrows the commit
+error:
+
+```php
+$conn->beginTransaction();
+try {
+    applyChanges($conn);
+    $conn->commit(); // throws TransactionException if DuckDB aborted the transaction
+} catch (Throwable $e) {
+    $conn->rollBack();
+    throw $e;
+}
+```
+
+A raw `COMMIT` statement keeps DuckDB's behavior: it rolls back an aborted
+transaction and reports success. Use `commit()` when the application must
+know whether its changes were saved. `commit()` first runs `EXPLAIN SELECT 1`
+to ask DuckDB whether the transaction is still valid. That statement appears
+in DuckDB's query log, but not in profiler output.
+
+Typed-value conversion errors, from `Vector::set()`, `Value::toString()`,
+typed parameters and typed appends, still leave the caller's transaction
+usable, as in 1.5. One exception: an unknown type name inside an explicit
+transaction is a catalog error and aborts it.
+
+### Open results
+
+**Breaking:** a statement no longer ends the connection's open result. In 1.5,
+starting a statement on a connection superseded its open streaming result or
+unfinished pending query. DuckDB 2.0 refuses the new statement instead, and
+the extension follows it: while a streaming result has not drained, or a
+pending query has not finished, every statement on that connection throws a
+`DuckDB\Exception` whose `getErrorType()` is `ErrorType::ResourceInUse` (44),
+with DuckDB's message "connection has an open result; drain or destroy it
+before starting a new query".
+
+- The refused statement never runs: it does not begin, commit or abort a
+  transaction, and the open result stays fully readable.
+- The connection accepts statements again once the stream drains (its last
+  fetch returns no row), fails, or is released (unset, or its last reference
+  dropped), and once a pending query is awaited or released.
+- Refused: `query()`, `queryStreaming()`, `execute()`, `prepare()`,
+  `queryPending()`, `Statement::execute*()`, `beginTransaction()`, `commit()`,
+  `rollBack()`, typed value rendering and conversion, and table-function
+  discovery. `queryAsync()` and `executeAsync()` return a `PendingQuery`
+  whose `await()` throws the refusal, because their worker starts the
+  statement.
+- Not refused: `bindValue()`, `clearBindings()`, `getTableNames()`,
+  `dataChunkFromArrow()`, `DataChunk::toArrow()`, `registerCopyToFunction()`,
+  `registerScalarFunction()` and `appender()` start no statement.
+- DuckDB refuses an appender flush too, and discards the buffered rows when it
+  does. The appender therefore refuses `endRow()`, `appendRow()`,
+  `appendChunk()`, `appendArrow()`, `flush()` and `close()` with the same
+  `ResourceInUse` exception before reaching DuckDB, keeping its rows and any
+  open row. `beginRow()`, `append()` and `appendDefault()` only buffer and
+  keep working. An unclosed appender destroyed while a result is open loses
+  its buffered rows.
+- The 1.5 "This streaming result was invalidated by a newer query…" and
+  "COPY statement superseded by another operation on its connection" errors
+  no longer occur.
+
+To migrate code that interleaves statements on one connection, finish
+consuming each stream (or `unset()` it) before the next statement, `await()`
+pending queries first, or give each concurrent stream its own connection.
+Assigning a new stream to a variable that still holds an undrained one is
+refused too: PHP starts the new query before it releases the old value, so
+`unset()` the variable first.
+Releasing an unfinished statement that may write follows DuckDB 2.0: under
+autocommit its writes roll back; inside an explicit transaction DuckDB aborts
+the transaction. A streaming `INSERT … RETURNING` has finished its writes
+before its first row arrives.
+
+Registering a scalar function while a result is open resolves its types
+against committed types in the database's default catalog. Otherwise it
+resolves them on the registering connection, as in 1.5.
+
+### Changed engine behavior
+
+- PHP scalar functions: `ScalarFunction::bind()` and
+  `Expression::getReturnType()` receive argument types **after** DuckDB's
+  implicit cast to the declared parameter types. For a `BIGINT` parameter,
+  `php_fn(40 + 2)` now reports `BIGINT`; 1.5 reported `INTEGER`.
+- A multi-statement `query()` whose later statement has a syntax error runs
+  the statements before it, then throws the `ParserException`. Inside an
+  explicit transaction, the error aborts the transaction.
+- VARIANT columns export to Arrow as the `arrow.parquet.variant` extension
+  type and round-trip through `Connection::dataChunkFromArrow()`. 1.5 refused
+  the export.
+- `Result::statementType()` keeps reporting the real statement type, such as
+  `INSERT` or `SELECT`, for prepared, streaming, pending and asynchronous
+  results. DuckDB 2.0 reports `EXECUTE` there; the extension corrects it. SQL
+  `EXECUTE` statements still report `EXECUTE`.
+- The prepared query `SELECT typeof($value), COALESCE($value::VARCHAR, 'NULL')`
+  no longer raises an `InternalException`, but `typeof($value)` reports
+  `UNKNOWN` for a VARCHAR binding. See
+  [prepared statements](prepared.md#native-query-shape-limitation).
+
+### Types and errors
+
+- Result columns of the new `TIMESTAMPTZ_NS` type decode to UTC
+  `DateTimeImmutable` values with microsecond precision and report the type
+  name `TIMESTAMPTZ_NS`, like the other timestamp types. There is no dedicated
+  typed class; declare input with `new DuckDB\Value('TIMESTAMPTZ_NS', …)`, or
+  bind a `DateTimeInterface` and let DuckDB cast it.
+- `DuckDB\ErrorType` gains `DataCorruption` (43) and `ResourceInUse` (44).
+  Exhaustive `match` expressions over `ErrorType` need the new cases.
+- BIGNUM and VARIANT decoding is verified for DuckDB 2.0.x, including VARIANT's
+  new nanosecond time-zone timestamp tag; other engine versions still raise a
+  decoding error for these two types.
+- A COPY or scalar handler exception raised while `PendingQuery::isReady()` or
+  a runtime's `suspend()` steps a query is now the `getPrevious()` cause of the
+  error that `await()` or `suspend()` throws. 1.5 dropped it once the stepping
+  call returned.
+
+### Threading
+
+PHP code still runs only on the request thread. On a connection with a
+registered PHP COPY format or scalar function, DuckDB's work for buffered
+statements, pending queries and streaming fetches now runs on a helper thread
+that belongs to the connection, while the request thread runs the PHP
+callbacks it receives. The helper starts on first use, parks between
+statements and ends with the connection. Each `PendingQuery::isReady()` call on
+such a connection lets the query run for about 1 ms. Connections without PHP
+formats or functions execute as before.
+
+- `queryAsync()` now refuses to run inside a COPY handler on its own
+  connection ("Connection is busy executing a COPY handler"), like
+  `executeAsync()`.
+- Freeing a prepared statement of the busy connection inside a COPY or scalar
+  handler is deferred until the handler returns. 1.5 freed it immediately.
+
+### Engine patches and builds
+
+All packaging recipes and Docker images use the patched DuckDB 2.0.0 SDK. Its
+five patches fix nullable bitpacking writes, Arrow conversion transactions and
+geometry CRS, C API COPY format binding, a DuckDB 2.0.0 hash-join gather that
+fails a `LEFT JOIN` bringing in a fixed-size `ARRAY` column with unmatched rows
+and correlated scalar subqueries returning an `ARRAY`, and reads of the
+uninitialised value of an unset optional index during checkpoints. Builds
+against an external or unpatched DuckDB 2.0.0 library keep these defects; see
+the [patch inventory](../packaging/duckdb/patches/README.md). DuckDB 2.0
+release builds otherwise require AVX2 (x86-64-v3); the SDK builders keep a
+portable CPU baseline.
+
+### Rollback
+
+Stop processes using the database, restore the previous PHP extension and
+matching DuckDB 1.5.6 library or image, and restart. Restore the backup for
+any database file that DuckDB 2.0 wrote at its default storage version:
+DuckDB 1.5.x cannot open it, and replacing binaries does not reverse that
+change.
+
 ## Upgrade 1.4.1 → 1.5.0
 
 DuckDB remains pinned to **1.5.6**, with the repository's patched SDK.

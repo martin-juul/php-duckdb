@@ -75,6 +75,8 @@ $source = $conn->queryStreaming(
     "SELECT ['x', 'y', 'x'][i + 1]::ENUM('x', 'y') AS e, {'n': i, 's': 'v' || i} AS s FROM range(3) t(i)"
 );
 $imported = $conn->dataChunkFromArrow($source->fetchArrowChunk());
+// The stream holds the connection until released; the import outlives it.
+unset($source);
 $enums = $imported->vector(0);
 $structs = $imported->vector(1);
 check($enums->toArray() === ['x', 'y', 'x'], 'Imported dictionary columns flatten');

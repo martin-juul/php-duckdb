@@ -49,13 +49,15 @@ a distribution DuckDB runtime or development package. The source version,
 commit and archive hash are shared in [source.json](duckdb/source.json).
 
 All [engine patches](duckdb/patches/README.md) are built into the shipped
-library. The nullable bitpacking patch initializes unused NULL slots; the
-Arrow patch supplies conversion transactions and preserves declared geometry
-CRS metadata; the copy-function patch makes binding of C API COPY formats
-deterministic. Patches, source pins, build metadata and DuckDB's license
-accompany the SDK under `share/duckdb-sdk/`. Cache verification requires every
-patch artifact and its checksum. Existing release assets are not replaced;
-the release workflow builds from its release commit.
+library. The nullable bitpacking patch initializes unused NULL slots; the Arrow
+patch supplies conversion transactions and preserves declared geometry CRS
+metadata; the copy-function patch makes binding of C API COPY formats
+deterministic; the ARRAY join gather patch stores joined ARRAY values at the
+right rows; the optional index patch gives an unset index a defined value.
+Patches, source pins, build metadata and DuckDB's license accompany the SDK
+under `share/duckdb-sdk/`. Cache verification requires every patch artifact and
+its checksum. Existing release assets are not replaced; the release workflow
+builds from its release commit.
 
 Source builds outside these packaging recipes can still link to an external
 SDK. Those libraries do not receive this patch set from compiling the PHP
@@ -92,7 +94,7 @@ sudo zypper install rpm-build php8-devel gcc-c++ make autoconf chrpath cmake pyt
 
 # Stage the two sources rpmbuild expects:
 mkdir -p ~/rpmbuild/{SOURCES,SPECS}
-git archive --prefix=php-duckdb-1.5.0/ -o ~/rpmbuild/SOURCES/php-duckdb-1.5.0.tar.gz HEAD
+git archive --prefix=php-duckdb-2.0.0/ -o ~/rpmbuild/SOURCES/php-duckdb-2.0.0.tar.gz HEAD
 ver=$(python3 -c 'import json; print(json.load(open("packaging/duckdb/source.json"))["version"])')
 url=$(python3 -c 'import json; print(json.load(open("packaging/duckdb/source.json"))["url"])')
 curl -fL -o "$HOME/rpmbuild/SOURCES/duckdb-${ver}.tar.gz" "$url"
@@ -129,7 +131,7 @@ drop-in at `/etc/php.d/40-duckdb.ini`, `%{?dist}` release suffix, and a
 sudo dnf install rpm-build php-devel php-cli gcc-c++ make libtool chrpath cmake python3 patch curl
 
 mkdir -p ~/rpmbuild/{SOURCES,SPECS}
-git archive --prefix=php-duckdb-1.5.0/ -o ~/rpmbuild/SOURCES/php-duckdb-1.5.0.tar.gz HEAD
+git archive --prefix=php-duckdb-2.0.0/ -o ~/rpmbuild/SOURCES/php-duckdb-2.0.0.tar.gz HEAD
 ver=$(python3 -c 'import json; print(json.load(open("packaging/duckdb/source.json"))["version"])')
 url=$(python3 -c 'import json; print(json.load(open("packaging/duckdb/source.json"))["url"])')
 curl -fL -o "$HOME/rpmbuild/SOURCES/duckdb-${ver}.tar.gz" "$url"
@@ -185,7 +187,7 @@ sudo dnf install epel-release
 sudo dnf install https://rpms.remirepo.net/enterprise/remi-release-9.rpm
 sudo dnf module reset -y php          # drops any AppStream php stream
 sudo dnf module install php:remi-8.4/common
-sudo rpm -ivh php-pecl-duckdb-1.5.0-1.el9.x86_64.rpm
+sudo rpm -ivh php-pecl-duckdb-2.0.0-1.el9.x86_64.rpm
 php -m | grep duckdb
 ```
 
@@ -200,7 +202,7 @@ sudo dnf install \
   php-devel php-cli rpm-build gcc-c++ make libtool chrpath cmake python3 patch curl
 
 mkdir -p ~/rpmbuild/{SOURCES,SPECS}
-git archive --prefix=php-duckdb-1.5.0/ -o ~/rpmbuild/SOURCES/php-duckdb-1.5.0.tar.gz HEAD
+git archive --prefix=php-duckdb-2.0.0/ -o ~/rpmbuild/SOURCES/php-duckdb-2.0.0.tar.gz HEAD
 ver=$(python3 -c 'import json; print(json.load(open("packaging/duckdb/source.json"))["version"])')
 url=$(python3 -c 'import json; print(json.load(open("packaging/duckdb/source.json"))["url"])')
 curl -fL -o "$HOME/rpmbuild/SOURCES/duckdb-${ver}.tar.gz" "$url"
@@ -237,7 +239,7 @@ manager with a PHP extension channel available to this project. The `macos/`
 target therefore ships a **tarball** per PHP minor version and architecture:
 
 ```text
-php-duckdb-1.5.0-php8.4-macos12-x86_64.tar.gz
+php-duckdb-2.0.0-php8.4-macos12-x86_64.tar.gz
 ```
 
 Each tarball contains `duckdb.so`, the vendored `libduckdb.dylib` and
@@ -257,8 +259,8 @@ and Apple Silicon. The two builds have the following constraints:
 ### Install
 
 ```bash
-tar -xzf php-duckdb-1.5.0-php8.4-macos12-x86_64.tar.gz
-sh php-duckdb-1.5.0-php8.4-macos12-x86_64/install.sh
+tar -xzf php-duckdb-2.0.0-php8.4-macos12-x86_64.tar.gz
+sh php-duckdb-2.0.0-php8.4-macos12-x86_64/install.sh
 php -m | grep duckdb
 ```
 
@@ -426,7 +428,7 @@ same tag additionally builds the distribution assets described below.
 
 Eight Windows ZIP variants cover PHP 8.2–8.5, each in TS and NTS mode, on x64.
 The workflow uses the official PHP Windows SDK/toolchains and vendors DuckDB
-1.5.6. Each ZIP contains `php_duckdb.dll`, `duckdb.dll`, both licenses,
+2.0.0. Each ZIP contains `php_duckdb.dll`, `duckdb.dll`, both licenses,
 installation instructions, and build metadata. The PHPT suite and a fresh
 installation smoke test run before artifact upload.
 
@@ -447,16 +449,16 @@ distros. The package filename already encodes the architecture:
 `_amd64`/`_arm64` for debs and `.x86_64`/`.aarch64` for rpms:
 
 ```text
-php-duckdb_1.5.0-1_amd64.debian-sid.deb          (+ _arm64)
-php-duckdb_1.5.0-1_amd64.debian-13-trixie.deb    (+ _arm64)
-php-duckdb_1.5.0-1_amd64.ubuntu-24.04.deb        (+ _arm64)
-php-duckdb_1.5.0-1_amd64.ubuntu-26.04.deb        (+ _arm64)
-php-duckdb_1.5.0-1_amd64.ubuntu-devel.deb        (+ _arm64)
-php8-duckdb-1.5.0-0.x86_64.opensuse-tumbleweed.rpm (+ .aarch64, .src.rpm)
-php-pecl-duckdb-1.5.0-1.fc44.x86_64.fedora-44.rpm  (+ .aarch64, .src.rpm)
-php-pecl-duckdb-1.5.0-1.el9.x86_64.almalinux-9-php8.4.rpm
+php-duckdb_2.0.0-1_amd64.debian-sid.deb          (+ _arm64)
+php-duckdb_2.0.0-1_amd64.debian-13-trixie.deb    (+ _arm64)
+php-duckdb_2.0.0-1_amd64.ubuntu-24.04.deb        (+ _arm64)
+php-duckdb_2.0.0-1_amd64.ubuntu-26.04.deb        (+ _arm64)
+php-duckdb_2.0.0-1_amd64.ubuntu-devel.deb        (+ _arm64)
+php8-duckdb-2.0.0-0.x86_64.opensuse-tumbleweed.rpm (+ .aarch64, .src.rpm)
+php-pecl-duckdb-2.0.0-1.fc44.x86_64.fedora-44.rpm  (+ .aarch64, .src.rpm)
+php-pecl-duckdb-2.0.0-1.el9.x86_64.almalinux-9-php8.4.rpm
   (AlmaLinux: os 9/10 × php 8.2/8.3/8.4/8.5 × x86_64/aarch64 — 16 RPMs)
-php-duckdb-1.5.0-php8.4-macos12-x86_64.tar.gz
+php-duckdb-2.0.0-php8.4-macos12-x86_64.tar.gz
   (macOS: php 8.2/8.3/8.4/8.5 × x86_64/arm64 — 8 tarballs)
 php-duckdb-<version>-php8.4-nts-vs17-windows-x64.zip
   (Windows: php 8.2/8.3/8.4/8.5 × ts/nts — 8 ZIPs)

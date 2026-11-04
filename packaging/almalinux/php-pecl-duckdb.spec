@@ -9,12 +9,12 @@
 #
 
 %global pecl_name        duckdb
-%global upstream_version 1.5.0
+%global upstream_version 2.0.0
 
 # Build the pinned, patched source SDK used by all packaging targets.
 # Keep the engine patch set consistent with the project SDK.
 # Package the patched engine alongside the PHP extension.
-%global duckdb_version   1.5.6
+%global duckdb_version   2.0.0
 
 # The vendored DuckDB engine is a very large C++ build. The distribution's
 # LTO flags (-flto=auto -ffat-lto-objects) store both LTO bytecode and
@@ -162,13 +162,20 @@ export DUCKDB_EXTENSION_PATH="$PWD/modules/duckdb.so"
 %doc duckdb-sdk/share/duckdb-sdk/build.txt duckdb-sdk/share/duckdb-sdk/source.json
 %doc duckdb-sdk/share/duckdb-sdk/nullable-bitpacking.patch
 %doc duckdb-sdk/share/duckdb-sdk/arrow-geometry.patch
-%doc duckdb-sdk/share/duckdb-sdk/c-api-copy-functions.patch duckdb-sdk/share/duckdb-sdk/artifacts.json
+%doc duckdb-sdk/share/duckdb-sdk/c-api-copy-functions.patch
+%doc duckdb-sdk/share/duckdb-sdk/array-join-gather.patch
+%doc duckdb-sdk/share/duckdb-sdk/optional-idx-defined.patch duckdb-sdk/share/duckdb-sdk/artifacts.json
 %doc README.md
 %config(noreplace) %{php_inidir}/%{ini_name}
 %{php_extdir}/%{pecl_name}.so
 %{_libdir}/libduckdb.so
 
 %changelog
+* Tue Nov 03 2026 Martin Juul Christiansen <code@juul.xyz> - 2.0.0-1
+- Release 2.0.0 on DuckDB 2.0; a helper thread drives DuckDB while PHP callbacks run.
+- Open results refuse new statements with ResourceInUse, as in DuckDB 2.0; commit() throws for aborted transactions.
+- Ship the pinned DuckDB 2.0.0 SDK with the rebased engine patch set.
+
 * Tue Nov 03 2026 Martin Juul Christiansen <code@juul.xyz> - 1.5.0-1
 - Release 1.5.0 with PHP scalar functions, expression inspection and custom logging.
 - Add table-function metadata, UTF-8 checks and CRS-qualified geometry type strings.

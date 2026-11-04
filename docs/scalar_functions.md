@@ -44,6 +44,11 @@ statements. Replacements must keep the same parameter and return types.
 Statements prepared against the previous registration must be prepared again.
 Built-in function names cannot be replaced.
 
+Registration resolves the declared types on the registering connection. While
+a streaming or pending result is open there, it resolves them against
+committed types in the database's default catalog instead, so registering
+works while the result is open and leaves it untouched.
+
 The function belongs to its registering connection. Other connections,
 including connections to the same database, cannot invoke its PHP handler.
 The registration ends when that connection is freed. Do not persist SQL that
@@ -58,10 +63,13 @@ requires a request's PHP handler for use by a different connection or request.
 | `ScalarBinding` | `init(): ScalarExecutor` | For each DuckDB worker that begins executing that bound function |
 | `ScalarExecutor` | `execute(DataChunk $arguments): array` | For each input batch processed by that worker |
 
-`bind()` receives the resolved SQL argument types, in order. It validates the
-call and returns a PHP object holding bound state. DuckDB may bind prepared
-SQL repeatedly, including after parameters are supplied. Binding should not
-have external side effects or assume exactly one call per preparation.
+`bind()` receives the resolved SQL argument types, in order, after DuckDB's
+implicit cast to the declared parameter types: for a `BIGINT` parameter,
+`php_fn(40 + 2)` reports `BIGINT`, not the `INTEGER` of the expression. It
+validates the call and returns a PHP object holding bound state. DuckDB may
+bind prepared SQL repeatedly, including after parameters are supplied.
+Binding should not have external side effects or assume exactly one call per
+preparation.
 
 `init()` returns the state for one executing DuckDB worker. A parallel query
 may initialize several executors for the same binding. Executor state must
@@ -80,6 +88,10 @@ exact decimal, binary or nested values. The resulting SQL type is always the
 registered type. NULL is valid for any registered output type. Wrong row
 counts, array keys or values that cannot be converted fail the statement.
 
+For a primitive return type, NULL and plain PHP booleans, integers, floats
+and strings that need no conversion are written directly. The other values of
+a batch run one conversion statement, with the same casts and errors.
+
 Output conversion uses a private connection to the same database because the
 executing connection is busy inside the callback. Its session settings use
 their defaults and can differ from settings on the registering connection.
@@ -95,7 +107,7 @@ Existing `ScalarFunction` implementations continue to receive type strings.
 
 | Expression method | Result |
 | --- | --- |
-| `getReturnType(): string` | Resolved SQL type in argument order, including nested parameters |
+| `getReturnType(): string` | Resolved SQL type after the implicit cast to the declared parameter type, including nested parameters |
 | `isFoldable(): bool` | Whether DuckDB can evaluate the expression as a constant during binding |
 | `fold(): mixed` | Evaluate a constant and decode it with the normal [result mappings](types.md) |
 
@@ -131,10 +143,14 @@ ordered side effects, and callback counts are not a SQL ordering guarantee.
 
 ## Threading and execution
 
-Every PHP callback runs on the request thread. DuckDB's workers hand callback
-requests to that thread through the query pump. This supports buffered,
-streaming and prepared statements and `queryPending()` with polling or
-`await()`. A pending handle must be driven for its PHP callbacks to progress.
+Every PHP callback runs on the request thread. On a connection with a
+registered function, a helper thread that belongs to the connection drives
+DuckDB, and the helper and DuckDB's workers hand callback requests to the
+request thread through the query pump. This supports buffered, streaming and
+prepared statements and `queryPending()` with polling or `await()`. A pending
+handle must be driven for its PHP callbacks to progress; each `isReady()` call
+lets it run for about 1 ms. A streaming result runs its callbacks while it is
+fetched. See [COPY threading](copy.md#threading) for the helper's lifetime.
 
 `queryAsync()` and `Statement::executeAsync()` execute on a background thread
 that cannot call PHP, so statements using a PHP scalar function fail there.
@@ -144,7 +160,9 @@ Callbacks must not suspend. Switching Fibers or yielding through a runtime
 inside a callback fails the statement. Using the active connection, or a
 statement/appender that belongs to it, is rejected to prevent reentry. Other
 connections can perform ordinary SQL; nested PHP callback execution is
-rejected. Finish the callback promptly so that cancellation can progress.
+rejected. Freeing a `Result`, `PendingQuery` or `Statement` of the active
+connection inside a callback is deferred until the callback returns. Finish
+the callback promptly so that cancellation can progress.
 
 ## Errors and lifetime
 

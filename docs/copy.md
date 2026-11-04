@@ -107,9 +107,15 @@ remove partial output in `abort()`.
 
 DuckDB executes COPY callbacks on its worker threads, but PHP code may only
 run on the request thread. On a connection with a registered format, every
-statement runs through a pump: the request thread drives DuckDB and runs the
-handler calls that workers hand to it, between execution slices. Handler code
-therefore always runs on the request thread, in the order DuckDB requests it.
+statement runs through a pump. The request thread prepares the statement,
+which runs `bind()` directly. For `query()`, `execute()` and
+`Statement::execute()`, for each fetch from a streaming result, and for each
+`isReady()`, `await()` or `suspend()` step of a pending query, a helper thread
+that belongs to the connection then drives DuckDB while the request thread
+runs the handler calls that the helper and DuckDB's workers hand to it. The
+helper is created on first use, parks between statements, and ends with the
+connection. Handler code therefore always runs on the request thread, in the
+order DuckDB requests it.
 
 This works for:
 
@@ -123,7 +129,8 @@ This works for:
 `queryAsync()` and `Statement::executeAsync()` run statements on a worker
 thread that cannot reach PHP. A statement that uses a PHP format fails there
 with a `DuckDB\Exception` naming those methods; `executeAsync()` rejects it
-before starting.
+before starting. Inside a handler, both refuse to start on the connection
+that runs the COPY.
 
 Handlers must not yield. `Fiber::suspend()` and runtime suspension inside a
 handler throw `FiberError`, which fails the COPY. Inside a handler:
@@ -132,8 +139,8 @@ handler throw `FiberError`, which fails the COPY. Inside a handler:
   including through objects that belong to it;
 - other connections work normally;
 - running another PHP-format COPY, on any connection, is rejected;
-- freeing a `Result` or `PendingQuery` of the busy connection is deferred
-  until the handler returns.
+- freeing a `Result`, `PendingQuery` or `Statement` of the busy connection is
+  deferred until the handler returns.
 
 Statements on connections without a registered format are unaffected.
 
@@ -166,10 +173,11 @@ the writer is released without calling PHP. The same applies to writers that
 are still open once the request is past its destructor phase.
 
 Discarding an unfinished `PendingQuery` or cancelling it aborts its writers
-with a `DuckDB\Exception`. So does any other use of its connection before the
-query finishes, including binding values, appending rows or freeing an
-`Appender`: DuckDB cancels the unfinished statement when the connection is used
-again, and the failure says that the COPY statement was superseded.
+with a `DuckDB\Exception`. Until the query finishes, other statements on its
+connection, and appender writes that would flush, are refused with
+`ErrorType::ResourceInUse`; the refusal leaves the pending COPY running. Binding
+values, clearing bindings, table-name discovery, Arrow conversion and
+registration start no statement and work meanwhile.
 
 ## FrankenPHP and long-running workers
 

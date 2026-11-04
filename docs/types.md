@@ -24,7 +24,7 @@ you never construct logical types by hand in PHP.
 | GEOMETRY | `string` (binary) |
 | UUID | `string` (canonical `xxxxxxxx-xxxx-…` form) |
 | DATE | `DateTimeImmutable` (midnight, UTC) |
-| `TIMESTAMP` / `TIMESTAMP_S` / `TIMESTAMP_MS` / `TIMESTAMP_NS` / `TIMESTAMPTZ` | `DateTimeImmutable` (UTC) |
+| `TIMESTAMP` / `TIMESTAMP_S` / `TIMESTAMP_MS` / `TIMESTAMP_NS` / `TIMESTAMPTZ` / `TIMESTAMPTZ_NS` | `DateTimeImmutable` (UTC) |
 | TIME / TIMETZ / TIME_NS | `string` |
 | INTERVAL | `DuckDB\Interval` |
 | LIST / ARRAY | `list<mixed>` (recursively decoded) |
@@ -46,12 +46,14 @@ Precision and edge notes:
   of overflowing the stack.
 - BIGNUM and VARIANT decode from fetched chunks in buffered, streaming and
   nested results. Their internal storage layouts are verified for DuckDB
-  1.5.5 and 1.5.6; other versions raise an explicit decoding error until audited.
+  2.0.x; other versions raise an explicit decoding error until audited.
 - VARIANT rendering is JSON text, with a nesting limit of 64. It preserves
   numeric digits without passing through PHP floats, but JSON does not retain
   DuckDB's source type tags. SQL NULL remains PHP `null`.
-- Nanosecond timestamps become microsecond `DateTimeImmutable` values using
-  DuckDB's truncation toward zero. Use SQL string casts to retain nanoseconds.
+- Nanosecond timestamps become microsecond `DateTimeImmutable` values
+  truncated toward the epoch, so a value before 1970 can move forward by up to
+  a microsecond. DuckDB 2.0's own casts to microseconds round to the nearest
+  microsecond instead. Use SQL string casts to retain nanoseconds.
 
 ## PHP → DuckDB (binding / appending)
 

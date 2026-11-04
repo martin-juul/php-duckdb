@@ -63,7 +63,10 @@ if ($manifest.sha256 -notmatch '^[0-9a-f]{64}$' -or $manifest.commit -notmatch '
 $patchPath = Join-Path $PSScriptRoot $manifest.patch
 $arrowPatchPath = Join-Path $PSScriptRoot 'patches/arrow-geometry.patch'
 $copyFunctionPatchPath = Join-Path $PSScriptRoot 'patches/c-api-copy-functions.patch'
-foreach ($requiredPatch in $patchPath, $arrowPatchPath, $copyFunctionPatchPath) {
+$arrayJoinPatchPath = Join-Path $PSScriptRoot 'patches/array-join-gather.patch'
+$optionalIdxPatchPath = Join-Path $PSScriptRoot 'patches/optional-idx-defined.patch'
+foreach ($requiredPatch in $patchPath, $arrowPatchPath, $copyFunctionPatchPath, $arrayJoinPatchPath,
+    $optionalIdxPatchPath) {
     if (!(Test-Path -LiteralPath $requiredPatch -PathType Leaf)) {
         throw "Missing DuckDB patch: $requiredPatch"
     }
@@ -119,6 +122,8 @@ $metadata = [ordered]@{
     patch_sha256 = (Get-FileHash $patchPath -Algorithm SHA256).Hash.ToLowerInvariant()
     arrow_patch_sha256 = (Get-FileHash $arrowPatchPath -Algorithm SHA256).Hash.ToLowerInvariant()
     copy_function_patch_sha256 = (Get-FileHash $copyFunctionPatchPath -Algorithm SHA256).Hash.ToLowerInvariant()
+    array_join_patch_sha256 = (Get-FileHash $arrayJoinPatchPath -Algorithm SHA256).Hash.ToLowerInvariant()
+    optional_idx_patch_sha256 = (Get-FileHash $optionalIdxPatchPath -Algorithm SHA256).Hash.ToLowerInvariant()
     builder_sha256 = (Get-FileHash $PSCommandPath -Algorithm SHA256).Hash.ToLowerInvariant()
     platform = 'Windows/x64'
     visual_studio = $vs.installationVersion
@@ -129,6 +134,7 @@ $metadata = [ordered]@{
     cmake = $cmakeVersion
     build = 'Release; Visual Studio 17 2022; x64; host=x64; upstream static CRT'
     native_arch = 'OFF'
+    optimization_profile = 'NONE'
     disable_unity = $DisableUnity
     builtins = 'core_functions,parquet,json,icu,autocomplete'
     autoload = 'ON'
@@ -140,7 +146,8 @@ $buildMetadata = Join-Path $sdkMetadata 'build.txt'
 $artifactNames = @('include/duckdb.h', 'lib/duckdb.lib', 'bin/duckdb.dll',
     'share/duckdb-sdk/LICENSE.duckdb', 'share/duckdb-sdk/source.json',
     'share/duckdb-sdk/nullable-bitpacking.patch', 'share/duckdb-sdk/arrow-geometry.patch',
-    'share/duckdb-sdk/c-api-copy-functions.patch')
+    'share/duckdb-sdk/c-api-copy-functions.patch', 'share/duckdb-sdk/array-join-gather.patch',
+    'share/duckdb-sdk/optional-idx-defined.patch')
 
 function Test-DuckDBSdk {
     param([string]$Directory)
@@ -264,7 +271,8 @@ if ($LASTEXITCODE -ne 0) {
     throw "DuckDB source extraction failed: $LASTEXITCODE"
 }
 # git apply works on an extracted source tree and checks exact context.
-foreach ($requiredPatch in $patchPath, $arrowPatchPath, $copyFunctionPatchPath) {
+foreach ($requiredPatch in $patchPath, $arrowPatchPath, $copyFunctionPatchPath, $arrayJoinPatchPath,
+    $optionalIdxPatchPath) {
     & git -C $sourceDirectory apply --check --whitespace=error $requiredPatch
     if ($LASTEXITCODE -ne 0) {
         throw "Pinned DuckDB patch does not apply cleanly: $requiredPatch"
@@ -280,8 +288,8 @@ $arguments = @('-S', $sourceDirectory, '-B', $buildDirectory,
     "-DCMAKE_GENERATOR_INSTANCE=$($vs.installationPath)",
     "-DOVERRIDE_GIT_DESCRIBE=v$($manifest.version)",
     "-DGIT_COMMIT_HASH=$($manifest.commit.Substring(0, 10))",
-    '-DBUILD_EXTENSIONS=json;icu;autocomplete', '-DENABLE_EXTENSION_AUTOLOADING=ON',
-    '-DENABLE_EXTENSION_AUTOINSTALL=ON', '-DNATIVE_ARCH=OFF', "-DDISABLE_UNITY=$DisableUnity",
+    '-DBUILD_EXTENSIONS=json;icu;autocomplete', '-DLINK_CORE_EXTENSIONS=ON', '-DNATIVE_ARCH=OFF',
+    '-DDUCKDB_OPTIMIZATION_PROFILE=NONE', "-DDISABLE_UNITY=$DisableUnity",
     '-DBUILD_SHELL=OFF', '-DBUILD_UNITTESTS=OFF', '-DBUILD_BENCHMARKS=OFF')
 & cmake @arguments
 if ($LASTEXITCODE -ne 0) {
@@ -309,6 +317,8 @@ Copy-Item $manifestPath "$sdkMetadata/source.json" -Force
 Copy-Item $patchPath "$sdkMetadata/nullable-bitpacking.patch" -Force
 Copy-Item $arrowPatchPath "$sdkMetadata/arrow-geometry.patch" -Force
 Copy-Item $copyFunctionPatchPath "$sdkMetadata/c-api-copy-functions.patch" -Force
+Copy-Item $arrayJoinPatchPath "$sdkMetadata/array-join-gather.patch" -Force
+Copy-Item $optionalIdxPatchPath "$sdkMetadata/optional-idx-defined.patch" -Force
 $metadata | Set-Content -LiteralPath $buildMetadata -Encoding utf8
 $hashes = [ordered]@{}
 foreach ($name in $artifactNames) {

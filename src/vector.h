@@ -45,6 +45,13 @@ void duckdb_vector_wrap(zval *return_value, std::shared_ptr<vector_data> data);
 /* Wrap an uninitialized native vector of `type`; the caller fills every row. */
 std::shared_ptr<vector_data> duckdb_vector_allocate(duckdb_logical_type type, idx_t capacity);
 bool duckdb_vector_types_equal(duckdb_logical_type a, duckdb_logical_type b);
+/* The fast write kind of a vector type, or none when it needs conversion. */
+vector_fast_kind duckdb_vector_fast_kind(duckdb_logical_type type);
+/* Whether `input` (dereferenced, not NULL) has an identity cast to `kind`. */
+bool duckdb_vector_can_write_fast(vector_fast_kind kind, zval *input);
+/* Write an input accepted by duckdb_vector_can_write_fast() into a flat
+ * vector and mark its row valid. */
+void duckdb_vector_write_fast(duckdb_vector vector, vector_fast_kind kind, idx_t row, zval *input);
 /* Copy rows with DuckDB's copier, which flattens any source vector layout. */
 void duckdb_vector_copy_rows(duckdb_vector source, duckdb_vector target, idx_t source_offset, idx_t count,
                              idx_t target_offset);

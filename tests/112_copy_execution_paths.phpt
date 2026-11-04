@@ -1,5 +1,5 @@
 --TEST--
-COPY TO: direct and marshaled callbacks, exit() and fatal errors in handlers, stuck drivers and interrupts
+COPY TO: leased execution with and without DuckDB workers, exit() and fatal errors in handlers, stuck leases and interrupts
 --SKIPIF--
 <?php
 require_once __DIR__ . '/skipif.inc';
@@ -14,20 +14,20 @@ require __DIR__ . '/copy.inc';
 require_once __DIR__ . '/subprocess.inc';
 
 /*
- * Each scenario runs in a child process. "direct" uses one DuckDB thread, so
- * every callback runs on the request thread. "marshaled" stops the request
- * thread from executing DuckDB tasks, so every callback is handed over from
- * a worker thread.
+ * Each scenario runs in a child process. The connection's helper thread
+ * drives every statement and hands each callback to the request thread.
+ * "helper" uses one DuckDB thread, so the helper reaches every callback;
+ * "workers" adds DuckDB worker threads that reach them too.
  */
 $child = <<<'PHP'
 <?php
 require $argv[1];
-[$scenario, $out] = [$argv[2], $argv[3]];
+[$scenario, $out, $threads] = [$argv[2], $argv[3], $argv[4]];
 register_shutdown_function(function () {
     echo "shutdown\n";
 });
 $conn = (new DuckDB\Database())->connect();
-$conn->query(getenv('DUCKDB_PHP_TEST_PUMP_SERVICE_ONLY') ? 'SET threads = 4' : 'SET threads = 1');
+$conn->query("SET threads = $threads");
 $format = new LinesFormat();
 $format->hooks['abort'] = function (Throwable $reason) {
     echo 'abort: ', $reason->getMessage(), "\n";
@@ -109,9 +109,10 @@ $dir = copy_scratch();
 file_put_contents("$dir/child.php", $child);
 $args = duckdb_subprocess_args();
 
-function run_child(string $dir, array $args, string $scenario, array $env): array
+function run_child(string $dir, array $args, string $scenario, int $threads, array $env = []): array
 {
-    $command = array_merge([PHP_BINARY], $args, ["$dir/child.php", __DIR__ . '/copy.inc', $scenario, "$dir/$scenario.lines"]);
+    $command = array_merge([PHP_BINARY], $args,
+        ["$dir/child.php", __DIR__ . '/copy.inc', $scenario, "$dir/$scenario.lines", (string) $threads]);
     $process = proc_open($command, [1 => ['pipe', 'w'], 2 => ['redirect', 1]], $pipes, null, $env + getenv());
     $output = stream_get_contents($pipes[1]);
     fclose($pipes[1]);
@@ -119,15 +120,15 @@ function run_child(string $dir, array $args, string $scenario, array $env): arra
 }
 
 $modes = [
-    'direct' => [],
-    'marshaled' => ['DUCKDB_PHP_TEST_PUMP_SERVICE_ONLY' => '1'],
+    'helper' => 1,
+    'workers' => 4,
 ];
-foreach ($modes as $mode => $env) {
-    [$status, $output] = run_child($dir, $args, 'copy', $env);
+foreach ($modes as $mode => $threads) {
+    [$status, $output] = run_child($dir, $args, 'copy', $threads);
     check($status === 0 && $output === "5000 rows\nshutdown\n", "$mode copy: $status $output");
 
     foreach (['exit', 'suspend-exit'] as $scenario) {
-        [$status, $output] = run_child($dir, $args, $scenario, $env);
+        [$status, $output] = run_child($dir, $args, $scenario, $threads);
         check($status === 7, "$mode $scenario status: $status $output");
         check(preg_match('/^abort: .*COPY aborted by exit\\(\\)\nshutdown\n$/', $output) === 1,
             "$mode $scenario: $output");
@@ -138,27 +139,32 @@ foreach ($modes as $mode => $env) {
     // for any nested fatal, with or without this extension. Zend's allocator
     // releases them, while Memcheck still checks invalid accesses and native
     // leaks on this path.
-    [$status, $output] = run_child($dir, $args, 'fatal', $env + ['USE_ZEND_ALLOC' => '1']);
+    [$status, $output] = run_child($dir, $args, 'fatal', $threads, ['USE_ZEND_ALLOC' => '1']);
     check($status === 255, "$mode fatal status: $status $output");
     check(preg_match('/Cannot (re)?declare class Twice/', $output) === 1 && !str_contains($output, 'abort')
         && !str_contains($output, 'not reached') && str_ends_with($output, "shutdown\n"), "$mode fatal: $output");
 
-    [$status, $output] = run_child($dir, $args, 'interrupt', $env);
+    [$status, $output] = run_child($dir, $args, 'interrupt', $threads);
     check($status === 0, "$mode interrupt status: $status $output");
     check(preg_match('/^abort: .*\nDuckDB\\\\(Interrupted)?Exception\n1\nshutdown\n$/', $output) === 1, "$mode interrupt: $output");
     echo "$mode\n";
 }
 
-// The stuck-driver safety net releases a waiting worker.
-[$status, $output] = run_child($dir, $args, 'stuck', $modes['marshaled'] + [
-    'DUCKDB_PHP_TEST_STUCK_DRIVER' => '1',
-    'DUCKDB_PHP_COPY_STUCK_SECONDS' => '1',
-]);
-check($status === 0, "stuck status: $status $output");
-check(str_contains($output, 'COPY callback abandoned: the driving thread stayed inside DuckDB too long'), $output);
-echo "stuck driver\n";
+// A lease that never services its callbacks fails them after the limit
+// instead of hanging, and the connection stays usable.
+foreach ($modes as $mode => $threads) {
+    [$status, $output] = run_child($dir, $args, 'stuck', $threads, [
+        'DUCKDB_PHP_TEST_STUCK_LEASE' => '1',
+        'DUCKDB_PHP_COPY_STUCK_SECONDS' => '1',
+    ]);
+    check($status === 0, "$mode stuck status: $status $output");
+    check($output === "DuckDB\\Exception: Invalid Input Error: COPY callback abandoned: "
+        . "the driving thread stayed inside DuckDB too long\n1\nshutdown\n", "$mode stuck: $output");
+    echo "$mode stuck lease\n";
+}
 ?>
 --EXPECT--
-direct
-marshaled
-stuck driver
+helper
+workers
+helper stuck lease
+workers stuck lease

@@ -39,15 +39,16 @@ check($conn->query('BEGIN; SELECT 7 AS y; COMMIT')->fetchAll() === [['y' => 7]],
 echo "multi-statement queries run every statement\n";
 
 $classes = [];
-$classes[] = rejects(fn() => $conn->query('CREATE TABLE never(i INTEGER); SELEC 1'), DuckDB\ParserException::class);
+$classes[] = rejects(fn() => $conn->query('CREATE TABLE parsed(i INTEGER); SELEC 1'), DuckDB\ParserException::class);
 $classes[] = rejects(
     fn() => $conn->query("CREATE TABLE first(i INTEGER); SELECT 'z'::INTEGER; CREATE TABLE after(i INTEGER)"),
     DuckDB\ConversionException::class
 );
 check($conn->query("SELECT table_name FROM duckdb_tables() WHERE table_name IN ('first', 'after')")->fetchAll()
     === [['table_name' => 'first']], 'Statements stop at the first error');
-check($conn->query("SELECT count(*) AS n FROM duckdb_tables() WHERE table_name = 'never'")->fetchAll() === [['n' => 0]],
-    'A parse error runs no statement');
+// DuckDB 2.0 runs the statements before a syntax error, pumped or not.
+check($conn->query("SELECT count(*) AS n FROM duckdb_tables() WHERE table_name = 'parsed'")->fetchAll() === [['n' => 1]],
+    'The statements before a parse error run');
 $classes[] = rejects(fn() => $conn->query('INSERT INTO t VALUES (1)'), DuckDB\ConstraintException::class);
 $classes[] = rejects(fn() => $conn->query("SELECT 'x'::INTEGER"), DuckDB\ConversionException::class);
 $classes[] = rejects(fn() => $conn->query('SELECT * FROM missing'), DuckDB\CatalogException::class);
@@ -80,12 +81,16 @@ try {
 }
 $undriven = $conn->queryPending($slow);
 unset($undriven);
-$superseded = $conn->queryPending($slow);
-check($conn->query('SELECT 4 AS d')->fetchAll() === [['d' => 4]], 'A newer statement supersedes a pending query');
+$holding = $conn->queryPending($slow);
+$refusal = null;
 try {
-    $superseded->await();
+    $conn->query('SELECT 4 AS d');
 } catch (DuckDB\Exception $error) {
+    $refusal = $error->getErrorType();
 }
+check($refusal === DuckDB\ErrorType::ResourceInUse, 'A pending query refuses a newer statement');
+check($holding->await()->fetchAll() === [['n' => 3000000]], 'The refused statement leaves the pending query intact');
+check($conn->query('SELECT 4 AS d')->fetchAll() === [['d' => 4]], 'The completed pending query frees the connection');
 $closing = $conn->queryPending($slow);
 $conn->close();
 unset($closing);

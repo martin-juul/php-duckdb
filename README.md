@@ -36,10 +36,12 @@ Feature highlights:
   progress reporting, Fiber suspension, coroutine-native **Swoole 6+**, **True
   Async**, **AMPHP v3** and **ReactPHP** integration, and event-loop support
   (completion stream / file descriptor)
-- **Single-threaded async** via DuckDB's pending-execution API (no worker
-  thread started by the extension — drives the query on the calling thread)
+- **Polling async** via DuckDB's pending-execution API: no background worker;
+  each poll drives the query in slices on the calling thread, or on the
+  connection's helper thread when PHP COPY formats or scalar functions are
+  registered
 - **Typed error hierarchy** mirroring DuckDB's error categories
-- **Typed inputs** for every DuckDB 1.5.6 type family, including nested values,
+- **Typed inputs** for every DuckDB type family, including nested values,
   catalog types, VARIANT and GEOMETRY. Results use documented
   [PHP mappings](docs/types.md), including exact DECIMAL/HUGEINT strings and
   temporal objects; those mappings have type-specific precision limitations.
@@ -100,15 +102,19 @@ For application integration, see the
 - PHP **8.2+** (8.2–8.5 supported; enums are used in the public API)
 - A C++17 compiler
 - The DuckDB C library (`libduckdb` + `duckdb.h`), e.g. from
-  <https://duckdb.org/docs/installation/> — this driver is developed and tested
-  against **DuckDB v1.5.6**, the minimum supported version; headers and
-  library must match and provide the required C APIs.
+  <https://duckdb.org/docs/installation/> — extension 2.0.0 requires
+  **DuckDB 2.0.x** and is developed and tested against **DuckDB v2.0.0**;
+  headers and library must match and provide the required C APIs. DuckDB 1.5.x
+  is not supported; see the [migration guide](docs/migrations.md).
 
 Repository builds that vendor DuckDB use the
-[patched SDK builder](packaging/duckdb/README.md). Its engine patch fixes
-nullable bitpacking writes while retaining compression. External DuckDB
-packages need an equivalent backport; see [compatibility](docs/compatibility.md).
-The [patch inventory](packaging/duckdb/patches/README.md) records its purpose,
+[patched SDK builder](packaging/duckdb/README.md). Its five engine patches fix
+nullable bitpacking writes, Arrow conversion transactions and geometry CRS,
+C API COPY format binding, DuckDB 2.0.0's `ARRAY` gather in `LEFT JOIN`s
+with unmatched rows, and uninitialised reads of unset optional indexes.
+External DuckDB packages need equivalent backports; see
+[compatibility](docs/compatibility.md). The
+[patch inventory](packaging/duckdb/patches/README.md) records their purpose,
 origin, build scope and removal criteria.
 
 ```text
@@ -143,7 +149,7 @@ release that includes Windows assets; see the
 php tests/harness.php doctor build --duckdb-dir=/opt/duckdb
 make install          # copies duckdb.so into the PHP extension dir
 echo "extension=duckdb.so" > $(php --ini | grep 'Scan for' | awk '{print $NF}')/99-duckdb.ini
-php -r 'var_dump(DuckDB\version());'   # e.g. "v1.5.6"
+php -r 'var_dump(DuckDB\version());'   # e.g. "v2.0.0"
 ```
 
 On macOS use `--duckdb-dir=$(brew --prefix duckdb)`. On Windows use
@@ -210,15 +216,15 @@ Choose how closely to pin the extension and PHP versions:
 | ------------------------ | ---------------------------------------------------------------------------------- |
 | `8.4`, `php8.4`          | Moving build for PHP 8.4; also available for PHP 8.2, 8.3 and 8.5                  |
 | `latest`                 | Moving build for the newest supported PHP version (currently 8.5)                  |
-| `1.5.0-php8.4`           | Extension release 1.5.0 with PHP 8.4                                               |
-| `1.5-php8.4`, `1-php8.4` | Moving extension minor/major release aliases with PHP 8.4                          |
-| `1.5.0`                  | Extension release 1.5.0 with the newest supported PHP version                      |
-| `1.5`, `1`               | Moving extension minor/major release aliases with the newest supported PHP version |
+| `2.0.0-php8.4`           | Extension release 2.0.0 with PHP 8.4                                               |
+| `2.0-php8.4`, `2-php8.4` | Moving extension minor/major release aliases with PHP 8.4                          |
+| `2.0.0`                  | Extension release 2.0.0 with the newest supported PHP version                      |
+| `2.0`, `2`               | Moving extension minor/major release aliases with the newest supported PHP version |
 
 PHP-only aliases update on master pushes and stable release builds. Extension
-release aliases are published on Git tags such as `v1.5.0` or `1.5.0`;
+release aliases are published on Git tags such as `v2.0.0` or `2.0.0`;
 major/minor aliases follow the most recently published matching release build.
-Prereleases such as `1.5.0-rc.1` publish only their full release tags, with and
+Prereleases such as `2.0.0-rc.1` publish only their full release tags, with and
 without the PHP suffix, and leave stable aliases unchanged. Pull requests build
 images without publishing tags.
 
@@ -244,8 +250,8 @@ docker run --rm --entrypoint php \
 ```
 
 Every tag form above also has a `-frankenphp` variant for PHP 8.4 and 8.5, such
-as `php8.4-frankenphp`, `1.5.0-php8.4-frankenphp`, `1.5-php8.4-frankenphp`,
-`1.5.0-frankenphp` and `1-frankenphp`. Release-only FrankenPHP tags use PHP 8.5.
+as `php8.4-frankenphp`, `2.0.0-php8.4-frankenphp`, `2.0-php8.4-frankenphp`,
+`2.0.0-frankenphp` and `2-frankenphp`. Release-only FrankenPHP tags use PHP 8.5.
 
 They are built from `Dockerfile.frankenphp` in this repository; see
 [docs/frankenphp.md](docs/frankenphp.md) for worker-mode details.
@@ -281,7 +287,7 @@ unit of work** (see _Concurrency_ below).
 | `Connection::execute(string $sql, array $params = []): Result` | buffered  | Prepare + bind + execute in one call.                                                    |
 | `Connection::prepare(string $sql): Statement`                  | —         | Reusable prepared statement.                                                             |
 | `Connection::queryAsync(string $sql): PendingQuery`            | —         | Executes on a background worker thread.                                                  |
-| `Connection::queryPending(string $sql): PendingQuery`          | —         | Single-threaded async (polling mode).                                                    |
+| `Connection::queryPending(string $sql): PendingQuery`          | —         | Polling async; starts no background worker.                                              |
 
 ### Results
 
@@ -309,12 +315,17 @@ and prevents the same result from being consumed twice.
 ### Streaming & the one-stream rule
 
 `queryStreaming()` / `Statement::executeStreaming()` keep memory constant for
-arbitrarily large results. DuckDB allows **one open streaming result per
-connection**: starting any new query (or appender) on the same connection
-invalidates the previous stream. This driver detects that situation and throws a
-`DuckDB\Exception` instead of silently truncating your data — buffered `query()`
-results are not affected. For concurrent streams, open one connection per
-stream.
+arbitrarily large results. While a stream or an unfinished pending query is
+open, DuckDB 2.0 refuses any new statement on the same connection with
+`ErrorType::ResourceInUse`; appender writes that would flush are refused the
+same way. The refused statement does not run and the open result stays
+readable. Drain the stream, `await()` the pending query or release it first;
+buffered `query()` results never hold the connection. Binding values,
+`getTableNames()`, Arrow conversion and function registration still work
+while a result is open. Releasing a stream or pending query whose write has
+not finished rolls the write back, or aborts the surrounding transaction. For
+concurrent streams, open one connection per stream; see
+[streaming caveats](docs/query.md#streaming-queries-constant-memory).
 
 A query that fails _mid-stream_, for example on a cast error millions of rows
 into a result, throws the usual typed exception while fetching. A stream never
@@ -329,7 +340,8 @@ Fetch columnar batches from buffered or streaming results, inspect their schemas
 and convert them to reusable native chunks. Lossless Arrow conversion is enabled
 by default. Explicitly disabling it makes exports of HUGEINT, UHUGEINT, BIT and
 TIMETZ throw instead of losing data. The bundled SDK preserves geometry CRS
-without requiring an explicit transaction. VARIANT export is unsupported.
+without requiring an explicit transaction. VARIANT exports as the
+`arrow.parquet.variant` extension type.
 See [conversion semantics](docs/arrow.md#type-conversion-settings).
 
 ```php
@@ -498,7 +510,7 @@ $conn->beginTransaction();
 try {
     $conn->execute('UPDATE accounts SET balance = balance - ? WHERE id = ?', [100, 1]);
     $conn->execute('UPDATE accounts SET balance = balance + ? WHERE id = ?', [100, 2]);
-    $conn->commit();
+    $conn->commit();   // throws TransactionException if DuckDB aborted the transaction
 } catch (DuckDB\Exception $e) {
     $conn->rollBack();
     throw $e;
@@ -510,8 +522,18 @@ the transactions with a `TransactionException` during a write or commit. Roll
 back the failed transaction and retry the unit of work. Transaction state is
 owned by DuckDB. Nesting `beginTransaction()` or committing without an active
 transaction raises a `TransactionException` (code
-`ErrorType::Transaction`). Plain SQL (`BEGIN`/`COMMIT`/`ROLLBACK`) works
-identically.
+`ErrorType::Transaction`).
+
+DuckDB 2.0 aborts an explicit transaction on any error inside it; later
+statements fail until it is rolled back (DuckDB's
+`default_transaction_invalidation_policy` setting can relax this for parser
+and binder errors). `commit()` never reports success for an aborted
+transaction: it throws a `TransactionException` and leaves the aborted
+transaction open, so the `rollBack()` of a surrounding `catch` block ends it
+and the original exception reaches the caller. Plain
+SQL (`BEGIN`/`COMMIT`/`ROLLBACK`) also works, but a raw `COMMIT` of an aborted
+transaction rolls back silently. See the
+[migration guide](docs/migrations.md#transactions).
 
 ## Bulk inserts: the Appender
 
@@ -564,10 +586,12 @@ $pending->cancel();      // interrupt the query (-> InterruptedException)
   scheduler: natively integrated with Swoole 6+, True Async, AMPHP v3 and
   ReactPHP (below), with a plain _Fiber_ protocol as the fallback for custom
   schedulers.
-- **`Connection::queryPending()`** runs on the calling thread. Each `isReady()`
-  call executes one slice of DuckDB's task graph without spawning a worker
-  thread. Polling performs the work rather than busy-waiting. This mode suits
-  `dl()`-restricted and other specialized SAPIs.
+- **`Connection::queryPending()`** starts no background worker. Each
+  `isReady()` call executes one slice of DuckDB's task graph on the calling
+  thread; on a connection with PHP COPY formats or scalar functions, the
+  connection's helper thread runs the slice for about 1 ms while the calling
+  thread runs PHP callbacks. Polling performs the work rather than
+  busy-waiting. This mode suits `dl()`-restricted and other specialized SAPIs.
 - A `PendingQuery` result can be consumed exactly once (`await()` or
   `suspend()`).
 
@@ -845,7 +869,7 @@ Other introspection:
 $conn->getTableNames('SELECT * FROM orders JOIN customers USING (customer_id)');
 // ['orders', 'customers'] — query analysis, not a catalog listing
 
-DuckDB\version();        // 'v1.5.6' (linked library version)
+DuckDB\version();        // 'v2.0.0' (linked library version)
 duckdb_version();        // legacy alias
 ```
 
@@ -888,11 +912,13 @@ The test suite covers the following input checks and resource-lifecycle rules:
   private to each `Database` object.
 - Worker threads only execute DuckDB calls; all PHP/zval access happens on the
   request thread. Safe under ZTS, `parallel`, FrankenPHP, etc.
-- PHP callbacks such as [COPY TO format](docs/copy.md) handlers also run only
-  on the request thread: DuckDB workers hand their calls to it while it drives
-  the statement. Handlers must not suspend or use the connection running the
-  statement, and `queryAsync()`/`executeAsync()` reject statements that need
-  them.
+- PHP callbacks such as [COPY TO format](docs/copy.md) handlers and
+  [scalar functions](docs/scalar_functions.md) also run only on the request
+  thread: DuckDB threads hand their calls to it while the statement runs. On
+  such a connection, a helper thread that belongs to the connection drives
+  DuckDB for buffered statements, streaming fetches and pending-query steps.
+  Handlers must not suspend or use the connection running the statement, and
+  `queryAsync()`/`executeAsync()` reject statements that need them.
 - DuckDB interrupt is connection-scoped: `PendingQuery::cancel()` on a threaded
   query interrupts the whole connection (cancelling a finished query is a no-op
   and never disturbs newer work).

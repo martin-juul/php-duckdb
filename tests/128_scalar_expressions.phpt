@@ -74,7 +74,7 @@ $conn->registerScalarFunction('php_inspect', $types, 'BIGINT', $handler);
 $sql = "SELECT php_inspect(40 + 2, 'd' || 'uck', 12.34::DECIMAL(10,2), from_hex('610062'),
     [1, NULL, 3], {'x': 9}, NULL::VARCHAR)";
 check($conn->query($sql)->fetchColumn() === 1, 'Expression function must execute');
-$resolved = ['INTEGER', 'VARCHAR', 'DECIMAL(10,2)', 'BLOB', 'INTEGER[]', 'STRUCT("x" INTEGER)', 'VARCHAR'];
+$resolved = ['BIGINT', 'VARCHAR', 'DECIMAL(10,2)', 'BLOB', 'INTEGER[]', 'STRUCT("x" INTEGER)', 'VARCHAR'];
 check($handler->types === $resolved, 'Resolved SQL argument types');
 check($handler->foldable === array_fill(0, 7, true), 'Constants must be foldable');
 $expected = $conn->query("SELECT 40 + 2::BIGINT, 'd' || 'uck', 12.34::DECIMAL(10,2),

@@ -35,7 +35,9 @@ struct data_chunk_data {
 extern zend_class_entry *duckdb_data_chunk_ce;
 void duckdb_register_data_chunk_class(zend_class_entry *ce);
 std::shared_ptr<data_chunk_data> duckdb_data_chunk_from_zval(zval *value);
-void duckdb_data_chunk_wrap(zval *return_value, std::shared_ptr<data_chunk_data> data);
+/* Allocates the object before taking a reference to `data`, so a bailout
+ * while allocating leaves no reference behind. */
+void duckdb_data_chunk_wrap(zval *return_value, const std::shared_ptr<data_chunk_data> &data);
 std::shared_ptr<data_chunk_data> duckdb_import_arrow_chunk(conn_inner *conn,
                                                         const std::shared_ptr<arrow_chunk_data> &arrow);
 void duckdb_data_chunk_rows(data_chunk_data *data, zend_object *mode, zval *return_value);

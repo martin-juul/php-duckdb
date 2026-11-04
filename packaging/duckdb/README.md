@@ -1,9 +1,10 @@
 # Patched DuckDB SDK
 
-`build-sdk.sh` builds DuckDB 1.5.6 with the nullable bitpacking patch named in
-[source.json](source.json) and the Arrow conversion/geometry patch. It installs
-the shared library and `duckdb.h` in the layout consumed by phpize, CMake and
-the test harness:
+`build-sdk.sh` builds the DuckDB 2.0.0 source pinned in
+[source.json](source.json) with the nullable bitpacking, Arrow
+conversion/geometry, C API copy-function, ARRAY join gather and optional index
+patches. It installs the shared library and `duckdb.h` in the layout consumed by
+phpize, CMake and the test harness:
 
 ```sh
 sh packaging/duckdb/build-sdk.sh \
@@ -16,17 +17,27 @@ origin, affected builds, regression evidence and removal criteria. All engine
 patches are part of SDKs built from this checkout. The Arrow patch supplies
 implicit conversion transactions and preserves geometry CRS metadata on import.
 The copy-function patch makes binding of C API COPY formats deterministic.
+The ARRAY join gather patch stores ARRAY values that a hash join gathers at
+their matched rows. The optional index patch gives an unset `optional_idx` a
+defined value, so checkpoints never branch on uninitialised memory.
 
-The builder needs Python 3, curl, tar, patch, CMake, make and C/C++ compilers.
+The builder needs Python 3, curl, tar, patch, CMake 3.14 or newer, make and
+C/C++ compilers with C++17 support.
 The source archive is pinned by SHA-256, and every patch applies without fuzz.
 Set `DUCKDB_SOURCE_ARCHIVE` to use an already downloaded archive; the same hash
 check applies. `DUCKDB_SDK_PREFIX`, `DUCKDB_BUILD_DIR` and `DUCKDB_BUILD_JOBS`
 provide defaults for the command-line options. Without a worker override,
 [CPU and memory availability](../resources/README.md) determine parallelism.
+After the SDK is installed and verified, the builder deletes the `source` and
+`build` trees in the work directory; only the build metadata stays.
 
-The Release build includes core functions, Parquet, JSON, ICU and autocomplete,
-enables extension autoloading and automatic installation, and disables native
-CPU optimization, shell and unit-test binaries. Set `DUCKDB_DISABLE_UNITY=ON`
+The Release build links core functions, Parquet, JSON, ICU and autocomplete
+into the library. Extension autoloading and automatic installation keep
+DuckDB's enabled runtime defaults. The build disables native CPU optimization,
+shell and unit-test binaries. It also sets `DUCKDB_OPTIMIZATION_PROFILE=NONE`:
+DuckDB 2.0 Release builds otherwise target x86-64-v3 (AVX2) with GCC or Clang
+on x86-64 Linux. The `NONE` profile keeps the compiler's default target on
+every platform. Set `DUCKDB_DISABLE_UNITY=ON`
 for low-memory hosts; the default uses upstream unity builds. The PHP extension
 continues to use the C API; the installed SDK contains no C++ client headers.
 

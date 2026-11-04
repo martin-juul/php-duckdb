@@ -58,7 +58,7 @@ echo "prepared rebinding\n";
 $legacy = new class implements DuckDB\ScalarFunction, DuckDB\ScalarBinding, DuckDB\ScalarExecutor {
     public function bind(array $argumentTypes): DuckDB\ScalarBinding
     {
-        check($argumentTypes === ['INTEGER'], 'Legacy callback must still receive type strings');
+        check($argumentTypes === ['BIGINT'], 'Legacy callback must receive the declared parameter type string');
         return $this;
     }
 

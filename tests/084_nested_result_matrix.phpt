@@ -116,17 +116,15 @@ $conn->query("CREATE TABLE nested_source AS SELECT i,
         bytes := from_hex('610062'), flags := [true,false]::BOOLEAN[],
         stamp := TIMESTAMP '2024-01-01 12:00:00.123456') END AS payload
     FROM range(5000) t(i)");
-// DuckDB 1.5.x does not implement CASE over ARRAY values. An outer join to a
-// materialized ARRAY column supplies whole-value NULLs without such a CASE.
-$conn->query("CREATE TABLE nested_arrays AS SELECT i AS array_id,
-    [payload,NULL]::STRUCT(id INTEGER, price DECIMAL(18,2), bytes BLOB, flags BOOLEAN[], stamp TIMESTAMP)[2] AS fixed_value
-    FROM nested_source");
+// A CASE supplies whole-value ARRAY NULLs. DuckDB 2.0.0 cannot gather ARRAY
+// columns for unmatched LEFT JOIN rows, so an outer join cannot supply them.
 $largeSql = <<<'SQL'
 SELECT i::BIGINT AS id,
        CASE WHEN i%17=0 THEN NULL::STRUCT(id INTEGER, price DECIMAL(18,2), bytes BLOB, flags BOOLEAN[], stamp TIMESTAMP)[]
             WHEN i%3=0 THEN []::STRUCT(id INTEGER, price DECIMAL(18,2), bytes BLOB, flags BOOLEAN[], stamp TIMESTAMP)[]
             WHEN i%3=1 THEN [payload] ELSE [NULL,payload] END AS xs,
-       fixed_value AS fixed,
+       CASE WHEN i%19=0 THEN NULL
+            ELSE [payload,NULL]::STRUCT(id INTEGER, price DECIMAL(18,2), bytes BLOB, flags BOOLEAN[], stamp TIMESTAMP)[2] END AS fixed,
        CASE WHEN i%23=0 THEN NULL ELSE struct_pack(payload := payload, empty := []::INTEGER[], nil := NULL::INTEGER) END AS record,
        CASE WHEN i%29=0 THEN NULL WHEN i%5=0 THEN map([]::VARCHAR[],[]::INTEGER[]) ELSE map(['01','1'],[i::INTEGER,NULL]) END AS numeric_keys,
        CASE WHEN i%6=0 THEN NULL ELSE map([[i::INTEGER,i::INTEGER+1],[]::INTEGER[]],[[i::INTEGER,NULL],[]::INTEGER[]]) END AS composite_keys,
@@ -137,7 +135,7 @@ SELECT i::BIGINT AS id,
             ELSE union_value(text := NULL::VARCHAR) END AS tagged,
        union_tag(tagged)::VARCHAR AS native_tag,
        struct_pack(children := [struct_pack(value := payload, ids := [i::INTEGER,NULL])]) AS deep
-FROM nested_source LEFT JOIN nested_arrays ON i=array_id AND i%19<>0
+FROM nested_source
 WHERE i >= ? AND i%7<>0 ORDER BY i
 SQL;
 $largeStatement = $conn->prepare($largeSql);

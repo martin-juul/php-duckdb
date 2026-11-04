@@ -54,8 +54,11 @@ Caveats that follow from the chunk-based implementation:
 
 - `Result::rowCount()` on a streaming result only counts materialized rows —
   it is not meaningful. Count with SQL (`SELECT count(*)`) if you need it.
-- Starting a new execution on the same connection invalidates an in-flight
-  streaming result (the next fetch throws). See [query.md](query.md).
+- While a streaming result is open, DuckDB refuses a new execution on the
+  same connection with `ErrorType::ResourceInUse`, and the stream stays readable.
+  `DataChunk::toArrow()` and `Connection::dataChunkFromArrow()` start no
+  execution and work meanwhile. See
+  [streaming caveats](query.md#streaming-queries-constant-memory).
 
 ## Building chunks from vectors
 

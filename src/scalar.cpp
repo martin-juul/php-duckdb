@@ -47,6 +47,9 @@ struct scalar_registry {
     uint64_t next = 0;
     std::unordered_map<uint64_t, entry> objects;
     std::shared_ptr<conn_inner> conversion;
+    /* Result conversions on `conversion`; declared after it so they are
+     * destroyed before it disconnects. */
+    conversion_statements statements;
 };
 
 struct scalar_slot {
@@ -70,8 +73,9 @@ struct scalar_bind_arguments {
     zval values;
     std::vector<std::shared_ptr<expression_state>> states;
 
+    /* The caller allocates `values` through duckdb_callback_marshal(). */
     explicit scalar_bind_arguments(conn_inner *owner) : conn(owner) {
-        array_init(&values);
+        ZVAL_UNDEF(&values);
     }
 
     ~scalar_bind_arguments() {
@@ -180,19 +184,118 @@ static bool capture_exception(std::string &error) {
     return true;
 }
 
-static bool resolve_type(conn_inner &conn, const std::string &declaration, scoped_duckdb_value &value) {
+/* Resolve `declaration` on `resolver`, which is `conn` or its conversion
+ * connection. */
+static bool resolve_type(conn_inner &conn, conn_inner &resolver, const std::string &declaration,
+                         scoped_duckdb_value &value) {
     zval wrapper;
     zval input;
     ZVAL_NULL(&input);
     object_init_ex(&wrapper, duckdb_value_class_entry());
     std::vector<scoped_duckdb_value> values;
     bool ok = duckdb_value_initialize(&wrapper, declaration, &input) &&
-        duckdb_convert_values(&conn, {&wrapper}, values);
+        duckdb_convert_values(&resolver, {&wrapper}, values);
     duckdb_callback_zval_release(&conn, &wrapper);
     if (ok) {
         value = std::move(values.front());
     }
     return ok;
+}
+
+/* The request-thread part of binding a PHP scalar function: run its
+ * bind() and attach the bind data. Throws on allocation failure. */
+static void bind_on_request_thread(duckdb_bind_info info, const std::shared_ptr<scalar_slot> &slot,
+                                   const std::shared_ptr<scalar_registration> &registration) {
+    if (duckdb_callback_active()) {
+        duckdb_scalar_function_bind_set_error(info, "PHP scalar functions cannot run inside another PHP callback");
+        return;
+    }
+    auto conn = registration->conn.lock();
+    zend_object *function = conn ? lookup_object(*conn, registration->function) : nullptr;
+    if (!function) {
+        duckdb_scalar_function_bind_set_error(info, "Scalar function registration was released");
+        return;
+    }
+    auto bind = std::make_unique<scalar_bind>();
+    bind->registration = registration;
+    bind->slot = slot;
+    bool with_expressions = instanceof_function(function->ce, duckdb_scalar_expression_function_ce);
+    scalar_bind_arguments arguments(conn.get());
+    duckdb_callback_marshal([&arguments] {
+        array_init(&arguments.values);
+    });
+    idx_t count = duckdb_scalar_function_bind_get_argument_count(info);
+    arguments.states.reserve(count);
+    for (idx_t i = 0; i < count; i++) {
+        duckdb_scoped<duckdb_expression, duckdb_destroy_expression> expression(
+            duckdb_scalar_function_bind_get_argument(info, i));
+        if (!expression) {
+            duckdb_scalar_function_bind_set_error(info, "Unable to inspect scalar argument type");
+            return;
+        }
+        scoped_duckdb_logical_type type(duckdb_expression_return_type(expression.get()));
+        std::string declaration = duckdb_logical_type_sql(type.get());
+        bind->arguments.push_back(declaration);
+        if (with_expressions) {
+            duckdb_client_context fold_context = nullptr;
+            duckdb_scalar_function_get_client_context(info, &fold_context);
+            zval argument;
+            ZVAL_UNDEF(&argument);
+            auto state = duckdb_expression_wrap(&argument, expression.release(), fold_context);
+            if (!state) {
+                if (!Z_ISUNDEF(argument)) {
+                    duckdb_callback_zval_release(conn.get(), &argument);
+                }
+                std::string error = "Unable to expose scalar argument expression";
+                capture_exception(error);
+                duckdb_scalar_function_bind_set_error(info, error.c_str());
+                return;
+            }
+            arguments.states.push_back(std::move(state));
+            duckdb_callback_marshal([&arguments, &argument] {
+                add_next_index_zval(&arguments.values, &argument);
+            });
+        } else {
+            duckdb_callback_marshal([&arguments, &declaration] {
+                add_next_index_stringl(&arguments.values, declaration.data(), declaration.size());
+            });
+        }
+    }
+    scalar_prepared = true;
+    zval retval;
+    std::string error;
+    const char *method = with_expressions ? "bindExpressions" : "bind";
+    bool ok = invoke(*conn, function, registration->name, method, 1, &arguments.values, &retval, error);
+    arguments.release();
+    if (ok && (Z_TYPE(retval) != IS_OBJECT || !instanceof_function(Z_OBJCE(retval), duckdb_scalar_binding_ce))) {
+        error = with_expressions
+            ? "ScalarExpressionFunction::bindExpressions() must return a DuckDB\\ScalarBinding"
+            : "ScalarFunction::bind() must return a DuckDB\\ScalarBinding";
+        ok = false;
+    }
+    if (ok) {
+        bind->binding = store_object(*conn->scalar_state, Z_OBJ(retval));
+        /* A handler may issue a plain query on another connection,
+         * which resets prepare bookkeeping on the same PHP thread. */
+        scalar_prepared = true;
+    }
+    duckdb_callback_zval_release(conn.get(), &retval);
+    if (capture_exception(error) || duckdb_copy_unwinding()) {
+        if (error.empty()) {
+            error = "Scalar function callback stopped by exit() or a fatal error";
+        }
+        ok = false;
+    }
+    if (!ok) {
+        duckdb_scalar_function_bind_set_error(info, error.c_str());
+        return;
+    }
+    duckdb_scalar_function_set_bind_data(info, bind.release(), [](void *data) {
+        delete static_cast<scalar_bind *>(data);
+    });
+    duckdb_scalar_function_set_bind_data_copy(info, [](void *data) -> void * {
+        return new scalar_bind(*static_cast<scalar_bind *>(data));
+    });
 }
 
 static void scalar_bind_callback(duckdb_bind_info info) {
@@ -214,93 +317,34 @@ static void scalar_bind_callback(duckdb_bind_info info) {
             duckdb_scalar_function_bind_set_error(info, error.c_str());
             return;
         }
-        if (registration->owner != std::this_thread::get_id()) {
+        if (registration->owner == std::this_thread::get_id()) {
+            /* Inside DuckDB's binder: a bailout must not jump over it. */
+            std::string error;
+            bool ok = duckdb_callback_run([&](std::string &) {
+                bind_on_request_thread(info, slot, registration);
+                return true;
+            }, error);
+            if (!ok) {
+                duckdb_scalar_function_bind_set_error(info, error.c_str());
+            }
+            return;
+        }
+
+        /* duckdb_query() on a pumped connection binds on the helper thread. */
+        auto database = slot->db.lock();
+        auto session = database ? duckdb_session_find_bind(*database, id) : nullptr;
+        if (!session) {
             duckdb_scalar_function_bind_set_error(info, duckdb_scalar_not_pumped_message);
             return;
         }
-        if (duckdb_callback_active()) {
-            duckdb_scalar_function_bind_set_error(info, "PHP scalar functions cannot run inside another PHP callback");
-            return;
-        }
-        auto conn = registration->conn.lock();
-        zend_object *function = conn ? lookup_object(*conn, registration->function) : nullptr;
-        if (!function) {
-            duckdb_scalar_function_bind_set_error(info, "Scalar function registration was released");
-            return;
-        }
-        auto bind = std::make_unique<scalar_bind>();
-        bind->registration = registration;
-        bind->slot = slot;
-        bool with_expressions = instanceof_function(function->ce, duckdb_scalar_expression_function_ce);
-        scalar_bind_arguments arguments(conn.get());
-        idx_t count = duckdb_scalar_function_bind_get_argument_count(info);
-        arguments.states.reserve(count);
-        for (idx_t i = 0; i < count; i++) {
-            duckdb_scoped<duckdb_expression, duckdb_destroy_expression> expression(
-                duckdb_scalar_function_bind_get_argument(info, i));
-            if (!expression) {
-                duckdb_scalar_function_bind_set_error(info, "Unable to inspect scalar argument type");
-                return;
-            }
-            scoped_duckdb_logical_type type(duckdb_expression_return_type(expression.get()));
-            std::string declaration = duckdb_logical_type_sql(type.get());
-            bind->arguments.push_back(declaration);
-            if (with_expressions) {
-                duckdb_client_context fold_context = nullptr;
-                duckdb_scalar_function_get_client_context(info, &fold_context);
-                zval argument;
-                ZVAL_UNDEF(&argument);
-                auto state = duckdb_expression_wrap(&argument, expression.release(), fold_context);
-                if (!state) {
-                    if (!Z_ISUNDEF(argument)) {
-                        duckdb_callback_zval_release(conn.get(), &argument);
-                    }
-                    std::string error = "Unable to expose scalar argument expression";
-                    capture_exception(error);
-                    duckdb_scalar_function_bind_set_error(info, error.c_str());
-                    return;
-                }
-                arguments.states.push_back(std::move(state));
-                add_next_index_zval(&arguments.values, &argument);
-            } else {
-                add_next_index_stringl(&arguments.values, declaration.data(), declaration.size());
-            }
-        }
-        scalar_prepared = true;
-        zval retval;
         std::string error;
-        const char *method = with_expressions ? "bindExpressions" : "bind";
-        bool ok = invoke(*conn, function, registration->name, method, 1, &arguments.values, &retval, error);
-        arguments.release();
-        if (ok && (Z_TYPE(retval) != IS_OBJECT || !instanceof_function(Z_OBJCE(retval), duckdb_scalar_binding_ce))) {
-            error = with_expressions
-                ? "ScalarExpressionFunction::bindExpressions() must return a DuckDB\\ScalarBinding"
-                : "ScalarFunction::bind() must return a DuckDB\\ScalarBinding";
-            ok = false;
-        }
-        if (ok) {
-            bind->binding = store_object(*conn->scalar_state, Z_OBJ(retval));
-            /* A handler may issue a plain query on another connection,
-             * which resets prepare bookkeeping on the same PHP thread. */
-            scalar_prepared = true;
-        }
-        duckdb_callback_zval_release(conn.get(), &retval);
-        if (capture_exception(error) || duckdb_copy_unwinding()) {
-            if (error.empty()) {
-                error = "Scalar function callback stopped by exit() or a fatal error";
-            }
-            ok = false;
-        }
+        bool ok = duckdb_callback_on_request_thread(*session, [&](std::string &) {
+            bind_on_request_thread(info, slot, registration);
+            return true;
+        }, error);
         if (!ok) {
             duckdb_scalar_function_bind_set_error(info, error.c_str());
-            return;
         }
-        duckdb_scalar_function_set_bind_data(info, bind.release(), [](void *data) {
-            delete static_cast<scalar_bind *>(data);
-        });
-        duckdb_scalar_function_set_bind_data_copy(info, [](void *data) -> void * {
-            return new scalar_bind(*static_cast<scalar_bind *>(data));
-        });
     } catch (const std::exception &error) {
         duckdb_scalar_function_bind_set_error(info, error.what());
     }
@@ -376,22 +420,42 @@ static bool write_results(conn_inner &conn, const scalar_bind &bind, zval *resul
         error = "ScalarExecutor::execute() must return a list containing exactly one value per input row";
         return false;
     }
+    scoped_duckdb_logical_type target_type(duckdb_vector_get_column_type(output));
+    vector_fast_kind fast = duckdb_vector_fast_kind(target_type.get());
+
+    /* NULLs and plain PHP scalars whose cast to a primitive return type is
+     * an identity are written directly. Only the other rows go through
+     * typed conversion, so they keep DuckDB's casts and errors. */
     std::vector<zval> wrappers(rows);
     std::vector<zval *> inputs;
+    std::vector<idx_t> targets;
+    idx_t row = 0;
     zval *value;
     bool ok = true;
     ZEND_HASH_FOREACH_VAL(Z_ARRVAL_P(results), value) {
-        zval *wrapper = &wrappers[inputs.size()];
-        object_init_ex(wrapper, duckdb_value_class_entry());
-        inputs.push_back(wrapper);
-        if (!duckdb_value_initialize(wrapper, bind.slot->result, value)) {
-            ok = false;
-            break;
+        ZVAL_DEREF(value);
+        if (fast != vector_fast_kind::none && Z_TYPE_P(value) == IS_NULL) {
+            duckdb_vector_ensure_validity_writable(output);
+            duckdb_validity_set_row_invalid(duckdb_vector_get_validity(output), row);
+        } else if (duckdb_vector_can_write_fast(fast, value)) {
+            duckdb_vector_write_fast(output, fast, row, value);
+        } else {
+            zval *wrapper = &wrappers[inputs.size()];
+            object_init_ex(wrapper, duckdb_value_class_entry());
+            inputs.push_back(wrapper);
+            targets.push_back(row);
+            if (!duckdb_value_initialize(wrapper, bind.slot->result, value)) {
+                ok = false;
+                break;
+            }
         }
+        row++;
     } ZEND_HASH_FOREACH_END();
+
     std::vector<scoped_duckdb_value> converted;
     if (ok && !inputs.empty()) {
-        ok = duckdb_convert_values(conn.scalar_state->conversion.get(), inputs, converted);
+        ok = duckdb_convert_values(conn.scalar_state->conversion.get(), inputs, converted,
+                                   &conn.scalar_state->statements);
     }
     for (auto *wrapper : inputs) {
         duckdb_callback_zval_release(&conn, wrapper);
@@ -403,20 +467,23 @@ static bool write_results(conn_inner &conn, const scalar_bind &bind, zval *resul
         }
         return false;
     }
-    scoped_duckdb_logical_type target_type(duckdb_vector_get_column_type(output));
+    if (converted.empty()) {
+        return true;
+    }
+
     duckdb_scoped<duckdb_vector, duckdb_destroy_vector> constant(duckdb_create_vector(target_type.get(), 1));
     scoped_duckdb_selection selection(duckdb_create_selection_vector(1));
     if (!constant || !selection) {
         throw std::bad_alloc();
     }
     duckdb_selection_vector_get_data_ptr(selection.get())[0] = 0;
-    for (idx_t row = 0; row < rows; row++) {
-        if (!duckdb_vector_types_equal(duckdb_get_value_type(converted[row].get()), target_type.get())) {
+    for (size_t i = 0; i < converted.size(); i++) {
+        if (!duckdb_vector_types_equal(duckdb_get_value_type(converted[i].get()), target_type.get())) {
             error = "Scalar result conversion produced a different logical type";
             return false;
         }
-        duckdb_vector_reference_value(constant.get(), converted[row].get());
-        duckdb_vector_copy_sel(constant.get(), output, selection.get(), 1, 0, row);
+        duckdb_vector_reference_value(constant.get(), converted[i].get());
+        duckdb_vector_copy_sel(constant.get(), output, selection.get(), 1, 0, targets[i]);
     }
     return true;
 }
@@ -449,7 +516,9 @@ static void scalar_execute_callback(duckdb_function_info info, duckdb_data_chunk
                 batch->names.push_back("arg" + std::to_string(i));
             }
             zval argument;
-            duckdb_data_chunk_wrap(&argument, batch);
+            duckdb_callback_marshal([&argument, &batch] {
+                duckdb_data_chunk_wrap(&argument, batch);
+            });
             zval retval;
             bool success = invoke(*conn, executor, bind->registration->name, "execute", 1, &argument, &retval, message);
             batch->expired = true;
@@ -587,7 +656,7 @@ DUCKDB_COPY_METHOD(DuckDB_Connection, registerScalarFunction) {
     }
     try {
         std::unique_lock<std::mutex> lock;
-        if (!duckdb_conn_enter(*conn, lock)) {
+        if (!duckdb_conn_enter(*conn, lock, conn_entry::plain)) {
             RETURN_THROWS();
         }
         if (!conn->scalar_state) {
@@ -601,19 +670,25 @@ DUCKDB_COPY_METHOD(DuckDB_Connection, registerScalarFunction) {
             conn->scalar_state = std::move(registry);
             scalar_connections.emplace_back(conn);
         }
+        /* DuckDB refuses a statement while a result is open, and
+         * registration must not fail for that. Resolve on the user connection, which
+         * sees its USE catalog, search path and uncommitted types, unless a
+         * result is open; then resolve on the conversion connection. */
+        conn_inner &resolver = conn->open_results.empty() ? *conn : *conn->scalar_state->conversion;
+
         std::vector<scoped_duckdb_value> types;
         zval *parameter;
         ZEND_HASH_FOREACH_VAL(Z_ARRVAL_P(parameters), parameter) {
             std::string declaration;
             scoped_duckdb_value resolved;
-            if (!duckdb_type_spec(parameter, declaration) || !resolve_type(*conn, declaration, resolved)) {
+            if (!duckdb_type_spec(parameter, declaration) || !resolve_type(*conn, resolver, declaration, resolved)) {
                 RETURN_THROWS();
             }
             types.push_back(std::move(resolved));
         } ZEND_HASH_FOREACH_END();
         std::string declaration;
         scoped_duckdb_value resolved;
-        if (!duckdb_type_spec(result, declaration) || !resolve_type(*conn, declaration, resolved)) {
+        if (!duckdb_type_spec(result, declaration) || !resolve_type(*conn, resolver, declaration, resolved)) {
             RETURN_THROWS();
         }
         types.push_back(std::move(resolved));

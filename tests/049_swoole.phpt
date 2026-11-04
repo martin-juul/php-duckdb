@@ -84,6 +84,19 @@ run(function () use ($db) {
     printf("polling: %d\n", $r->fetchAll(FetchMode::Num)[0][0]);
 });
 
+// A pumped polling query: a COPY to a PHP format progresses on the
+// connection's helper thread while its callbacks run in this coroutine.
+require $argv[1];
+run(function () {
+    $dir = copy_scratch();
+    $conn = (new Database(':memory:', ['threads' => 4]))->connect();
+    $conn->registerCopyToFunction('lines', new LinesFormat());
+    $r = $conn->queryPending("COPY (SELECT range AS i FROM range(5000) ORDER BY i) TO '$dir/a.lines' (FORMAT lines)")
+        ->suspend();
+    $inOrder = array_column(copy_lines("$dir/a.lines"), 0) === range(0, 4999);
+    printf("pumped polling: %d rows, in order: %s\n", $r->fetchAll(FetchMode::Num)[0][0], $inOrder ? 'yes' : 'no');
+});
+
 // Prepared statements: executeAsync + suspend.
 run(function () use ($db) {
     $stmt = $db->connect()->prepare('SELECT ?::INTEGER + 1');
@@ -122,7 +135,7 @@ PHP;
 // enough: filter Swoole's `[timestamp %pid] TAB LEVEL TAB` log lines out
 // of the captured stdout. Our scenario lines never start with '['.
 $proc = proc_open(
-    array_merge([PHP_BINARY], $phpArgs, ['-r', $script]),
+    array_merge([PHP_BINARY], $phpArgs, ['-r', $script, '--', __DIR__ . '/copy.inc']),
     [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['file', '/dev/null', 'w']],
     $pipes,
 );
@@ -145,6 +158,7 @@ worker result: 3999999800000000
 scheduler responsive while suspended: yes (%d ticks)
 concurrent results correct: yes
 polling: 50000000
+pumped polling: 5000 rows, in order: yes
 stmt: 42
 cancel: interrupted
 outside: Cannot suspend outside of a fiber

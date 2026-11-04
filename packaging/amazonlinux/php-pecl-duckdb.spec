@@ -1,8 +1,8 @@
 # Native Amazon Linux 2023 / 2027 preview PHP extension package.
 # Both releases use namespaced PHP packages and a single active PHP toolchain.
 %global pecl_name duckdb
-%global upstream_version 1.5.0
-%global duckdb_version 1.5.6
+%global upstream_version 2.0.0
+%global duckdb_version 2.0.0
 
 # The vendored DuckDB engine is a very large C++ build. The distribution's
 # LTO flags (-flto=auto -ffat-lto-objects) store both LTO bytecode and
@@ -173,13 +173,20 @@ export TEST_PHP_ARGS='-d ffi.enable=true'
 %doc duckdb-sdk/share/duckdb-sdk/build.txt duckdb-sdk/share/duckdb-sdk/source.json
 %doc duckdb-sdk/share/duckdb-sdk/nullable-bitpacking.patch
 %doc duckdb-sdk/share/duckdb-sdk/arrow-geometry.patch
-%doc duckdb-sdk/share/duckdb-sdk/c-api-copy-functions.patch duckdb-sdk/share/duckdb-sdk/artifacts.json
+%doc duckdb-sdk/share/duckdb-sdk/c-api-copy-functions.patch
+%doc duckdb-sdk/share/duckdb-sdk/array-join-gather.patch
+%doc duckdb-sdk/share/duckdb-sdk/optional-idx-defined.patch duckdb-sdk/share/duckdb-sdk/artifacts.json
 %config(noreplace) %{php_inidir}/%{ini_name}
 %{php_extdir}/%{pecl_name}.so
 %dir %{engine_dir}
 %{engine_dir}/%{engine_name}
 
 %changelog
+* Tue Nov 03 2026 Martin Juul Christiansen <code@juul.xyz> - 2.0.0-1
+- Release 2.0.0 on DuckDB 2.0; a helper thread drives DuckDB while PHP callbacks run.
+- Open results refuse new statements with ResourceInUse, as in DuckDB 2.0; commit() throws for aborted transactions.
+- Ship the pinned DuckDB 2.0.0 SDK with the rebased engine patch set.
+
 * Tue Nov 03 2026 Martin Juul Christiansen <code@juul.xyz> - 1.5.0-1
 - Release 1.5.0 with PHP scalar functions, expression inspection and custom logging.
 - Add table-function metadata, UTF-8 checks and CRS-qualified geometry type strings.

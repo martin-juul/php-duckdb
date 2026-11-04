@@ -835,14 +835,14 @@ jobs:
 
       # Install the packaged tarball into the runner's PHP exactly like
       # a user would (sh install.sh, not the distro ini mechanism), then
-      # run a query.
+      # run the shared installed-package smoke test.
       - name: Install tarball and smoke test
         run: |
           set -euo pipefail
           mkdir -p /tmp/smoke
           tar -xzf dist/*.tar.gz -C /tmp/smoke
           (cd /tmp/smoke/php-duckdb-* && sh install.sh)
-          php -r '$c = (new DuckDB\Database())->connect(); $r = $c->query("SELECT 42 AS x")->fetchRow(); if ($r["x"] !== 42) { exit(1); } printf("smoke OK: duckdb ext %s, libduckdb %s, PHP %s\n", phpversion("duckdb"), DuckDB\version(), PHP_VERSION);'
+          php packaging/smoke.php
 
       - name: Upload tarball artifact
         uses: actions/upload-artifact@v4

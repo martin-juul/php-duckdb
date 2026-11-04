@@ -106,7 +106,10 @@ source_commit=$(pin commit)
 patch_file=$script_dir/$(pin patch)
 arrow_patch_file=$script_dir/patches/arrow-geometry.patch
 copy_function_patch_file=$script_dir/patches/c-api-copy-functions.patch
-for required_patch in "$patch_file" "$arrow_patch_file" "$copy_function_patch_file"; do
+array_join_patch_file=$script_dir/patches/array-join-gather.patch
+optional_idx_patch_file=$script_dir/patches/optional-idx-defined.patch
+for required_patch in "$patch_file" "$arrow_patch_file" "$copy_function_patch_file" "$array_join_patch_file" \
+    "$optional_idx_patch_file"; do
     [ -f "$required_patch" ] || {
         echo "Pinned DuckDB patch missing: $required_patch" >&2
         exit 2
@@ -116,6 +119,8 @@ done
 patch_hash=$(hash "$patch_file")
 arrow_patch_hash=$(hash "$arrow_patch_file")
 copy_function_patch_hash=$(hash "$copy_function_patch_file")
+array_join_patch_hash=$(hash "$array_join_patch_file")
+optional_idx_patch_hash=$(hash "$optional_idx_patch_file")
 platform=$(uname -s)
 case "$platform" in
     Linux)
@@ -154,6 +159,8 @@ fi
     echo "patch_sha256=$patch_hash"
     echo "arrow_patch_sha256=$arrow_patch_hash"
     echo "copy_function_patch_sha256=$copy_function_patch_hash"
+    echo "array_join_patch_sha256=$array_join_patch_hash"
+    echo "optional_idx_patch_sha256=$optional_idx_patch_hash"
     echo "builder_sha256=$(hash "$script_dir/build-sdk.sh")"
     echo "platform=$platform/$(uname -m)"
     if [ "$platform" = Linux ]; then
@@ -168,7 +175,8 @@ fi
     "$cxx" --version
     "$cxx" -dumpmachine
     cmake --version
-    echo "build=Release; generator=Unix Makefiles; native_arch=OFF; disable_unity=$disable_unity"
+    echo "build=Release; generator=Unix Makefiles; native_arch=OFF; optimization_profile=NONE"
+    echo "disable_unity=$disable_unity"
     echo "builtins=core_functions,parquet,json,icu,autocomplete; autoload=ON; autoinstall=ON"
     echo "cflags=${CFLAGS:-}; cxxflags=${CXXFLAGS:-}; ldflags=${LDFLAGS:-}"
     echo "osx_architectures=${DUCKDB_OSX_ARCHITECTURES:-$(uname -m)}"
@@ -215,6 +223,8 @@ try:
         "share/duckdb-sdk/nullable-bitpacking.patch",
         "share/duckdb-sdk/arrow-geometry.patch",
         "share/duckdb-sdk/c-api-copy-functions.patch",
+        "share/duckdb-sdk/array-join-gather.patch",
+        "share/duckdb-sdk/optional-idx-defined.patch",
     }
     if not isinstance(pins, dict) or set(pins) != required:
         raise ValueError("SDK artifact manifest does not contain the required files")
@@ -232,7 +242,8 @@ copy_sdk() {
     cp "$1/include/duckdb.h" "$2/include/duckdb.h"
     cp "$1/lib/$library" "$2/lib/$library"
     for name in LICENSE.duckdb source.json nullable-bitpacking.patch arrow-geometry.patch \
-        c-api-copy-functions.patch build.txt artifacts.json; do
+        c-api-copy-functions.patch array-join-gather.patch optional-idx-defined.patch build.txt \
+        artifacts.json; do
         cp "$1/share/duckdb-sdk/$name" "$destination_metadata/$name"
     done
 }
@@ -307,14 +318,16 @@ tar -xzf "$archive" -C "$source_dir" --strip-components=1
 (cd "$source_dir" && patch -p1 -F 0 -t < "$patch_file")
 (cd "$source_dir" && patch -p1 -F 0 -t < "$arrow_patch_file")
 (cd "$source_dir" && patch -p1 -F 0 -t < "$copy_function_patch_file")
+(cd "$source_dir" && patch -p1 -F 0 -t < "$array_join_patch_file")
+(cd "$source_dir" && patch -p1 -F 0 -t < "$optional_idx_patch_file")
 
 set -- -S "$source_dir" -B "$build_dir" -G "Unix Makefiles" \
     -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER="$cc" -DCMAKE_CXX_COMPILER="$cxx" \
     -DCMAKE_C_FLAGS="${CFLAGS:-}" -DCMAKE_CXX_FLAGS="${CXXFLAGS:-}" \
     -DCMAKE_SHARED_LINKER_FLAGS="${LDFLAGS:-}" -DOVERRIDE_GIT_DESCRIBE="v$version" \
     -DGIT_COMMIT_HASH="$(printf '%.10s' "$source_commit")" \
-    -DBUILD_EXTENSIONS="json;icu;autocomplete" -DENABLE_EXTENSION_AUTOLOADING=ON \
-    -DENABLE_EXTENSION_AUTOINSTALL=ON -DNATIVE_ARCH=OFF -DDISABLE_UNITY="$disable_unity" \
+    -DBUILD_EXTENSIONS="json;icu;autocomplete" -DLINK_CORE_EXTENSIONS=ON \
+    -DNATIVE_ARCH=OFF -DDUCKDB_OPTIMIZATION_PROFILE=NONE -DDISABLE_UNITY="$disable_unity" \
     -DBUILD_SHELL=OFF -DBUILD_UNITTESTS=OFF -DBUILD_BENCHMARKS=OFF
 if [ "$platform" = Darwin ]; then
     set -- "$@" "-DCMAKE_OSX_ARCHITECTURES=${DUCKDB_OSX_ARCHITECTURES:-$(uname -m)}" \
@@ -333,6 +346,8 @@ cp "$manifest" "$sdk_metadata/source.json"
 cp "$patch_file" "$sdk_metadata/nullable-bitpacking.patch"
 cp "$arrow_patch_file" "$sdk_metadata/arrow-geometry.patch"
 cp "$copy_function_patch_file" "$sdk_metadata/c-api-copy-functions.patch"
+cp "$array_join_patch_file" "$sdk_metadata/array-join-gather.patch"
+cp "$optional_idx_patch_file" "$sdk_metadata/optional-idx-defined.patch"
 cp "$metadata" "$sdk_metadata/build.txt"
 
 python3 - "$prefix" "$library" <<'PY'
@@ -350,6 +365,8 @@ names = [
     "share/duckdb-sdk/nullable-bitpacking.patch",
     "share/duckdb-sdk/arrow-geometry.patch",
     "share/duckdb-sdk/c-api-copy-functions.patch",
+    "share/duckdb-sdk/array-join-gather.patch",
+    "share/duckdb-sdk/optional-idx-defined.patch",
 ]
 pins = {name: hashlib.sha256((prefix / name).read_bytes()).hexdigest() for name in names}
 (prefix / "share/duckdb-sdk/artifacts.json").write_text(json.dumps(pins, indent=2) + "\n")
@@ -359,4 +376,9 @@ verify_sdk "$prefix" || {
     exit 1
 }
 publish_sdk_cache
+
+# The installed SDK is complete, so drop the engine source and build trees.
+# Builds compiled with -g leave several gigabytes of objects here, and the
+# next build starts from a clean tree anyway.
+rm -rf "$source_dir" "$build_dir"
 echo "Installed patched DuckDB SDK $fingerprint at $prefix"

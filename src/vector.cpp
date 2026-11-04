@@ -7,6 +7,7 @@
 
 #include "php_duckdb_cxx_compat.h"
 #include "php_duckdb.h"
+#include "copy.h"
 #include "vector.h"
 
 #include <algorithm>
@@ -173,7 +174,7 @@ void duckdb_vector_copy_rows(duckdb_vector source, duckdb_vector target, idx_t s
     duckdb_vector_copy_sel(source, target, selection.get(), end, source_offset, target_offset);
 }
 
-static vector_fast_kind fast_kind(duckdb_logical_type type) {
+vector_fast_kind duckdb_vector_fast_kind(duckdb_logical_type type) {
     char *alias = duckdb_logical_type_get_alias(type);
     if (alias) {
         duckdb_free(alias);
@@ -222,7 +223,7 @@ std::shared_ptr<vector_data> duckdb_vector_allocate(duckdb_logical_type type, id
     data->type.reset(duckdb_vector_get_column_type(data->vector));
     data->declaration = duckdb_logical_type_sql(data->type.get());
     data->capacity = capacity;
-    data->fast = fast_kind(data->type.get());
+    data->fast = duckdb_vector_fast_kind(data->type.get());
     duckdb_vector_ensure_validity_writable(data->vector);
     return data;
 }
@@ -258,7 +259,7 @@ static bool valid_utf8(const char *value, size_t length) {
 /* Accept only input whose SQL cast is an exact identity, so the result
  * matches the conversion path. Anything else, including values that would
  * fail, goes through typed conversion to report DuckDB's own error. */
-static bool can_write_fast(vector_fast_kind kind, zval *input) {
+bool duckdb_vector_can_write_fast(vector_fast_kind kind, zval *input) {
     switch (kind) {
         case vector_fast_kind::boolean:
             return Z_TYPE_P(input) == IS_TRUE || Z_TYPE_P(input) == IS_FALSE;
@@ -297,9 +298,8 @@ static void store(duckdb_vector vector, idx_t row, T value) {
     static_cast<T *>(duckdb_vector_get_data(vector))[row] = value;
 }
 
-static void write_fast(vector_data *data, idx_t row, zval *input) {
-    duckdb_vector vector = data->vector;
-    switch (data->fast) {
+void duckdb_vector_write_fast(duckdb_vector vector, vector_fast_kind kind, idx_t row, zval *input) {
+    switch (kind) {
         case vector_fast_kind::boolean:
             store<bool>(vector, row, Z_TYPE_P(input) == IS_TRUE);
             break;
@@ -409,7 +409,7 @@ static bool write_values(conn_inner *conn, vector_data *data, std::vector<pendin
         ZVAL_DEREF(write.input);
         if (Z_TYPE_P(write.input) == IS_NULL) {
             write.is_null = true;
-        } else if (can_write_fast(data->fast, write.input)) {
+        } else if (duckdb_vector_can_write_fast(data->fast, write.input)) {
             write.is_fast = true;
         } else {
             write.converted = inputs.size();
@@ -420,7 +420,7 @@ static bool write_values(conn_inner *conn, vector_data *data, std::vector<pendin
     std::vector<scoped_duckdb_value> converted;
     if (!inputs.empty()) {
         std::unique_lock<std::mutex> lock;
-        if (!duckdb_conn_enter(*conn, lock)) {
+        if (!duckdb_conn_enter(*conn, lock, conn_entry::statement_start)) {
             return false;
         }
         if (!convert_inputs(conn, data, inputs, converted)) {
@@ -433,7 +433,7 @@ static bool write_values(conn_inner *conn, vector_data *data, std::vector<pendin
         if (write.is_null) {
             duckdb_validity_set_row_invalid(duckdb_vector_get_validity(data->vector), write.row);
         } else if (write.is_fast) {
-            write_fast(data, write.row, write.input);
+            duckdb_vector_write_fast(data->vector, data->fast, write.row, write.input);
         } else {
             copies.emplace_back(write.row, converted[write.converted].get());
         }
@@ -479,7 +479,7 @@ static void throw_native_error(const char *fallback) {
     }
 }
 
-PHP_METHOD(DuckDB_Connection, createVector) {
+DUCKDB_COPY_METHOD(DuckDB_Connection, createVector) {
     DUCKDB_TSRMLS_CACHE_UPDATE();
     zval *type;
     zend_long capacity = 0;
@@ -514,7 +514,7 @@ PHP_METHOD(DuckDB_Connection, createVector) {
         std::vector<scoped_duckdb_value> nulls;
         {
             std::unique_lock<std::mutex> lock;
-            if (!duckdb_conn_enter(*conn, lock)) {
+            if (!duckdb_conn_enter(*conn, lock, conn_entry::statement_start)) {
                 RETURN_THROWS();
             }
             zval wrapper, input;
@@ -661,7 +661,7 @@ PHP_METHOD(DuckDB_Vector, toArray) {
     }
 }
 
-PHP_METHOD(DuckDB_Vector, set) {
+DUCKDB_COPY_METHOD(DuckDB_Vector, set) {
     DUCKDB_TSRMLS_CACHE_UPDATE();
     zval *connection;
     zend_long row;
@@ -693,7 +693,7 @@ PHP_METHOD(DuckDB_Vector, set) {
     }
 }
 
-PHP_METHOD(DuckDB_Vector, setValues) {
+DUCKDB_COPY_METHOD(DuckDB_Vector, setValues) {
     DUCKDB_TSRMLS_CACHE_UPDATE();
     zval *connection;
     HashTable *values;

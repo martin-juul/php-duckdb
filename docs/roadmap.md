@@ -43,7 +43,8 @@ read-side type strings render a CRS-qualified column as
 `GEOMETRY('OGC:CRS84')`, matching `typeof()`. Scalar callbacks, expressions,
 table-function metadata, custom logging, UTF-8 checks and geometry CRS
 metadata are available in extension 1.5.0, which completes the planned
-sequence.
+sequence. Extension 2.0.0 moves the engine to DuckDB 2.0.x without adding PHP
+APIs; see the [migration guide](migrations.md#upgrade-150--200).
 
 The intended PR sequence is:
 

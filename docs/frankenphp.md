@@ -27,15 +27,15 @@ Choose a PHP version, extension release, or both:
 | ---------------------------------------------- | ---------------------------------------------------------------- |
 | `8.4-frankenphp`, `php8.4-frankenphp`          | Moving PHP 8.4 build; PHP 8.5 is also available                  |
 | `latest-frankenphp`                            | Moving build for the newest supported PHP version, currently 8.5 |
-| `1.5.0-php8.4-frankenphp`                      | Extension release 1.5.0 with PHP 8.4                             |
-| `1.5-php8.4-frankenphp`, `1-php8.4-frankenphp` | Moving minor/major release aliases with PHP 8.4                  |
-| `1.5.0-frankenphp`                             | Extension release 1.5.0 with PHP 8.5                             |
-| `1.5-frankenphp`, `1-frankenphp`               | Moving minor/major release aliases with PHP 8.5                  |
+| `2.0.0-php8.4-frankenphp`                      | Extension release 2.0.0 with PHP 8.4                             |
+| `2.0-php8.4-frankenphp`, `2-php8.4-frankenphp` | Moving minor/major release aliases with PHP 8.4                  |
+| `2.0.0-frankenphp`                             | Extension release 2.0.0 with PHP 8.5                             |
+| `2.0-frankenphp`, `2-frankenphp`               | Moving minor/major release aliases with PHP 8.5                  |
 
 Master pushes and stable release builds update the PHP-only tags. Git tags
 produce the release tags, and minor/major aliases follow the most recently
 published matching release build. Prereleases publish only full-version tags,
-such as `1.5.0-rc.1-php8.4-frankenphp` and `1.5.0-rc.1-frankenphp`; they do not
+such as `2.0.0-rc.1-php8.4-frankenphp` and `2.0.0-rc.1-frankenphp`; they do not
 change stable aliases. Pull requests do not publish images.
 
 Use one of these images as your application base and enable worker mode with

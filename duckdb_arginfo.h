@@ -1,5 +1,5 @@
 /* This is a generated file, edit the .stub.php file instead.
- * Stub hash: a0ab230a9edf8926be6ad44a2122914b12768919 */
+ * Stub hash: 6a86977f4037d923de4da91074baf4700eef18b0 */
 
 ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_DuckDB_version, 0, 0, IS_STRING, 0)
 ZEND_END_ARG_INFO()
@@ -1484,6 +1484,14 @@ static zend_class_entry *register_class_DuckDB_ErrorType(void)
 	zval enum_case_InvalidConfiguration_value;
 	ZVAL_LONG(&enum_case_InvalidConfiguration_value, 42);
 	zend_enum_add_case_cstr(class_entry, "InvalidConfiguration", &enum_case_InvalidConfiguration_value);
+
+	zval enum_case_DataCorruption_value;
+	ZVAL_LONG(&enum_case_DataCorruption_value, 43);
+	zend_enum_add_case_cstr(class_entry, "DataCorruption", &enum_case_DataCorruption_value);
+
+	zval enum_case_ResourceInUse_value;
+	ZVAL_LONG(&enum_case_ResourceInUse_value, 44);
+	zend_enum_add_case_cstr(class_entry, "ResourceInUse", &enum_case_ResourceInUse_value);
 
 	return class_entry;
 }

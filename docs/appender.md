@@ -61,9 +61,10 @@ The appender uses the same PHP→DuckDB value mapping as
 `bool`, `int`, `float`, `string`, `Interval` and `DateTimeInterface`; lists
 become LIST values and associative arrays become STRUCT values.
 [Native typed classes](value.md), such as `DuckDB\Decimal` and
-`DuckDB\ListValue`, supply explicit SQL types. Typed conversion uses the same
-connection and can invalidate an open stream. A conversion helper failure
-before submission leaves the appender usable.
+`DuckDB\ListValue`, supply explicit SQL types. Typed conversion runs a
+statement on the same connection, so it is refused with
+`ErrorType::ResourceInUse` while a stream is open there. A conversion helper
+failure before submission leaves the appender usable.
 
 ## Flushing and failure semantics
 
@@ -78,10 +79,23 @@ before submission leaves the appender usable.
   appender as failed. Further appends and flushes are rejected until `clear()`
   discards its buffered rows and any partial row. A helper conversion failure
   before submission leaves the appender usable without clearing it.
+- While a streaming or pending result is open on the connection, DuckDB 2.0
+  refuses to flush, and a refused flush would discard the buffered rows. The
+  appender therefore refuses `endRow()`, `appendRow()`, `appendChunk()`,
+  `appendArrow()`, `flush()` and `close()` first with a `DuckDB\Exception`
+  whose `getErrorType()` is `ErrorType::ResourceInUse`. The refusal changes
+  nothing: buffered rows and an open row stay, and the call succeeds once the
+  result has drained or been released. `beginRow()`, `append()` and
+  `appendDefault()` only buffer and keep working. Destroying an unclosed
+  appender while a result is open cannot flush, so its buffered rows are
+  lost; close it first.
 - `clear()` does not undo rows already flushed to the table. Use a transaction
   when recovery must roll back the entire batch. No rows are replayed
-  automatically. `close()` on a failed appender discards pending data; a closed
-  appender cannot be cleared or reopened.
+  automatically. Inside an explicit transaction, DuckDB 2.0 aborts the
+  transaction on a native submission or flush failure; roll it back, because
+  `commit()` throws a `TransactionException` instead of committing.
+  `close()` on a failed appender discards pending data; a closed appender
+  cannot be cleared or reopened.
 
 ```php
 try {

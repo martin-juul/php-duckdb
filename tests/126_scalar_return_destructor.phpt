@@ -63,7 +63,7 @@ final class DestructingReturnScalar implements DuckDB\ScalarFunction, DuckDB\Sca
     }
 }
 $conn = (new DuckDB\Database())->connect();
-$conn->query(getenv('DUCKDB_PHP_TEST_PUMP_SERVICE_ONLY') ? 'SET threads = 4' : 'SET threads = 1');
+$conn->query("SET threads = {$argv[2]}");
 $conn->registerScalarFunction('php_bad_return', ['BIGINT'], 'BIGINT', new DestructingReturnScalar($argv[1]));
 try {
     $conn->query('SELECT php_bad_return(i) FROM range(5000) t(i)')->fetchAll();
@@ -81,10 +81,10 @@ register_shutdown_function(function () use ($path) {
 });
 $args = duckdb_subprocess_args();
 
-function run_child(string $path, array $args, string $failure, array $env): array
+function run_child(string $path, array $args, string $failure, int $threads): array
 {
-    $command = array_merge([PHP_BINARY], $args, [$path, $failure]);
-    $process = proc_open($command, [1 => ['pipe', 'w'], 2 => ['redirect', 1]], $pipes, null, $env + getenv());
+    $command = array_merge([PHP_BINARY], $args, [$path, $failure, (string) $threads]);
+    $process = proc_open($command, [1 => ['pipe', 'w'], 2 => ['redirect', 1]], $pipes, null, getenv());
     check(is_resource($process), 'Child process started');
     stream_set_blocking($pipes[1], false);
     $output = '';
@@ -112,14 +112,16 @@ function run_child(string $path, array $args, string $failure, array $env): arra
     return [$exit, $output];
 }
 
-foreach (['direct' => [], 'marshaled' => ['DUCKDB_PHP_TEST_PUMP_SERVICE_ONLY' => '1']] as $mode => $env) {
-    [$status, $output] = run_child($path, $args, 'throw', $env);
+// "helper": the connection's helper thread is the only DuckDB thread;
+// "workers": DuckDB worker threads reach the callbacks too.
+foreach (['helper' => 1, 'workers' => 4] as $mode => $threads) {
+    [$status, $output] = run_child($path, $args, 'throw', $threads);
     check($status === 0, "$mode throwing destructor status: $status $output");
     check($output === "execute\nreturn destructor\ncaught conversion failure\n42\nshutdown\n",
         "$mode throwing destructor fails once and leaves the connection reusable: $output");
     echo "$mode throw\n";
 
-    [$status, $output] = run_child($path, $args, 'exit', $env);
+    [$status, $output] = run_child($path, $args, 'exit', $threads);
     check($status === 7, "$mode exiting destructor status: $status $output");
     check($output === "execute\nreturn destructor\nshutdown\n",
         "$mode exit unwinds without another callback or resumed PHP code: $output");
@@ -127,7 +129,7 @@ foreach (['direct' => [], 'marshaled' => ['DUCKDB_PHP_TEST_PUMP_SERVICE_ONLY' =>
 }
 ?>
 --EXPECT--
-direct throw
-direct exit
-marshaled throw
-marshaled exit
+helper throw
+helper exit
+workers throw
+workers exit
