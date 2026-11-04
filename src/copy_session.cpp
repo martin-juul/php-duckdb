@@ -87,7 +87,8 @@ int64_t copy_driver::unserviced_for(const copy_session *session, int64_t queued_
     if (away_since == 0 || serving == session) {
         return 0;
     }
-    return steady_now() - std::max(away_since, queued_at);
+    /* Parenthesized: windows.h defines a max() macro. */
+    return steady_now() - (std::max)(away_since, queued_at);
 }
 
 static std::shared_ptr<copy_driver> &this_driver() {

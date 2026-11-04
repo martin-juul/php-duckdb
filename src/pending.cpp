@@ -317,7 +317,7 @@ static duckdb_pending_state drive_pending_slice(duckdb_pending_result pending) {
         }
         auto backoff = std::chrono::duration_cast<std::chrono::steady_clock::duration>(
             std::chrono::microseconds(32 << idle));
-        std::this_thread::sleep_for(std::min(backoff, deadline - now));
+        std::this_thread::sleep_for((std::min)(backoff, deadline - now));
     }
 }
 
