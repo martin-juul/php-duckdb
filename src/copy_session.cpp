@@ -49,6 +49,21 @@ static int stuck_lease_depth() {
     return depth;
 }
 
+/* After a lease's DuckDB work is done, keep servicing its callbacks this many
+ * milliseconds before leaving, as a request thread that wakes late does;
+ * 0 disables the switch. */
+static int64_t lease_linger_ns() {
+    static const int64_t linger = [] {
+        const char *value = std::getenv("DUCKDB_PHP_TEST_LEASE_LINGER_MS");
+        long parsed = value ? std::strtol(value, nullptr, 10) : 0;
+        if (parsed < 0) {
+            parsed = 0;
+        }
+        return static_cast<int64_t>(parsed) * 1000000LL;
+    }();
+    return linger;
+}
+
 /* How long a queued callback tolerates the request thread staying away
  * from its leased session. Giving up turns a hang into an error. */
 static int64_t stuck_limit_ns() {
@@ -476,6 +491,8 @@ bool duckdb_session_lease(conn_inner &conn, copy_session &session, const std::fu
     lease_depth++;
     bool stuck = stuck_lease_depth() > 0 && lease_depth >= stuck_lease_depth();
     bool unwinding = false;
+    bool lingering = false;
+    std::chrono::steady_clock::time_point linger_deadline;
     std::chrono::steady_clock::time_point park_deadline;
     /* Once exit() or a fatal error in a PHP callback is recorded, by this
      * lease's callbacks, a lease nested in them or before this lease began,
@@ -503,6 +520,15 @@ bool duckdb_session_lease(conn_inner &conn, copy_session &session, const std::fu
             std::unique_lock<std::mutex> lock(session.mutex);
             if (!stuck && session.open && !session.queue.empty()) {
                 continue;
+            }
+            if (done && !unwinding && lease_linger_ns() > 0) {
+                if (!lingering) {
+                    lingering = true;
+                    linger_deadline = std::chrono::steady_clock::now() + std::chrono::nanoseconds(lease_linger_ns());
+                }
+                if (session.cv.wait_until(lock, linger_deadline) != std::cv_status::timeout) {
+                    continue;
+                }
             }
             if (done) {
                 break;

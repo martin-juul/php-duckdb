@@ -510,6 +510,9 @@ static void duckdb_statement_execute_impl(INTERNAL_FUNCTION_PARAMETERS, bool str
             RETURN_THROWS();
         }
         duckdb_state st;
+        /* A handler exception kept before this call belongs to the code
+         * that made it, not to a new stream. */
+        bool own_causes = !duckdb_callback_has_cause();
         if (streaming) {
             /* Streaming execution requires the _streaming pending variant.
              * It is deprecated upstream, but there is currently NO
@@ -561,9 +564,13 @@ static void duckdb_statement_execute_impl(INTERNAL_FUNCTION_PARAMETERS, bool str
 
         /* A stream becomes the connection's open result, and its record
          * owns a pumped stream's session. */
+        bool pumped = static_cast<bool>(session);
         duckdb_result_instantiate(return_value, &res, streaming,
                                   streaming ? intern->inner : nullptr, intern->inner->conn,
                                   duckdb_prepared_statement_type(intern->inner->stmt), std::move(session));
+        if (pumped && own_causes) {
+            duckdb_result_keep_late_cause(return_value);
+        }
     }
 }
 

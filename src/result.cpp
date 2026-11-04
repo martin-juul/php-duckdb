@@ -706,6 +706,40 @@ static bool duckdb_decode_value(decode_ctx *ctx, duckdb_vector vec, duckdb_logic
  * fetch that drives the statement may reach PHP callbacks, and exit() or a
  * fatal error in one is re-raised once the fetch's C++ state is gone. */
 
+/* A pumped stream's callbacks run on this thread while DuckDB threads hand
+ * them over, also after the call's own DuckDB work is done: a worker that
+ * the fetch restarted can fail its callback while the fetch still returns a
+ * buffered chunk. DuckDB reports that failure on a later fetch, so the
+ * stream keeps the handler's exception until then, instead of the call's
+ * after-hook dropping it. The first one kept stays the cause. */
+static void duckdb_result_keep_late_cause(result_data *d) {
+    zend_object *cause = duckdb_callback_take_cause();
+    if (!cause) {
+        return;
+    }
+    if (d->late_cause) {
+        duckdb_callback_release(d->conn_keepalive.get(), cause);
+        return;
+    }
+    d->late_cause = cause;
+}
+
+void duckdb_result_keep_late_cause(zval *result) {
+    duckdb_result_keep_late_cause(Z_DUCKDB_RESULT_P(result)->data.get());
+}
+
+/* The stream failed: its kept handler exception becomes the cause of the
+ * error this call throws, ahead of any its own callbacks raised. */
+static void duckdb_result_chain_late_cause(result_data *d) {
+    if (!d->late_cause) {
+        return;
+    }
+    zend_object *later = duckdb_callback_take_cause();
+    duckdb_callback_keep_cause(d->late_cause);
+    d->late_cause = nullptr;
+    duckdb_callback_release(d->conn_keepalive.get(), later);
+}
+
 /* A stream returned its last row: it no longer blocks newer statements, and
  * a pumped stream's callbacks are done. Caller holds conn.mutex. */
 static void duckdb_result_stream_drained(result_data *d, open_result &record) {
@@ -748,6 +782,9 @@ static bool duckdb_result_fetch_stream_chunk(result_data *d) {
     }
 
     std::shared_ptr<copy_session> session = record.session;
+    /* A handler exception kept before this fetch belongs to the code that
+     * called it, not to this stream. */
+    bool own_causes = session && !duckdb_callback_has_cause();
     if (session) {
         std::string lease_error;
         if (!duckdb_pump_fetch_chunk(*d->conn_keepalive, *session, record.result, d->chunk, lease_error)) {
@@ -775,6 +812,9 @@ static bool duckdb_result_fetch_stream_chunk(result_data *d) {
             if (session) {
                 duckdb_session_end(*d->conn_keepalive, session, record.error_message);
             }
+            if (own_causes) {
+                duckdb_result_chain_late_cause(d);
+            }
             duckdb_throw_error(record.error_type, record.error_message.c_str());
             return false;
         }
@@ -788,6 +828,9 @@ static bool duckdb_result_fetch_stream_chunk(result_data *d) {
         d->chunk = nullptr;
         duckdb_result_stream_drained(d, record);
         return false;
+    }
+    if (own_causes) {
+        duckdb_result_keep_late_cause(d);
     }
     return true;
 }

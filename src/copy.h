@@ -26,6 +26,11 @@ duckdb_callback_outcome duckdb_callback_call(conn_inner *conn, zend_object *obje
                                              const char *label = "PHP");
 /* Takes ownership; the first exception becomes the outer error's cause. */
 void duckdb_callback_keep_cause(zend_object *exception);
+/* Whether a handler exception is kept for the current method's after-hook. */
+bool duckdb_callback_has_cause();
+/* Takes the kept handler exception, owned by the caller, so that the
+ * after-hook does not drop it; nullptr when none is kept. */
+zend_object *duckdb_callback_take_cause();
 /* Drops an owned request-thread reference under the same busy/Fiber/unwind
  * guards. Destructor exceptions preserve an already pending outer error. */
 void duckdb_callback_release(conn_inner *conn, zend_object *object);

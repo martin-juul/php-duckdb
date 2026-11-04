@@ -390,6 +390,16 @@ void duckdb_callback_keep_cause(zend_object *exception) {
     keep_cause(&pending_cause, exception);
 }
 
+bool duckdb_callback_has_cause() {
+    return pending_cause != nullptr;
+}
+
+zend_object *duckdb_callback_take_cause() {
+    zend_object *cause = pending_cause;
+    pending_cause = nullptr;
+    return cause;
+}
+
 /* As with invoke_method(), a bailout must not jump across C++ locals. */
 static bool release_value(zval *value) {
     zend_execute_data *const frame = EG(current_execute_data);

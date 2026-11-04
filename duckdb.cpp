@@ -755,6 +755,9 @@ DUCKDB_COPY_METHOD(DuckDB_Connection, queryStreaming) {
          * Kept deliberately until upstream ships the promised replacement
          * (duckdb/duckdb#13384); isolated to this call site. */
         duckdb_state st;
+        /* A handler exception kept before this call belongs to the code
+         * that made it, not to the new stream. */
+        bool own_causes = !duckdb_callback_has_cause();
         if (duckdb_conn_needs_pump(*intern->inner)) {
             std::string start_error;
             st = duckdb_pump_execute(*intern->inner, stmt->stmt, /*streaming=*/true, &res, start_error, &session);
@@ -784,8 +787,12 @@ DUCKDB_COPY_METHOD(DuckDB_Connection, queryStreaming) {
 
         /* The stream is now the connection's open result, and its record
          * owns a pumped stream's session. */
+        bool pumped = static_cast<bool>(session);
         duckdb_result_instantiate(return_value, &res, /*streaming=*/true, stmt, intern->inner,
                                   duckdb_prepared_statement_type(stmt->stmt), std::move(session));
+        if (pumped && own_causes) {
+            duckdb_result_keep_late_cause(return_value);
+        }
     }
 }
 

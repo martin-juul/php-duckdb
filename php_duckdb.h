@@ -537,8 +537,15 @@ struct result_data {
     /* Results are forward-only: a Result may hand out exactly one iterator,
      * and iteration may start only before any row was consumed. */
     bool iterator_taken = false;
+    /* A pumped stream's handler exception, kept from the call that ran the
+     * failing callback until DuckDB reports the failure on a later fetch
+     * (request thread only). */
+    zend_object *late_cause = nullptr;
 
     ~result_data() {
+        if (late_cause) {
+            OBJ_RELEASE(late_cause);
+        }
         if (chunk) {
             duckdb_destroy_data_chunk(&chunk);
         }
@@ -804,6 +811,10 @@ void duckdb_result_instantiate(zval *return_value, duckdb_result *res, bool stre
                                std::shared_ptr<stmt_inner> keepalive, std::shared_ptr<conn_inner> connection,
                                duckdb_statement_type statement_type = DUCKDB_STATEMENT_TYPE_INVALID,
                                std::shared_ptr<copy_session> session = nullptr);
+/* Keep the handler exception that a pumped stream's callbacks raised while
+ * the call that started it still succeeded: DuckDB reports the failure on a
+ * later fetch, which chains it then. */
+void duckdb_result_keep_late_cause(zval *result);
 /* Consume a buffered result and return its rows with associative keys.
  * Takes ownership of `res`; returns false with an exception pending on error. */
 bool duckdb_result_fetch_all_assoc(duckdb_result *res, std::shared_ptr<conn_inner> connection,
