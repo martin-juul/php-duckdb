@@ -50,8 +50,10 @@ Precision and edge notes:
 - VARIANT rendering is JSON text, with a nesting limit of 64. It preserves
   numeric digits without passing through PHP floats, but JSON does not retain
   DuckDB's source type tags. SQL NULL remains PHP `null`.
-- Nanosecond timestamps become microsecond `DateTimeImmutable` values using
-  DuckDB's truncation toward zero. Use SQL string casts to retain nanoseconds.
+- Nanosecond timestamps become microsecond `DateTimeImmutable` values
+  truncated toward the epoch, so a value before 1970 can move forward by up to
+  a microsecond. DuckDB 2.0's own casts to microseconds round to the nearest
+  microsecond instead. Use SQL string casts to retain nanoseconds.
 
 ## PHP → DuckDB (binding / appending)
 

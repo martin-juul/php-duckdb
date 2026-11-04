@@ -29,6 +29,12 @@ show('buffered', $buffered->fetchRow());
 $streaming = $conn->queryStreaming($sql);
 show('streaming', $streaming->fetchRow());
 unset($streaming);
+
+// Sub-microsecond digits are truncated toward the epoch, as for
+// TIMESTAMP_NS (tests/082_temporal_decode_edges.phpt).
+$conn->query("SET TimeZone = 'UTC'");
+$row = $conn->query("SELECT '1969-12-31 23:59:59.9999995+00'::TIMESTAMPTZ_NS AS t")->fetchRow();
+echo 'before 1970: ', $row['t']->format('Y-m-d H:i:s.u e'), "\n";
 ?>
 --EXPECT--
 t => TIMESTAMPTZ_NS
@@ -37,3 +43,4 @@ n => TIMESTAMPTZ_NS
 l => TIMESTAMPTZ_NS[]
 buffered: DateTimeImmutable 2026-11-03 12:00:00.123456 UTC | 2026-11-03 10:00:00.500000 UTC | NULL | 2026-11-03 12:00:00.123456 UTC NULL
 streaming: DateTimeImmutable 2026-11-03 12:00:00.123456 UTC | 2026-11-03 10:00:00.500000 UTC | NULL | 2026-11-03 12:00:00.123456 UTC NULL
+before 1970: 1970-01-01 00:00:00.000000 UTC
