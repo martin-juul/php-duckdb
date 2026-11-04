@@ -44,20 +44,24 @@ usable after parser and binder errors.
 `ErrorType::Transaction`) when DuckDB has aborted the transaction, for any
 cause: "Transaction was aborted, so nothing was committed; it has been rolled
 back". Extension 1.5.0 returned normally while DuckDB discarded the work. The
-connection is outside the transaction afterwards, so a following `rollBack()`
-throws "no transaction is active". Code that rolls back in a `catch` block
-around `commit()` must not let that second exception replace the first:
+connection is outside the transaction afterwards. The first `rollBack()` that
+follows such a `commit()` succeeds without doing anything, so the usual
+pattern rethrows the commit error rather than a "no transaction is active"
+error:
 
 ```php
 $conn->beginTransaction();
 try {
     applyChanges($conn);
+    $conn->commit(); // throws TransactionException if DuckDB aborted the transaction
 } catch (Throwable $e) {
     $conn->rollBack();
     throw $e;
 }
-$conn->commit(); // throws TransactionException if DuckDB aborted the transaction
 ```
+
+Any other statement on the connection ends that allowance, so a later
+`rollBack()` without a transaction still throws.
 
 A raw `COMMIT` statement keeps DuckDB's behavior: it rolls back an aborted
 transaction and reports success. Use `commit()` when the application must

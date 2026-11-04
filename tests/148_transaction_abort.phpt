@@ -93,6 +93,33 @@ var_dump(count_rows($conn));
 
 echo "-- commit without a transaction\n";
 report('commit', fn () => $conn->commit());
+
+echo "-- rollBack in the catch block of a commit() that rolled back\n";
+$conn = fresh_connection();
+$conn->beginTransaction();
+$conn->query('INSERT INTO t VALUES (1)');
+try {
+    $conn->query('SELECT * FROM missing');
+} catch (DuckDB\Exception $e) {
+}
+try {
+    $conn->commit();
+} catch (DuckDB\TransactionException $e) {
+    $conn->rollBack();
+    echo 'caught: ', $e->getMessage(), "\n";
+}
+var_dump(count_rows($conn));
+report('second rollBack', fn () => $conn->rollBack());
+
+echo "-- rollBack after another statement keeps its error\n";
+$conn->beginTransaction();
+try {
+    $conn->query('SELECT * FROM missing');
+} catch (DuckDB\Exception $e) {
+}
+report('commit', fn () => $conn->commit());
+$conn->query('SELECT 1');
+report('rollBack', fn () => $conn->rollBack());
 ?>
 --EXPECT--
 -- superseded pending INSERT inside a transaction
@@ -135,3 +162,10 @@ bool(true)
 int(3)
 -- commit without a transaction
 commit: DuckDB\TransactionException code=10 TransactionContext Error: cannot commit - no transaction is active
+-- rollBack in the catch block of a commit() that rolled back
+caught: Transaction was aborted, so nothing was committed; it has been rolled back
+int(0)
+second rollBack: DuckDB\TransactionException code=10 TransactionContext Error: cannot rollback - no transaction is active
+-- rollBack after another statement keeps its error
+commit: DuckDB\TransactionException code=10 Transaction was aborted, so nothing was committed; it has been rolled back
+rollBack: DuckDB\TransactionException code=10 TransactionContext Error: cannot rollback - no transaction is active

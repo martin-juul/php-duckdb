@@ -509,11 +509,11 @@ $conn->beginTransaction();
 try {
     $conn->execute('UPDATE accounts SET balance = balance - ? WHERE id = ?', [100, 1]);
     $conn->execute('UPDATE accounts SET balance = balance + ? WHERE id = ?', [100, 2]);
+    $conn->commit();   // throws TransactionException if DuckDB aborted the transaction
 } catch (DuckDB\Exception $e) {
     $conn->rollBack();
     throw $e;
 }
-$conn->commit();   // throws TransactionException if DuckDB aborted the transaction
 ```
 
 DuckDB uses optimistic concurrency: a conflicting concurrent write fails one of
@@ -527,8 +527,9 @@ DuckDB 2.0 aborts an explicit transaction on any error inside it; later
 statements fail until it is rolled back (DuckDB's
 `default_transaction_invalidation_policy` setting can relax this for parser
 and binder errors). `commit()` never reports success for an aborted
-transaction: it rolls back and throws a `TransactionException`, after which no
-transaction is active, so do not call `rollBack()` for that exception. Plain
+transaction: it rolls back and throws a `TransactionException`, and the
+`rollBack()` of a surrounding `catch` block then succeeds without doing
+anything, so the original exception reaches the caller. Plain
 SQL (`BEGIN`/`COMMIT`/`ROLLBACK`) also works, but a raw `COMMIT` of an aborted
 transaction rolls back silently. See the
 [migration guide](docs/migrations.md#transactions).

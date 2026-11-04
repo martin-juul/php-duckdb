@@ -418,6 +418,7 @@ bool duckdb_conn_enter(conn_inner &conn, std::unique_lock<std::mutex> &lock, con
     }
     lock = std::unique_lock<std::mutex>(conn.mutex);
     if (kind == conn_entry::statement_start) {
+        conn.commit_rolled_back.store(false, std::memory_order_relaxed);
         duckdb_conn_supersede(conn, /*can_call_php=*/true);
     }
     return true;
@@ -1352,6 +1353,7 @@ DUCKDB_COPY_METHOD(DuckDB_Connection, commit) {
             }
 
             duckdb_destroy_result(&res);
+            intern->inner->commit_rolled_back.store(true, std::memory_order_relaxed);
             duckdb_throw_error(DUCKDB_ERROR_TRANSACTION,
                                "Transaction was aborted, so nothing was committed; it has been rolled back");
             RETURN_THROWS();
@@ -1370,6 +1372,13 @@ DUCKDB_COPY_METHOD(DuckDB_Connection, rollBack) {
     DUCKDB_TSRMLS_CACHE_UPDATE();
     ZEND_PARSE_PARAMETERS_START(0, 0)
     ZEND_PARSE_PARAMETERS_END();
+
+    /* commit() already rolled this transaction back. */
+    php_duckdb_connection_object *intern = Z_DUCKDB_CONNECTION_P(ZEND_THIS);
+    if (intern->inner && intern->inner->commit_rolled_back.exchange(false, std::memory_order_relaxed)) {
+        return;
+    }
+
     duckdb_connection_exec_simple(INTERNAL_FUNCTION_PARAM_PASSTHRU, "ROLLBACK");
 }
 
