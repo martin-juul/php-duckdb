@@ -488,10 +488,7 @@ static duckdb_pending_state drive_pending(duckdb_pending_result pending) {
     }
 }
 
-/* Why a leased statement failed. When exit() or a fatal error ended the
- * lease, DuckDB may report the interrupt that caused instead of the
- * callback's failure; the session's close reason names the bailout. */
-static std::string lease_failure(copy_session &session, const char *error, const char *fallback) {
+std::string duckdb_lease_failure(copy_session &session, const char *error, const char *fallback) {
     if (duckdb_copy_unwinding() && duckdb_classify_error_message(error) == DUCKDB_ERROR_INTERRUPT) {
         std::string reason = session.closed_reason();
         if (!reason.empty()) {
@@ -502,7 +499,8 @@ static std::string lease_failure(copy_session &session, const char *error, const
 }
 
 duckdb_state duckdb_pump_execute(conn_inner &conn, duckdb_prepared_statement statement, bool streaming,
-                                 duckdb_result *out, std::string &start_error) {
+                                 duckdb_result *out, std::string &start_error,
+                                 std::shared_ptr<copy_session> *stream_session) {
     /* Workers start as soon as the pending query exists, so the session must
      * be published first. */
     auto session = duckdb_session_open(conn);
@@ -541,15 +539,33 @@ duckdb_state duckdb_pump_execute(conn_inner &conn, duckdb_prepared_statement sta
 
     if (state == DUCKDB_PENDING_ERROR) {
         /* execute_pending would wrap this message in a generic error. */
-        start_error = lease_failure(*session, duckdb_pending_error(pending), "Query execution failed");
+        start_error = duckdb_lease_failure(*session, duckdb_pending_error(pending), "Query execution failed");
         /* Close before execute_pending, which cancels the executor. */
         duckdb_session_end(conn, session, start_error);
         duckdb_discard_pending(conn, pending);
         return DuckDBError;
     }
-    duckdb_session_end(conn, session);
+
+    /* A stream keeps executing while it is fetched: its callbacks still need
+     * the session, which its open-result record now owns. */
+    if (streaming && stream_session && result == DuckDBSuccess) {
+        *stream_session = session;
+    } else {
+        duckdb_session_end(conn, session);
+    }
     duckdb_destroy_pending(&pending);
     return result;
+}
+
+bool duckdb_pump_fetch_chunk(conn_inner &conn, copy_session &session, duckdb_result &result,
+                             duckdb_data_chunk &chunk, std::string &error) {
+    chunk = nullptr;
+    return duckdb_session_lease(
+        conn, session,
+        [&] {
+            chunk = duckdb_fetch_chunk(result);
+        },
+        error);
 }
 
 void duckdb_throw_start_error(const std::string &message) {
@@ -587,7 +603,7 @@ bool duckdb_pump_query(conn_inner &conn, const char *sql, duckdb_result *out, du
         }
 
         if (state == DuckDBError) {
-            duckdb_session_end(conn, session, lease_failure(*session, duckdb_result_error(out), "Query failed"));
+            duckdb_session_end(conn, session, duckdb_lease_failure(*session, duckdb_result_error(out), "Query failed"));
             duckdb_throw_result_error(out);
             return false;
         }

@@ -134,9 +134,26 @@ duckdb_pending_state duckdb_session_step(copy_session &session, duckdb_pending_r
  * When the statement fails to start or fails during execution, `out` is
  * untouched and `start_error` holds DuckDB's original message (throw it with
  * duckdb_throw_start_error()); otherwise `out` carries the result or its
- * error, like duckdb_execute_prepared(). */
+ * error, like duckdb_execute_prepared().
+ * A streaming statement keeps running while its result is fetched, so its
+ * session stays open: on success it moves to `stream_session` for the
+ * result's open-result record, and every other outcome ends it. */
 duckdb_state duckdb_pump_execute(conn_inner &conn, duckdb_prepared_statement statement, bool streaming,
-                                 duckdb_result *out, std::string &start_error);
+                                 duckdb_result *out, std::string &start_error,
+                                 std::shared_ptr<copy_session> *stream_session = nullptr);
+
+/* Fetch a pumped stream's next chunk as a lease on the connection's helper,
+ * while the request thread services the stream's callbacks. Caller holds
+ * conn.mutex through an own-result entry. Returns false with `error` set
+ * when the helper cannot start; otherwise `chunk` is what
+ * duckdb_fetch_chunk() returned. */
+bool duckdb_pump_fetch_chunk(conn_inner &conn, copy_session &session, duckdb_result &result,
+                             duckdb_data_chunk &chunk, std::string &error);
+
+/* Why a leased call failed with `error`. When exit() or a fatal error ended
+ * the lease, DuckDB may report the interrupt that caused instead; the
+ * session's close reason names the bailout. */
+std::string duckdb_lease_failure(copy_session &session, const char *error, const char *fallback);
 
 /* Run all statements of `sql` through the pump with duckdb_query()'s
  * semantics: stop at the first error and return the result duckdb_query()

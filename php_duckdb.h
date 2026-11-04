@@ -318,9 +318,11 @@ void duckdb_conn_drain_deferred(conn_inner &conn);
  * longer busy here. */
 void duckdb_drain_deferred_connections();
 
-/* Register a streaming result, taking ownership of `result`. Caller holds
- * conn.mutex. */
-std::shared_ptr<open_result> duckdb_open_result_stream(conn_inner &conn, duckdb_result *result);
+/* Register a streaming result and, for a pumped stream, the session that
+ * services its callbacks until it drains, taking ownership of `result`.
+ * Caller holds conn.mutex. */
+std::shared_ptr<open_result> duckdb_open_result_stream(conn_inner &conn, duckdb_result *result,
+                                                       std::shared_ptr<copy_session> session);
 /* Register an incomplete pending query and its session, if any, taking
  * ownership of `pending`. Caller holds conn.mutex. */
 std::shared_ptr<open_result> duckdb_open_result_pending(conn_inner &conn, duckdb_pending_result pending,
@@ -517,6 +519,12 @@ struct result_data {
          * destroys its handle unless a newer statement already did.
          * Materialized results are self-contained and need no lock. */
         if (record && conn_keepalive) {
+            /* Release callbacks waiting on a pumped stream before DuckDB
+             * cancels it. */
+            if (record->session) {
+                duckdb_session_end(*conn_keepalive, record->session, "Result discarded", false);
+            }
+
             /* The deferred work keeps the statement until the stream closes. */
             std::shared_ptr<open_result> owned_record = std::move(record);
             std::shared_ptr<stmt_inner> statement = stmt_keepalive;
@@ -740,10 +748,13 @@ bool duckdb_type_spec(zval *spec, std::string &type);
  * connection's open result, so the caller holds conn.mutex for it. */
 /* `statement_type` overrides the result's own type: DuckDB 2.0 reports
  * EXECUTE for every result of a C API prepared statement, so callers that
- * executed one pass duckdb_prepared_statement_type() instead. */
+ * executed one pass duckdb_prepared_statement_type() instead.
+ * `session` is a pumped stream's session from duckdb_pump_execute(), which
+ * the stream's record owns from now on. */
 void duckdb_result_instantiate(zval *return_value, duckdb_result *res, bool streaming,
                                std::shared_ptr<stmt_inner> keepalive, std::shared_ptr<conn_inner> connection,
-                               duckdb_statement_type statement_type = DUCKDB_STATEMENT_TYPE_INVALID);
+                               duckdb_statement_type statement_type = DUCKDB_STATEMENT_TYPE_INVALID,
+                               std::shared_ptr<copy_session> session = nullptr);
 /* Consume a buffered result and return its rows with associative keys.
  * Takes ownership of `res`; returns false with an exception pending on error. */
 bool duckdb_result_fetch_all_assoc(duckdb_result *res, std::shared_ptr<conn_inner> connection,

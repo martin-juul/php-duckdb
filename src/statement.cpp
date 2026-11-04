@@ -500,6 +500,7 @@ static void duckdb_statement_execute_impl(INTERNAL_FUNCTION_PARAMETERS, bool str
 
     duckdb_statement_retained retained;
     duckdb_result res = {};
+    std::shared_ptr<copy_session> session;
     {
         std::unique_lock<std::mutex> lk;
         if (!duckdb_conn_enter(*intern->inner->conn, lk, conn_entry::statement_start)) {
@@ -522,7 +523,7 @@ static void duckdb_statement_execute_impl(INTERNAL_FUNCTION_PARAMETERS, bool str
             if (duckdb_conn_needs_pump(*intern->inner->conn)) {
                 std::string start_error;
                 st = duckdb_pump_execute(*intern->inner->conn, intern->inner->stmt, /*streaming=*/true, &res,
-                                         start_error);
+                                         start_error, &session);
                 if (!start_error.empty()) {
                     duckdb_throw_start_error(start_error);
                     RETURN_THROWS();
@@ -558,10 +559,11 @@ static void duckdb_statement_execute_impl(INTERNAL_FUNCTION_PARAMETERS, bool str
             RETURN_THROWS();
         }
 
-        /* A stream becomes the connection's open result. */
+        /* A stream becomes the connection's open result, and its record
+         * owns a pumped stream's session. */
         duckdb_result_instantiate(return_value, &res, streaming,
                                   streaming ? intern->inner : nullptr, intern->inner->conn,
-                                  duckdb_prepared_statement_type(intern->inner->stmt));
+                                  duckdb_prepared_statement_type(intern->inner->stmt), std::move(session));
     }
 }
 

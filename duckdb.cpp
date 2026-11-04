@@ -293,10 +293,12 @@ static void duckdb_open_result_unregister(conn_inner &conn, open_result &record)
                    registry.end());
 }
 
-std::shared_ptr<open_result> duckdb_open_result_stream(conn_inner &conn, duckdb_result *result) {
+std::shared_ptr<open_result> duckdb_open_result_stream(conn_inner &conn, duckdb_result *result,
+                                                       std::shared_ptr<copy_session> session) {
     auto record = std::make_shared<open_result>();
     record->result = *result;
     record->streaming = true;
+    record->session = std::move(session);
     memset(result, 0, sizeof(*result));
     conn.open_results.push_back(record);
     return record;
@@ -665,6 +667,7 @@ DUCKDB_COPY_METHOD(DuckDB_Connection, queryStreaming) {
     auto stmt = std::make_shared<stmt_inner>();
     stmt->conn = intern->inner;
     duckdb_result res = {};
+    std::shared_ptr<copy_session> session;
     {
         std::unique_lock<std::mutex> lk;
         if (!duckdb_conn_enter(*intern->inner, lk, conn_entry::statement_start)) {
@@ -686,7 +689,7 @@ DUCKDB_COPY_METHOD(DuckDB_Connection, queryStreaming) {
         duckdb_state st;
         if (duckdb_conn_needs_pump(*intern->inner)) {
             std::string start_error;
-            st = duckdb_pump_execute(*intern->inner, stmt->stmt, /*streaming=*/true, &res, start_error);
+            st = duckdb_pump_execute(*intern->inner, stmt->stmt, /*streaming=*/true, &res, start_error, &session);
             if (!start_error.empty()) {
                 duckdb_throw_start_error(start_error);
                 RETURN_THROWS();
@@ -711,9 +714,10 @@ DUCKDB_COPY_METHOD(DuckDB_Connection, queryStreaming) {
             RETURN_THROWS();
         }
 
-        /* The stream is now the connection's open result. */
+        /* The stream is now the connection's open result, and its record
+         * owns a pumped stream's session. */
         duckdb_result_instantiate(return_value, &res, /*streaming=*/true, stmt, intern->inner,
-                                  duckdb_prepared_statement_type(stmt->stmt));
+                                  duckdb_prepared_statement_type(stmt->stmt), std::move(session));
     }
 }
 

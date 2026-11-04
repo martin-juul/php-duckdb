@@ -134,7 +134,8 @@ ordered side effects, and callback counts are not a SQL ordering guarantee.
 Every PHP callback runs on the request thread. DuckDB's workers hand callback
 requests to that thread through the query pump. This supports buffered,
 streaming and prepared statements and `queryPending()` with polling or
-`await()`. A pending handle must be driven for its PHP callbacks to progress.
+`await()`. A pending handle must be driven for its PHP callbacks to progress,
+and a streaming result runs its callbacks while it is fetched.
 
 `queryAsync()` and `Statement::executeAsync()` execute on a background thread
 that cannot call PHP, so statements using a PHP scalar function fail there.

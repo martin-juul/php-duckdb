@@ -26,6 +26,7 @@ extern "C" {
 
 #include "php_duckdb.h"
 #include "copy.h"
+#include "copy_session.h"
 #include "data_chunk.h"
 #include <algorithm>
 #include "bignum_decode.h"
@@ -705,10 +706,24 @@ static bool duckdb_decode_value(decode_ctx *ctx, duckdb_vector vec, duckdb_logic
  * fetch that drives the statement may reach PHP callbacks, and exit() or a
  * fatal error in one is re-raised once the fetch's C++ state is gone. */
 
+/* A stream returned its last row: it no longer blocks newer statements, and
+ * a pumped stream's callbacks are done. Caller holds conn.mutex. */
+static void duckdb_result_stream_drained(result_data *d, open_result &record) {
+    duckdb_open_result_drained(*d->conn_keepalive, record);
+    if (record.session) {
+        duckdb_session_end(*d->conn_keepalive, record.session);
+    }
+    d->exhausted = true;
+}
+
 /* Fetch a streaming result's next chunk. DuckDB 2.0 refuses a new
  * statement while a stream is open, so a newer statement supersedes this
  * one: its native handle is gone, and fetching fails loudly instead of
- * silently truncating the result. */
+ * silently truncating the result.
+ * A pumped stream keeps executing while it is fetched, so each fetch runs
+ * on the connection's helper while this thread services the callbacks
+ * that DuckDB threads hand over. The stream's session ends once the stream
+ * drains or fails. */
 static bool duckdb_result_fetch_stream_chunk(result_data *d) {
     /* The fetch runs inside DuckDB's execution engine on the connection, and
      * the record's state only changes under the connection mutex, so a
@@ -732,7 +747,17 @@ static bool duckdb_result_fetch_stream_chunk(result_data *d) {
         return false;
     }
 
-    d->chunk = duckdb_fetch_chunk(record.result);
+    std::shared_ptr<copy_session> session = record.session;
+    if (session) {
+        std::string lease_error;
+        if (!duckdb_pump_fetch_chunk(*d->conn_keepalive, *session, record.result, d->chunk, lease_error)) {
+            duckdb_throw_start_error(lease_error);
+            return false;
+        }
+    } else {
+        d->chunk = duckdb_fetch_chunk(record.result);
+    }
+
     if (d->chunk == nullptr) {
         /* duckdb_fetch_chunk returns NULL both at end-of-data AND when a
          * streaming query fails mid-flight ("Returns NULL if the result
@@ -744,13 +769,16 @@ static bool duckdb_result_fetch_stream_chunk(result_data *d) {
             const char *err = duckdb_result_error(&record.result);
             record.failed = true;
             record.error_type = duckdb_result_error_type(&record.result);
-            record.error_message = err ? err : "Query failed during streaming";
+            record.error_message = session ? duckdb_lease_failure(*session, err, "Query failed during streaming")
+                                           : std::string(err ? err : "Query failed during streaming");
             record.state = open_result_state::errored;
+            if (session) {
+                duckdb_session_end(*d->conn_keepalive, session, record.error_message);
+            }
             duckdb_throw_error(record.error_type, record.error_message.c_str());
             return false;
         }
-        duckdb_open_result_drained(*d->conn_keepalive, record);
-        d->exhausted = true;
+        duckdb_result_stream_drained(d, record);
         return false;
     }
     d->chunk_size = duckdb_data_chunk_get_size(d->chunk);
@@ -758,8 +786,7 @@ static bool duckdb_result_fetch_stream_chunk(result_data *d) {
     if (d->chunk_size == 0) {
         duckdb_destroy_data_chunk(&d->chunk);
         d->chunk = nullptr;
-        duckdb_open_result_drained(*d->conn_keepalive, record);
-        d->exhausted = true;
+        duckdb_result_stream_drained(d, record);
         return false;
     }
     return true;
@@ -999,7 +1026,7 @@ DUCKDB_COPY_METHOD(DuckDB_Result, fetchArrowChunk) {
 
 void duckdb_result_instantiate(zval *return_value, duckdb_result *res, bool streaming,
                                std::shared_ptr<stmt_inner> keepalive, std::shared_ptr<conn_inner> connection,
-                               duckdb_statement_type statement_type) {
+                               duckdb_statement_type statement_type, std::shared_ptr<copy_session> session) {
     object_init_ex(return_value, duckdb_result_ce);
     php_duckdb_result_object *intern = Z_DUCKDB_RESULT_P(return_value);
 
@@ -1036,7 +1063,7 @@ void duckdb_result_instantiate(zval *return_value, duckdb_result *res, bool stre
     /* A stream is the connection's open result until it drains or a newer
      * statement supersedes it; the record owns its native handle. */
     if (streaming && keepalive) {
-        data->record = duckdb_open_result_stream(*data->conn_keepalive, &data->result);
+        data->record = duckdb_open_result_stream(*data->conn_keepalive, &data->result, std::move(session));
     }
     intern->data = data;
 }
