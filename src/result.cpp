@@ -25,6 +25,7 @@ extern "C" {
 }
 
 #include "php_duckdb.h"
+#include "copy.h"
 #include "data_chunk.h"
 #include <algorithm>
 #include "bignum_decode.h"
@@ -700,6 +701,10 @@ static bool duckdb_decode_value(decode_ctx *ctx, duckdb_vector vec, duckdb_logic
 /* Row fetching                                                       */
 /* ================================================================== */
 
+/* Methods that fetch from a streaming result are DUCKDB_COPY_METHODs: a
+ * fetch that drives the statement may reach PHP callbacks, and exit() or a
+ * fatal error in one is re-raised once the fetch's C++ state is gone. */
+
 /* Fetch a streaming result's next chunk. DuckDB 2.0 refuses a new
  * statement while a stream is open, so a newer statement supersedes this
  * one: its native handle is gone, and fetching fails loudly instead of
@@ -953,7 +958,7 @@ PHP_METHOD(DuckDB_Result, arrowSchema) {
     duckdb_arrow_schema_wrap(return_value, schema);
 }
 
-PHP_METHOD(DuckDB_Result, fetchArrowChunk) {
+DUCKDB_COPY_METHOD(DuckDB_Result, fetchArrowChunk) {
     DUCKDB_TSRMLS_CACHE_UPDATE();
     ZEND_PARSE_PARAMETERS_NONE();
     auto data = Z_DUCKDB_RESULT_P(ZEND_THIS)->data;
@@ -1181,7 +1186,7 @@ PHP_METHOD(DuckDB_Result, statementType) {
     RETURN_STRING(duckdb_statement_type_name(d->statement_type));
 }
 
-PHP_METHOD(DuckDB_Result, fetchRow) {
+DUCKDB_COPY_METHOD(DuckDB_Result, fetchRow) {
     DUCKDB_TSRMLS_CACHE_UPDATE();
     zend_object *mode_obj = NULL;
 
@@ -1206,7 +1211,7 @@ PHP_METHOD(DuckDB_Result, fetchRow) {
     RETURN_COPY_VALUE(&row);
 }
 
-PHP_METHOD(DuckDB_Result, fetchAll) {
+DUCKDB_COPY_METHOD(DuckDB_Result, fetchAll) {
     DUCKDB_TSRMLS_CACHE_UPDATE();
     zend_object *mode_obj = NULL;
 
@@ -1235,7 +1240,7 @@ PHP_METHOD(DuckDB_Result, fetchAll) {
     }
 }
 
-PHP_METHOD(DuckDB_Result, fetchColumn) {
+DUCKDB_COPY_METHOD(DuckDB_Result, fetchColumn) {
     DUCKDB_TSRMLS_CACHE_UPDATE();
     zend_long column = 0;
 
@@ -1317,7 +1322,7 @@ PHP_METHOD(DuckDB_ResultIterator, key) {
     RETURN_LONG(Z_DUCKDB_RESULT_ITERATOR_P(ZEND_THIS)->key);
 }
 
-PHP_METHOD(DuckDB_ResultIterator, next) {
+DUCKDB_COPY_METHOD(DuckDB_ResultIterator, next) {
     ZEND_PARSE_PARAMETERS_START(0, 0)
     ZEND_PARSE_PARAMETERS_END();
 
@@ -1338,7 +1343,7 @@ PHP_METHOD(DuckDB_ResultIterator, next) {
     it->key++;
 }
 
-PHP_METHOD(DuckDB_ResultIterator, rewind) {
+DUCKDB_COPY_METHOD(DuckDB_ResultIterator, rewind) {
     ZEND_PARSE_PARAMETERS_START(0, 0)
     ZEND_PARSE_PARAMETERS_END();
 

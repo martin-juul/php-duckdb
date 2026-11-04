@@ -61,6 +61,8 @@ static thread_local int handler_depth = 0;
 static thread_local zend_object *pending_cause = nullptr;
 static thread_local zend_object *pending_exit = nullptr;
 static thread_local bool pending_bailout = false;
+/* What the first exit() or fatal error stopped; cleared on re-raise. */
+static thread_local std::string unwind_reason;
 static thread_local bool native_bind = false;
 static thread_local bool prepare_used_format = false;
 static thread_local const char *probe_token = nullptr;
@@ -119,6 +121,13 @@ void duckdb_register_copy_interfaces(zend_class_entry *function_ce, zend_class_e
 /* ------------------------------------------------------------------ */
 
 using call_outcome = duckdb_callback_outcome;
+
+/* Keep the first reason the request is unwinding. */
+static void note_unwind(const std::string &reason) {
+    if (unwind_reason.empty()) {
+        unwind_reason = reason;
+    }
+}
 
 struct callback_boundary {
     callback_boundary *previous;
@@ -273,6 +282,27 @@ static zend_object *make_exception(const std::string &message) {
     return Z_OBJ(exception);
 }
 
+namespace {
+struct reason_request {
+    const std::string *message;
+    zend_object *reason;
+};
+}
+
+/* make_exception() for abort(), which runs after the statement's lease:
+ * false once a bailout stopped it. */
+static bool make_reason(const std::string &message, zend_object **reason) {
+    reason_request request{&message, nullptr};
+    bool made = duckdb_callback_try(
+        [](void *context) {
+            auto *request = static_cast<reason_request *>(context);
+            request->reason = make_exception(*request->message);
+        },
+        &request);
+    *reason = request.reason;
+    return made;
+}
+
 /* Call a handler method with the connection marked busy and Fiber switches
  * blocked. On failure `message` describes it and an ordinary exception is
  * returned through `exception` (owned by the caller). */
@@ -305,6 +335,7 @@ duckdb_callback_outcome duckdb_callback_call(conn_inner *conn, zend_object *obje
         zval_ptr_dtor(retval);
         ZVAL_UNDEF(retval);
         message = std::string(label) + " handler stopped by a fatal error";
+        note_unwind(message);
         return call_outcome::bailout;
     }
     if (EG(exception)) {
@@ -320,6 +351,7 @@ duckdb_callback_outcome duckdb_callback_call(conn_inner *conn, zend_object *obje
                 pending_exit = thrown;
             }
             message = std::string(label) + " aborted by exit()";
+            note_unwind(message);
             return call_outcome::exit;
         }
         message = exception_message(thrown);
@@ -416,6 +448,7 @@ void duckdb_callback_zval_release(conn_inner *conn, zval *value) {
     }
     if (!completed) {
         pending_bailout = true;
+        note_unwind("PHP destructor stopped by a fatal error");
     }
     zend_object *thrown = EG(exception);
     if (thrown) {
@@ -432,6 +465,7 @@ void duckdb_callback_zval_release(conn_inner *conn, zval *value) {
         } else {
             pending_exit = thrown;
         }
+        note_unwind("PHP destructor aborted by exit()");
         return;
     }
     if (previous || pending_bailout || pending_exit) {
@@ -450,6 +484,87 @@ void duckdb_callback_release(conn_inner *conn, zend_object *object) {
     zval value;
     ZVAL_OBJ(&value, object);
     duckdb_callback_zval_release(conn, &value);
+}
+
+/* A unit of request-thread work and the C++ exception it threw, if any. */
+struct guarded_work {
+    void (*work)(void *);
+    void *context;
+    std::exception_ptr failure;
+};
+
+/* C++ exceptions stop here, inside the zend_try frame that called this, so
+ * they never unwind across it and leave EG(bailout) pointing at it. */
+static void run_catching(guarded_work *guarded) {
+    try {
+        guarded->work(guarded->context);
+    } catch (...) {
+        guarded->failure = std::current_exception();
+    }
+}
+
+/* Only plain locals: zend_try returns here by longjmp. */
+static bool run_guarded(guarded_work *guarded) {
+    zend_execute_data *const frame = EG(current_execute_data);
+    callback_boundary *const boundary = active_callback_boundary;
+    auto *const fake_scope = EG(fake_scope);
+    const uint32_t jit_trace_num = EG(jit_trace_num);
+    const int depth = handler_depth;
+    volatile bool completed = false;
+    zend_try {
+        run_catching(guarded);
+        completed = true;
+    } zend_catch {
+        /* The engine still points at whatever the bailout abandoned. */
+        EG(current_execute_data) = frame;
+        EG(fake_scope) = fake_scope;
+        EG(jit_trace_num) = jit_trace_num;
+        active_callback_boundary = boundary;
+        handler_depth = depth;
+        completed = false;
+    } zend_end_try();
+    return completed;
+}
+
+bool duckdb_callback_try(void (*work)(void *), void *context) {
+    guarded_work guarded{work, context, nullptr};
+    if (!run_guarded(&guarded)) {
+        pending_bailout = true;
+        note_unwind("PHP callback stopped by a fatal error");
+        return false;
+    }
+    if (guarded.failure) {
+        std::rethrow_exception(guarded.failure);
+    }
+    return true;
+}
+
+namespace {
+struct callback_run {
+    const std::function<bool(std::string &)> *work;
+    std::string *error;
+    bool ok;
+};
+}
+
+bool duckdb_callback_run(const std::function<bool(std::string &)> &work, std::string &error) {
+    callback_run run{&work, &error, false};
+    bool completed = false;
+    try {
+        completed = duckdb_callback_try(
+            [](void *context) {
+                auto *run = static_cast<callback_run *>(context);
+                run->ok = (*run->work)(*run->error);
+            },
+            &run);
+    } catch (const duckdb_callback_bailout &) {
+        completed = false;
+    }
+    if (!completed) {
+        error = duckdb_callback_bailout().what();
+        return false;
+    }
+    return run.ok;
 }
 
 static std::string stale_message(const copy_registration &registration) {
@@ -489,6 +604,8 @@ static bool unnamed_struct(duckdb_logical_type type) {
     return count > 0;
 }
 
+/* Handler arguments are built through duckdb_callback_marshal(), so a
+ * bailout while allocating them unwinds these native owners. */
 static void decode_value(duckdb_value value, zval *out) {
     if (!value || duckdb_is_null_value(value)) {
         ZVAL_NULL(out);
@@ -498,13 +615,17 @@ static void decode_value(duckdb_value value, zval *out) {
 
     /* Mixed-type option values arrive as a STRUCT with empty field names. */
     if (unnamed_struct(type)) {
-        array_init(out);
+        duckdb_callback_marshal([out] {
+            array_init(out);
+        });
         idx_t count = duckdb_struct_type_child_count(type);
         for (idx_t i = 0; i < count; i++) {
             scoped_duckdb_value child(duckdb_get_struct_child(value, i));
             zval element;
             decode_value(child.get(), &element);
-            add_next_index_zval(out, &element);
+            duckdb_callback_marshal([out, &element] {
+                add_next_index_zval(out, &element);
+            });
         }
         return;
     }
@@ -520,13 +641,19 @@ static void decode_value(duckdb_value value, zval *out) {
     scoped_duckdb_selection selection(duckdb_create_selection_vector(1));
     duckdb_selection_vector_get_data_ptr(selection.get())[0] = 0;
     duckdb_vector_copy_sel(constant.get(), flat.get(), selection.get(), 1, 0, 0);
-    if (!duckdb_decode_vector_value(flat.get(), type, 0, out)) {
+    bool decoded = false;
+    duckdb_callback_marshal([&flat, type, out, &decoded] {
+        decoded = duckdb_decode_vector_value(flat.get(), type, 0, out);
+    });
+    if (!decoded) {
         ZVAL_NULL(out);
     }
 }
 
 static void decode_options(duckdb_value options, zval *out) {
-    array_init(out);
+    duckdb_callback_marshal([out] {
+        array_init(out);
+    });
     if (!options || duckdb_is_null_value(options)) {
         return;
     }
@@ -546,15 +673,19 @@ static void decode_options(duckdb_value options, zval *out) {
         scoped_duckdb_value child(duckdb_get_struct_child(options, name.second));
         zval element;
         decode_value(child.get(), &element);
-        add_assoc_zval_ex(out, name.first.data(), name.first.size(), &element);
+        duckdb_callback_marshal([out, &name, &element] {
+            add_assoc_zval_ex(out, name.first.data(), name.first.size(), &element);
+        });
     }
 }
 
 static void types_array(const std::vector<std::string> &types, zval *out) {
-    array_init_size(out, static_cast<uint32_t>(types.size()));
-    for (const auto &type : types) {
-        add_next_index_stringl(out, type.data(), type.size());
-    }
+    duckdb_callback_marshal([&types, out] {
+        array_init_size(out, static_cast<uint32_t>(types.size()));
+        for (const auto &type : types) {
+            add_next_index_stringl(out, type.data(), type.size());
+        }
+    });
 }
 
 /* ------------------------------------------------------------------ */
@@ -585,21 +716,23 @@ static void finish_session(copy_php_state *state, const std::string &failure, bo
             zend_object *reason = state->cause;
             if (reason) {
                 GC_ADDREF(reason);
-            } else {
-                reason = make_exception(failure);
+            } else if (!make_reason(failure, &reason)) {
+                call_php = false;
             }
-            zval argument;
-            ZVAL_OBJ(&argument, reason);
-            zval retval;
-            std::string message;
-            zend_object *thrown = nullptr;
-            call_handler(state->conn, writer.object, "abort", 1, &argument, &retval, message, &thrown);
-            zval_ptr_dtor(&retval);
-            zval_ptr_dtor(&argument);
-            if (thrown) {
-                OBJ_RELEASE(thrown);
+            if (call_php) {
+                zval argument;
+                ZVAL_OBJ(&argument, reason);
+                zval retval;
+                std::string message;
+                zend_object *thrown = nullptr;
+                call_handler(state->conn, writer.object, "abort", 1, &argument, &retval, message, &thrown);
+                zval_ptr_dtor(&retval);
+                zval_ptr_dtor(&argument);
+                if (thrown) {
+                    OBJ_RELEASE(thrown);
+                }
+                call_php = !pending_bailout;
             }
-            call_php = !pending_bailout;
         }
         OBJ_RELEASE(writer.object);
         writer.object = nullptr;
@@ -661,7 +794,9 @@ static copy_php_state::writer *open_writer(copy_session &session, copy_exec &exe
     }
 
     zval argv[3];
-    ZVAL_STRINGL(&argv[0], exec.path.data(), exec.path.size());
+    duckdb_callback_marshal([&argv, &exec] {
+        ZVAL_STRINGL(&argv[0], exec.path.data(), exec.path.size());
+    });
     types_array(exec.bind->types, &argv[1]);
     decode_options(exec.bind->options, &argv[2]);
     zval retval;
@@ -697,7 +832,9 @@ static bool php_write(copy_session &session, copy_exec &exec, duckdb_data_chunk 
     data->borrowed = true;
     data->names = exec.bind->names;
     zval batch;
-    duckdb_data_chunk_wrap(&batch, data);
+    duckdb_callback_marshal([&batch, &data] {
+        duckdb_data_chunk_wrap(&batch, data);
+    });
 
     zval retval;
     std::string message;
@@ -746,16 +883,17 @@ bool duckdb_callback_on_request_thread(copy_session &session,
             error = session.closed_reason();
             return false;
         }
-        return work(error);
+        return duckdb_callback_run(work, error);
     }
 
     bool ok = false;
     std::string work_error;
     auto request = std::make_shared<copy_request>();
     request->work = [&]() {
-        /* The waiting worker must always be released, even on bad_alloc. */
+        /* The waiting worker must always be released, even on bad_alloc or
+         * a bailout. */
         try {
-            ok = work(work_error);
+            ok = duckdb_callback_run(work, work_error);
         } catch (const std::exception &failure) {
             work_error = failure.what();
         } catch (...) {
@@ -876,7 +1014,17 @@ static void copy_bind_callback(duckdb_copy_function_bind_info info) {
         return;
     }
     if (registration->owner == std::this_thread::get_id()) {
-        bind_on_request_thread(info, registration, options);
+        /* Inside DuckDB's binder: a bailout must not jump over it. */
+        std::string error;
+        bool ok = duckdb_callback_run(
+            [&](std::string &) {
+                bind_on_request_thread(info, registration, options);
+                return true;
+            },
+            error);
+        if (!ok) {
+            duckdb_copy_function_bind_set_error(info, error.c_str());
+        }
         return;
     }
 
@@ -1265,26 +1413,36 @@ bool duckdb_copy_unwinding() {
     return pending_exit || pending_bailout;
 }
 
-void duckdb_copy_after_method() {
+std::string duckdb_copy_unwind_reason() {
+    if (!duckdb_copy_unwinding()) {
+        return std::string();
+    }
+    return unwind_reason.empty() ? std::string("PHP callback stopped by exit() or a fatal error") : unwind_reason;
+}
+
+/* Returns whether it re-raised exit() or a fatal error. */
+static bool after_method() {
     if (handler_depth > 0) {
-        return;
+        return false;
     }
     duckdb_drain_deferred_connections();
     duckdb_scalar_after_method();
 
     if (pending_bailout) {
         pending_bailout = false;
+        unwind_reason.clear();
         drop_pending_cause();
         /* The fatal error was already reported; drop the COPY failure. */
         if (EG(exception)) {
             zend_clear_exception();
         }
         zend_throw_unwind_exit();
-        return;
+        return true;
     }
     if (pending_exit) {
         zend_object *exit_object = pending_exit;
         pending_exit = nullptr;
+        unwind_reason.clear();
         drop_pending_cause();
         if (EG(exception)) {
             zend_clear_exception();
@@ -1296,9 +1454,25 @@ void duckdb_copy_after_method() {
         } else {
             zend_throw_unwind_exit();
         }
-        return;
+        return true;
     }
     duckdb_copy_chain_cause();
+    return false;
+}
+
+void duckdb_copy_after_method() {
+    after_method();
+}
+
+void duckdb_copy_after_method_return(zval *return_value) {
+    if (!after_method()) {
+        return;
+    }
+
+    /* The method completed before the re-raise; a throwing internal
+     * function returns no value. */
+    zval_ptr_dtor(return_value);
+    ZVAL_NULL(return_value);
 }
 
 void duckdb_copy_after_destructor() {

@@ -8,6 +8,7 @@ extern "C" {
 #include "ext/json/php_json.h"
 }
 #include "php_duckdb.h"
+#include "copy.h"
 #include "expression.h"
 #include "selection.h"
 
@@ -105,11 +106,18 @@ std::shared_ptr<expression_state> duckdb_expression_wrap(zval *out, duckdb_expre
         auto state = std::make_shared<expression_state>();
         state->expression = std::move(owned_expression);
         state->context = std::move(owned_context);
-        if (object_init_ex(out, duckdb_expression_ce) != SUCCESS) {
+        bool created = false;
+        duckdb_callback_marshal([out, &created] {
+            created = object_init_ex(out, duckdb_expression_ce) == SUCCESS;
+        });
+        if (!created) {
             return nullptr;
         }
         expression_object(Z_OBJ_P(out))->state = state;
         return state;
+    } catch (const duckdb_callback_bailout &) {
+        /* Recorded; the scalar callback reports it. */
+        throw;
     } catch (const std::exception &error) {
         expression_throw_native_error(error.what());
     } catch (...) {

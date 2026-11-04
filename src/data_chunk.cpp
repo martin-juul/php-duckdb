@@ -68,9 +68,9 @@ std::shared_ptr<data_chunk_data> duckdb_data_chunk_from_zval(zval *value) {
     return data;
 }
 
-void duckdb_data_chunk_wrap(zval *return_value, std::shared_ptr<data_chunk_data> data) {
+void duckdb_data_chunk_wrap(zval *return_value, const std::shared_ptr<data_chunk_data> &data) {
     object_init_ex(return_value, duckdb_data_chunk_ce);
-    data_chunk_object(Z_OBJ_P(return_value))->data = std::move(data);
+    data_chunk_object(Z_OBJ_P(return_value))->data = data;
 }
 
 /* DuckDB's importer can borrow some columns while materializing others. Use

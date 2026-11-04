@@ -13,6 +13,7 @@
 #include "scalar.h"
 
 #include <algorithm>
+#include <cstdio>
 #include <cstdlib>
 #include <exception>
 
@@ -232,6 +233,7 @@ void copy_session::service() {
             request->started = true;
         }
 
+        /* The work contains bailouts itself: it always returns here. */
         request->work();
 
         {
@@ -239,6 +241,13 @@ void copy_session::service() {
             request->finished = true;
         }
         cv.notify_all();
+
+        /* After exit() or a fatal error, no further PHP runs for this
+         * statement: fail the queued and future callbacks. */
+        if (duckdb_copy_unwinding()) {
+            close(duckdb_copy_unwind_reason());
+            return;
+        }
     }
 }
 
@@ -363,6 +372,18 @@ std::shared_ptr<copy_session> duckdb_session_find_bind(db_inner &db, idx_t conne
     return session;
 }
 
+/* After exit() or a fatal error the helper gets the stuck limit to park;
+ * one that does not would keep running DuckDB under a request that is
+ * ending, so stop the process instead. */
+[[noreturn]] static void abort_unparked_helper() {
+    std::fprintf(stderr,
+                 "DuckDB: the connection's helper thread did not stop within %lld seconds after exit() or a "
+                 "fatal error in a PHP callback (DUCKDB_PHP_COPY_STUCK_SECONDS); aborting\n",
+                 static_cast<long long>(stuck_limit_ns() / 1000000000LL));
+    std::fflush(stderr);
+    std::abort();
+}
+
 bool duckdb_session_lease(conn_inner &conn, copy_session &session, const std::function<void()> &work,
                           std::string &error) {
     std::shared_ptr<conn_helper> helper;
@@ -386,12 +407,30 @@ bool duckdb_session_lease(conn_inner &conn, copy_session &session, const std::fu
 
     lease_depth++;
     bool stuck = stuck_lease_depth() > 0 && lease_depth >= stuck_lease_depth();
+    bool unwinding = false;
+    std::chrono::steady_clock::time_point park_deadline;
+    /* Once exit() or a fatal error in a PHP callback is recorded, by this
+     * lease's callbacks, a lease nested in them or before this lease began,
+     * no PHP runs for the statement: close the session, interrupt the query
+     * and give the helper the stuck limit to park. The caller then unwinds
+     * normally and the method's after-hook re-raises. */
+    auto check_unwinding = [&] {
+        if (unwinding || !duckdb_copy_unwinding()) {
+            return;
+        }
+        unwinding = true;
+        session.close(duckdb_copy_unwind_reason());
+        duckdb_interrupt(conn.conn);
+        park_deadline = std::chrono::steady_clock::now() + std::chrono::nanoseconds(stuck_limit_ns());
+    };
     {
         driver_away away(stuck ? nullptr : &session);
         for (;;) {
+            check_unwinding();
             if (!stuck) {
                 session.service();
             }
+            check_unwinding();
 
             std::unique_lock<std::mutex> lock(session.mutex);
             if (!stuck && session.open && !session.queue.empty()) {
@@ -400,7 +439,13 @@ bool duckdb_session_lease(conn_inner &conn, copy_session &session, const std::fu
             if (done) {
                 break;
             }
-            session.cv.wait(lock);
+            if (!unwinding) {
+                session.cv.wait(lock);
+                continue;
+            }
+            if (session.cv.wait_until(lock, park_deadline) == std::cv_status::timeout && !done) {
+                abort_unparked_helper();
+            }
         }
     }
     lease_depth--;
@@ -443,6 +488,19 @@ static duckdb_pending_state drive_pending(duckdb_pending_result pending) {
     }
 }
 
+/* Why a leased statement failed. When exit() or a fatal error ended the
+ * lease, DuckDB may report the interrupt that caused instead of the
+ * callback's failure; the session's close reason names the bailout. */
+static std::string lease_failure(copy_session &session, const char *error, const char *fallback) {
+    if (duckdb_copy_unwinding() && duckdb_classify_error_message(error) == DUCKDB_ERROR_INTERRUPT) {
+        std::string reason = session.closed_reason();
+        if (!reason.empty()) {
+            return reason;
+        }
+    }
+    return (error && error[0]) ? error : fallback;
+}
+
 duckdb_state duckdb_pump_execute(conn_inner &conn, duckdb_prepared_statement statement, bool streaming,
                                  duckdb_result *out, std::string &start_error) {
     /* Workers start as soon as the pending query exists, so the session must
@@ -483,8 +541,7 @@ duckdb_state duckdb_pump_execute(conn_inner &conn, duckdb_prepared_statement sta
 
     if (state == DUCKDB_PENDING_ERROR) {
         /* execute_pending would wrap this message in a generic error. */
-        const char *error = duckdb_pending_error(pending);
-        start_error = (error && error[0]) ? error : "Query execution failed";
+        start_error = lease_failure(*session, duckdb_pending_error(pending), "Query execution failed");
         /* Close before execute_pending, which cancels the executor. */
         duckdb_session_end(conn, session, start_error);
         duckdb_discard_pending(conn, pending);
@@ -530,8 +587,7 @@ bool duckdb_pump_query(conn_inner &conn, const char *sql, duckdb_result *out, du
         }
 
         if (state == DuckDBError) {
-            const char *error = duckdb_result_error(out);
-            duckdb_session_end(conn, session, (error && error[0]) ? error : "Query failed");
+            duckdb_session_end(conn, session, lease_failure(*session, duckdb_result_error(out), "Query failed"));
             duckdb_throw_result_error(out);
             return false;
         }

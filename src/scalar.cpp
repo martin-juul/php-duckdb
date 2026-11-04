@@ -70,8 +70,9 @@ struct scalar_bind_arguments {
     zval values;
     std::vector<std::shared_ptr<expression_state>> states;
 
+    /* The caller allocates `values` through duckdb_callback_marshal(). */
     explicit scalar_bind_arguments(conn_inner *owner) : conn(owner) {
-        array_init(&values);
+        ZVAL_UNDEF(&values);
     }
 
     ~scalar_bind_arguments() {
@@ -217,6 +218,9 @@ static void bind_on_request_thread(duckdb_bind_info info, const std::shared_ptr<
     bind->slot = slot;
     bool with_expressions = instanceof_function(function->ce, duckdb_scalar_expression_function_ce);
     scalar_bind_arguments arguments(conn.get());
+    duckdb_callback_marshal([&arguments] {
+        array_init(&arguments.values);
+    });
     idx_t count = duckdb_scalar_function_bind_get_argument_count(info);
     arguments.states.reserve(count);
     for (idx_t i = 0; i < count; i++) {
@@ -245,9 +249,13 @@ static void bind_on_request_thread(duckdb_bind_info info, const std::shared_ptr<
                 return;
             }
             arguments.states.push_back(std::move(state));
-            add_next_index_zval(&arguments.values, &argument);
+            duckdb_callback_marshal([&arguments, &argument] {
+                add_next_index_zval(&arguments.values, &argument);
+            });
         } else {
-            add_next_index_stringl(&arguments.values, declaration.data(), declaration.size());
+            duckdb_callback_marshal([&arguments, &declaration] {
+                add_next_index_stringl(&arguments.values, declaration.data(), declaration.size());
+            });
         }
     }
     scalar_prepared = true;
@@ -307,7 +315,15 @@ static void scalar_bind_callback(duckdb_bind_info info) {
             return;
         }
         if (registration->owner == std::this_thread::get_id()) {
-            bind_on_request_thread(info, slot, registration);
+            /* Inside DuckDB's binder: a bailout must not jump over it. */
+            std::string error;
+            bool ok = duckdb_callback_run([&](std::string &) {
+                bind_on_request_thread(info, slot, registration);
+                return true;
+            }, error);
+            if (!ok) {
+                duckdb_scalar_function_bind_set_error(info, error.c_str());
+            }
             return;
         }
 
@@ -474,7 +490,9 @@ static void scalar_execute_callback(duckdb_function_info info, duckdb_data_chunk
                 batch->names.push_back("arg" + std::to_string(i));
             }
             zval argument;
-            duckdb_data_chunk_wrap(&argument, batch);
+            duckdb_callback_marshal([&argument, &batch] {
+                duckdb_data_chunk_wrap(&argument, batch);
+            });
             zval retval;
             bool success = invoke(*conn, executor, bind->registration->name, "execute", 1, &argument, &retval, message);
             batch->expired = true;
