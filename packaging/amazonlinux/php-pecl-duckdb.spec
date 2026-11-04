@@ -174,7 +174,8 @@ export TEST_PHP_ARGS='-d ffi.enable=true'
 %doc duckdb-sdk/share/duckdb-sdk/nullable-bitpacking.patch
 %doc duckdb-sdk/share/duckdb-sdk/arrow-geometry.patch
 %doc duckdb-sdk/share/duckdb-sdk/c-api-copy-functions.patch
-%doc duckdb-sdk/share/duckdb-sdk/array-join-gather.patch duckdb-sdk/share/duckdb-sdk/artifacts.json
+%doc duckdb-sdk/share/duckdb-sdk/array-join-gather.patch
+%doc duckdb-sdk/share/duckdb-sdk/optional-idx-defined.patch duckdb-sdk/share/duckdb-sdk/artifacts.json
 %config(noreplace) %{php_inidir}/%{ini_name}
 %{php_extdir}/%{pecl_name}.so
 %dir %{engine_dir}

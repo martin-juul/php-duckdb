@@ -108,10 +108,11 @@ For application integration, see the
   is not supported; see the [migration guide](docs/migrations.md).
 
 Repository builds that vendor DuckDB use the
-[patched SDK builder](packaging/duckdb/README.md). Its four engine patches fix
+[patched SDK builder](packaging/duckdb/README.md). Its five engine patches fix
 nullable bitpacking writes, Arrow conversion transactions and geometry CRS,
-C API COPY format binding, and DuckDB 2.0.0's `ARRAY` gather in `LEFT JOIN`s
-with unmatched rows. External DuckDB packages need equivalent backports; see
+C API COPY format binding, DuckDB 2.0.0's `ARRAY` gather in `LEFT JOIN`s
+with unmatched rows, and uninitialised reads of unset optional indexes.
+External DuckDB packages need equivalent backports; see
 [compatibility](docs/compatibility.md). The
 [patch inventory](packaging/duckdb/patches/README.md) records their purpose,
 origin, build scope and removal criteria.

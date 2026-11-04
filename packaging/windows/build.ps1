@@ -151,6 +151,7 @@ try {
         duckdb_arrow_patch_sha256 = (Get-FileHash "$duck/share/duckdb-sdk/arrow-geometry.patch" -Algorithm SHA256).Hash.ToLowerInvariant()
         duckdb_copy_function_patch_sha256 = (Get-FileHash "$duck/share/duckdb-sdk/c-api-copy-functions.patch" -Algorithm SHA256).Hash.ToLowerInvariant()
         duckdb_array_join_patch_sha256 = (Get-FileHash "$duck/share/duckdb-sdk/array-join-gather.patch" -Algorithm SHA256).Hash.ToLowerInvariant()
+        duckdb_optional_idx_patch_sha256 = (Get-FileHash "$duck/share/duckdb-sdk/optional-idx-defined.patch" -Algorithm SHA256).Hash.ToLowerInvariant()
         duckdb_dll_sha256 = (Get-FileHash "$duck/bin/duckdb.dll" -Algorithm SHA256).Hash.ToLowerInvariant()
     } | ConvertTo-Json | Set-Content "$package/build-info.json" -Encoding utf8
     $output = Join-Path $source 'dist'

@@ -1,6 +1,6 @@
 # DuckDB engine patches
 
-This repository carries four DuckDB source patches. SDK builds apply them
+This repository carries five DuckDB source patches. SDK builds apply them
 before compiling `libduckdb`; all are included in the libraries shipped by
 those builds. The PHP extension still links through DuckDB's public C API.
 
@@ -12,10 +12,12 @@ those builds. The PHP extension still links through DuckDB's public C API.
 | [arrow-geometry.patch](arrow-geometry.patch) | DuckDB 2.0.0, pinned in [source.json](../source.json) | Run C Arrow conversions in a transaction and preserve declared geometry CRS on import | Local fix developed for this repository; not fixed upstream in 2.0.0; no upstream issue, PR or merge reference is recorded here |
 | [c-api-copy-functions.patch](c-api-copy-functions.patch) | DuckDB 2.0.0, pinned in [source.json](../source.json) | Reject parallel COPY modes and EXPORT DATABASE for C API copy functions; let their bind callbacks decline a binding | Local change developed for this repository; not in upstream 2.0.0; no upstream issue, PR or merge reference is recorded here |
 | [array-join-gather.patch](array-join-gather.patch) | DuckDB 2.0.0, pinned in [source.json](../source.json) | Store ARRAY values gathered by a hash join at the matched rows, not the first rows of the output | Local fix developed for this repository; not fixed upstream in 2.0.0; no upstream issue, PR or merge reference is recorded here |
+| [optional-idx-defined.patch](optional-idx-defined.patch) | DuckDB 2.0.0, pinned in [source.json](../source.json) | Give an unset `optional_idx` a defined value instead of an uninitialised `std::optional` payload | Local fix developed for this repository; not fixed upstream in 2.0.0; no upstream issue, PR or merge reference is recorded here |
 
 The patches are maintained against this exact source baseline. The first
 three were rebased from DuckDB 1.5.6 onto 2.0.0, where the C API sources moved
-to `src/main/capi/v1/`; the ARRAY join gather patch was written against 2.0.0.
+to `src/main/capi/v1/`; the ARRAY join gather and optional index patches were
+written against 2.0.0.
 Each native regression below still fails on the unpatched 2.0.0 library, so
 2.0.0 contains none of the fixes. Their presence does not
 establish whether another DuckDB release contains the same defect or an
@@ -183,9 +185,35 @@ the PHP harness passes the
 the original reproducer and a multi-chunk nested ARRAY join buffered and
 streaming.
 
+## Defined optional index
+
+DuckDB 2.0.0 stores `optional_idx` as a `std::optional<idx_t>`, so an unset
+index leaves its value uninitialised. Code that tests an index is set and then
+compares its value may be compiled to compare the value first: GCC 13.3 builds
+`RowGroupCollection::GetCheckpointTask` so that it compares the checkpoint's
+row group count before it tests whether that count is set. Both branches give
+the same result when the count is unset, so the checkpoint is correct, but the
+comparison reads uninitialised stack memory. Valgrind 3.22 reports it as a
+conditional jump on an uninitialised value on every checkpointed row group,
+also with `--expensive-definedness-checks=yes`.
+
+The patch stores the index as a plain value and a flag. An unset index holds
+zero, so the same code compares defined values. Equality, `IsValid()`,
+`GetIndex()` and `SetInvalid()` keep their meaning, and the class keeps its
+size. This changes an engine-internal header, with no public API or storage
+format change.
+
+The [nullable bitpacking matrix](../../../tests/native/nullable_bitpacking_matrix.c)
+is the regression, run under Memcheck as CI runs it. Built with GCC 13.3 on
+Ubuntu 24.04 and run under Valgrind 3.22, as on CI's `ubuntu-latest` runner,
+the four-patch library passes all 62 cases but Memcheck reports 412 errors
+from that one context and exits with status 99. With this patch it reports
+none. A library built with GCC 16 and run under Valgrind 3.27 reports no
+errors either way, so the regression depends on that toolchain.
+
 ## Which builds include them
 
-The POSIX, Windows and Solaris SDK builders apply all four patches. Docker
+The POSIX, Windows and Solaris SDK builders apply all five patches. Docker
 images and packages that build a vendored SDK consequently ship a patched
 engine. Builds linked to an external or distribution-provided `libduckdb` use
 that library as provided; the PHP extension build does not patch it. See the
@@ -195,8 +223,8 @@ source.
 The source archive is pinned by hash, and patch application must succeed
 cleanly. Installed SDKs carry `source.json`, `nullable-bitpacking.patch`,
 `arrow-geometry.patch`, `c-api-copy-functions.patch`,
-`array-join-gather.patch`, build metadata and DuckDB's license under
-`share/duckdb-sdk/`. Every patch hash enters the SDK
+`array-join-gather.patch`, `optional-idx-defined.patch`, build metadata and
+DuckDB's license under `share/duckdb-sdk/`. Every patch hash enters the SDK
 identity, and cache verification requires every patch artifact and its
 checksum. Use that metadata to identify our build: the patches do not change
 DuckDB's reported `2.0.0` version.

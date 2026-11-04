@@ -1,9 +1,10 @@
 # Patched DuckDB SDK
 
-`build-sdk.sh` builds the DuckDB 2.0.0 source pinned in [source.json](source.json)
-with the nullable bitpacking, Arrow conversion/geometry, C API copy-function
-and ARRAY join gather patches. It installs the shared library and `duckdb.h`
-in the layout consumed by phpize, CMake and the test harness:
+`build-sdk.sh` builds the DuckDB 2.0.0 source pinned in
+[source.json](source.json) with the nullable bitpacking, Arrow
+conversion/geometry, C API copy-function, ARRAY join gather and optional index
+patches. It installs the shared library and `duckdb.h` in the layout consumed by
+phpize, CMake and the test harness:
 
 ```sh
 sh packaging/duckdb/build-sdk.sh \
@@ -17,7 +18,8 @@ patches are part of SDKs built from this checkout. The Arrow patch supplies
 implicit conversion transactions and preserves geometry CRS metadata on import.
 The copy-function patch makes binding of C API COPY formats deterministic.
 The ARRAY join gather patch stores ARRAY values that a hash join gathers at
-their matched rows.
+their matched rows. The optional index patch gives an unset `optional_idx` a
+defined value, so checkpoints never branch on uninitialised memory.
 
 The builder needs Python 3, curl, tar, patch, CMake 3.14 or newer, make and
 C/C++ compilers with C++17 support.

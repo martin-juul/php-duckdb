@@ -49,14 +49,15 @@ a distribution DuckDB runtime or development package. The source version,
 commit and archive hash are shared in [source.json](duckdb/source.json).
 
 All [engine patches](duckdb/patches/README.md) are built into the shipped
-library. The nullable bitpacking patch initializes unused NULL slots; the
-Arrow patch supplies conversion transactions and preserves declared geometry
-CRS metadata; the copy-function patch makes binding of C API COPY formats
+library. The nullable bitpacking patch initializes unused NULL slots; the Arrow
+patch supplies conversion transactions and preserves declared geometry CRS
+metadata; the copy-function patch makes binding of C API COPY formats
 deterministic; the ARRAY join gather patch stores joined ARRAY values at the
-right rows. Patches, source pins, build metadata and DuckDB's license
-accompany the SDK under `share/duckdb-sdk/`. Cache verification requires every
-patch artifact and its checksum. Existing release assets are not replaced;
-the release workflow builds from its release commit.
+right rows; the optional index patch gives an unset index a defined value.
+Patches, source pins, build metadata and DuckDB's license accompany the SDK
+under `share/duckdb-sdk/`. Cache verification requires every patch artifact and
+its checksum. Existing release assets are not replaced; the release workflow
+builds from its release commit.
 
 Source builds outside these packaging recipes can still link to an external
 SDK. Those libraries do not receive this patch set from compiling the PHP

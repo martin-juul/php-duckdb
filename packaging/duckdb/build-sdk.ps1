@@ -64,7 +64,9 @@ $patchPath = Join-Path $PSScriptRoot $manifest.patch
 $arrowPatchPath = Join-Path $PSScriptRoot 'patches/arrow-geometry.patch'
 $copyFunctionPatchPath = Join-Path $PSScriptRoot 'patches/c-api-copy-functions.patch'
 $arrayJoinPatchPath = Join-Path $PSScriptRoot 'patches/array-join-gather.patch'
-foreach ($requiredPatch in $patchPath, $arrowPatchPath, $copyFunctionPatchPath, $arrayJoinPatchPath) {
+$optionalIdxPatchPath = Join-Path $PSScriptRoot 'patches/optional-idx-defined.patch'
+foreach ($requiredPatch in $patchPath, $arrowPatchPath, $copyFunctionPatchPath, $arrayJoinPatchPath,
+    $optionalIdxPatchPath) {
     if (!(Test-Path -LiteralPath $requiredPatch -PathType Leaf)) {
         throw "Missing DuckDB patch: $requiredPatch"
     }
@@ -121,6 +123,7 @@ $metadata = [ordered]@{
     arrow_patch_sha256 = (Get-FileHash $arrowPatchPath -Algorithm SHA256).Hash.ToLowerInvariant()
     copy_function_patch_sha256 = (Get-FileHash $copyFunctionPatchPath -Algorithm SHA256).Hash.ToLowerInvariant()
     array_join_patch_sha256 = (Get-FileHash $arrayJoinPatchPath -Algorithm SHA256).Hash.ToLowerInvariant()
+    optional_idx_patch_sha256 = (Get-FileHash $optionalIdxPatchPath -Algorithm SHA256).Hash.ToLowerInvariant()
     builder_sha256 = (Get-FileHash $PSCommandPath -Algorithm SHA256).Hash.ToLowerInvariant()
     platform = 'Windows/x64'
     visual_studio = $vs.installationVersion
@@ -143,7 +146,8 @@ $buildMetadata = Join-Path $sdkMetadata 'build.txt'
 $artifactNames = @('include/duckdb.h', 'lib/duckdb.lib', 'bin/duckdb.dll',
     'share/duckdb-sdk/LICENSE.duckdb', 'share/duckdb-sdk/source.json',
     'share/duckdb-sdk/nullable-bitpacking.patch', 'share/duckdb-sdk/arrow-geometry.patch',
-    'share/duckdb-sdk/c-api-copy-functions.patch', 'share/duckdb-sdk/array-join-gather.patch')
+    'share/duckdb-sdk/c-api-copy-functions.patch', 'share/duckdb-sdk/array-join-gather.patch',
+    'share/duckdb-sdk/optional-idx-defined.patch')
 
 function Test-DuckDBSdk {
     param([string]$Directory)
@@ -267,7 +271,8 @@ if ($LASTEXITCODE -ne 0) {
     throw "DuckDB source extraction failed: $LASTEXITCODE"
 }
 # git apply works on an extracted source tree and checks exact context.
-foreach ($requiredPatch in $patchPath, $arrowPatchPath, $copyFunctionPatchPath, $arrayJoinPatchPath) {
+foreach ($requiredPatch in $patchPath, $arrowPatchPath, $copyFunctionPatchPath, $arrayJoinPatchPath,
+    $optionalIdxPatchPath) {
     & git -C $sourceDirectory apply --check --whitespace=error $requiredPatch
     if ($LASTEXITCODE -ne 0) {
         throw "Pinned DuckDB patch does not apply cleanly: $requiredPatch"
@@ -313,6 +318,7 @@ Copy-Item $patchPath "$sdkMetadata/nullable-bitpacking.patch" -Force
 Copy-Item $arrowPatchPath "$sdkMetadata/arrow-geometry.patch" -Force
 Copy-Item $copyFunctionPatchPath "$sdkMetadata/c-api-copy-functions.patch" -Force
 Copy-Item $arrayJoinPatchPath "$sdkMetadata/array-join-gather.patch" -Force
+Copy-Item $optionalIdxPatchPath "$sdkMetadata/optional-idx-defined.patch" -Force
 $metadata | Set-Content -LiteralPath $buildMetadata -Encoding utf8
 $hashes = [ordered]@{}
 foreach ($name in $artifactNames) {

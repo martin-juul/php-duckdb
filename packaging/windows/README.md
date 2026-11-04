@@ -44,9 +44,9 @@ a separate automatically generated artifact.
 `build.ps1` calls [the SDK builder](../duckdb/build-sdk.ps1) to compile the
 source pinned in [source.json](../duckdb/source.json). The builder verifies the
 source archive's SHA-256, applies the nullable-bitpacking, Arrow
-conversion/geometry, C API copy-function and ARRAY join gather patches with
-exact context, and builds a Release DLL with Visual Studio 2022 x64. It
-includes core functions, Parquet, JSON, ICU and autocomplete, enables extension
+conversion/geometry, C API copy-function, ARRAY join gather and optional index
+patches with exact context, and builds a Release DLL with Visual Studio 2022
+x64. It includes core functions, Parquet, JSON, ICU and autocomplete, enables extension
 autoloading and automatic installation, and disables host-specific CPU
 optimization. It preserves upstream's static CRT and unity build defaults. Set
 `DUCKDB_DISABLE_UNITY=ON` to disable unity builds when memory is limited. The

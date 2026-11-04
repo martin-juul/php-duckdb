@@ -1,0 +1,57 @@
+--- a/src/include/duckdb/common/optional_idx.hpp
++++ b/src/include/duckdb/common/optional_idx.hpp
+@@ -18,7 +18,7 @@
+ 	constexpr optional_idx() {
+ 	}
+ 	// NOLINTNEXTLINE: allow implicit conversion from idx_t
+-	constexpr optional_idx(idx_t index_p) : index(index_p) {
++	constexpr optional_idx(idx_t index_p) : index(index_p), valid(true) {
+ 	}
+ 
+ 	static optional_idx Invalid() {
+@@ -26,26 +26,27 @@
+ 	}
+ 
+ 	bool IsValid() const {
+-		return index.has_value();
++		return valid;
+ 	}
+ 
+ 	void SetInvalid() {
+-		index.reset();
++		index = 0;
++		valid = false;
+ 	}
+ 
+ 	idx_t GetIndex() const {
+-		if (!index.has_value()) {
++		if (!valid) {
+ 			ThrowNotSet();
+ 		}
+-		return *index;
++		return index;
+ 	}
+ 
+ 	inline bool operator==(const optional_idx &rhs) const {
+-		return index == rhs.index;
++		return valid == rhs.valid && (!valid || index == rhs.index);
+ 	}
+ 
+ 	inline bool operator!=(const optional_idx &rhs) const {
+-		return index != rhs.index;
++		return !(*this == rhs);
+ 	}
+ 
+ private:
+@@ -53,7 +54,10 @@
+ 	[[noreturn]] DUCKDB_API static void ThrowNotSet();
+ 
+ private:
+-	optional<idx_t> index;
++	//! A plain value and flag rather than optional<idx_t>: an unset index keeps a defined value, so code the
++	//! compiler reorders to compare the value before the flag never branches on uninitialised memory.
++	idx_t index = 0;
++	bool valid = false;
+ };
+ 
+ } // namespace duckdb

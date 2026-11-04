@@ -163,7 +163,8 @@ export DUCKDB_EXTENSION_PATH="$PWD/modules/duckdb.so"
 %doc duckdb-sdk/share/duckdb-sdk/nullable-bitpacking.patch
 %doc duckdb-sdk/share/duckdb-sdk/arrow-geometry.patch
 %doc duckdb-sdk/share/duckdb-sdk/c-api-copy-functions.patch
-%doc duckdb-sdk/share/duckdb-sdk/array-join-gather.patch duckdb-sdk/share/duckdb-sdk/artifacts.json
+%doc duckdb-sdk/share/duckdb-sdk/array-join-gather.patch
+%doc duckdb-sdk/share/duckdb-sdk/optional-idx-defined.patch duckdb-sdk/share/duckdb-sdk/artifacts.json
 %doc README.md
 %config(noreplace) %{php_inidir}/%{ini_name}
 %{php_extdir}/%{pecl_name}.so

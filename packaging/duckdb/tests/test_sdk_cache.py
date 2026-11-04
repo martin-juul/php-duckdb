@@ -39,6 +39,9 @@ class SDKCacheTests(unittest.TestCase):
         (self.builder / "patches/array-join-gather.patch").write_text(
             "--- a/join.txt\n+++ b/join.txt\n@@ -1 +1 @@\n-old-join\n+patched-join\n"
         )
+        (self.builder / "patches/optional-idx-defined.patch").write_text(
+            "--- a/optional.txt\n+++ b/optional.txt\n@@ -1 +1 @@\n-old-optional\n+patched-optional\n"
+        )
         source = self.directory / "source"
         (source / "src/include").mkdir(parents=True)
         (source / "src/include/duckdb.h").write_text("fixture C API header\n")
@@ -47,6 +50,7 @@ class SDKCacheTests(unittest.TestCase):
         (source / "arrow.txt").write_text("old-arrow\n")
         (source / "copy.txt").write_text("old-copy\n")
         (source / "join.txt").write_text("old-join\n")
+        (source / "optional.txt").write_text("old-optional\n")
         self.archive = self.directory / "source.tar.gz"
         with tarfile.open(self.archive, "w:gz") as archive:
             archive.add(source, arcname="duckdb-fixture")
@@ -116,11 +120,16 @@ elif patch.startswith('--- a/copy.txt'):
     assert Path('arrow.txt').read_text() == 'patched-arrow\\n'
     assert Path('copy.txt').read_text() == 'old-copy\\n'
     Path('copy.txt').write_text('patched-copy\\n')
-else:
+elif patch.startswith('--- a/join.txt'):
     assert patch == '--- a/join.txt\\n+++ b/join.txt\\n@@ -1 +1 @@\\n-old-join\\n+patched-join\\n'
     assert Path('copy.txt').read_text() == 'patched-copy\\n'
     assert Path('join.txt').read_text() == 'old-join\\n'
     Path('join.txt').write_text('patched-join\\n')
+else:
+    assert patch == '--- a/optional.txt\\n+++ b/optional.txt\\n@@ -1 +1 @@\\n-old-optional\\n+patched-optional\\n'
+    assert Path('join.txt').read_text() == 'patched-join\\n'
+    assert Path('optional.txt').read_text() == 'old-optional\\n'
+    Path('optional.txt').write_text('patched-optional\\n')
 """)
         self.tool("cmake", """#!/usr/bin/env python3
 import json
@@ -146,6 +155,7 @@ else:
     assert (source / 'arrow.txt').read_text() == 'patched-arrow\\n'
     assert (source / 'copy.txt').read_text() == 'patched-copy\\n'
     assert (source / 'join.txt').read_text() == 'patched-join\\n'
+    assert (source / 'optional.txt').read_text() == 'patched-optional\\n'
 """)
         self.env = os.environ.copy()
         for variable in [
@@ -243,7 +253,8 @@ else:
         with (self.builder / "fixture.patch").open("a") as patch:
             patch.write("\n")
         self.assertNotEqual(fingerprint, self.fingerprint())
-        for name in ["arrow-geometry.patch", "c-api-copy-functions.patch", "array-join-gather.patch"]:
+        for name in ["arrow-geometry.patch", "c-api-copy-functions.patch", "array-join-gather.patch",
+                     "optional-idx-defined.patch"]:
             fingerprint = self.fingerprint()
             with (self.builder / "patches" / name).open("a") as patch:
                 patch.write("\n")
@@ -285,7 +296,7 @@ else:
         fingerprint = self.fingerprint()
         entry = self.cache / fingerprint
         self.assertTrue((entry / "share/duckdb-sdk/artifacts.json").is_file())
-        self.assertEqual(len(list(entry.rglob("*.*"))), 10)
+        self.assertEqual(len(list(entry.rglob("*.*"))), 11)
         self.assertEqual([path.name for path in self.cache.iterdir()], [fingerprint])
         shutil.rmtree(self.prefix)
         self.assertIn("Restored verified", self.build(cached=True).stdout)
@@ -302,7 +313,8 @@ else:
             "lib/libduckdb.so", "include/duckdb.h", "share/duckdb-sdk/LICENSE.duckdb",
             "share/duckdb-sdk/source.json", "share/duckdb-sdk/nullable-bitpacking.patch",
             "share/duckdb-sdk/arrow-geometry.patch", "share/duckdb-sdk/c-api-copy-functions.patch",
-            "share/duckdb-sdk/array-join-gather.patch", "share/duckdb-sdk/build.txt",
+            "share/duckdb-sdk/array-join-gather.patch", "share/duckdb-sdk/optional-idx-defined.patch",
+            "share/duckdb-sdk/build.txt",
             "share/duckdb-sdk/artifacts.json",
         ]:
             with self.subTest(artifact=name):
@@ -315,7 +327,8 @@ else:
                 self.assertNotEqual((entry / name).read_bytes(), b"corrupt")
 
     def test_missing_patch_rejected_before_fingerprint_or_build(self):
-        for name in ["arrow-geometry.patch", "c-api-copy-functions.patch", "array-join-gather.patch"]:
+        for name in ["arrow-geometry.patch", "c-api-copy-functions.patch", "array-join-gather.patch",
+                     "optional-idx-defined.patch"]:
             with self.subTest(patch=name):
                 patch = self.builder / "patches" / name
                 content = patch.read_text()
@@ -329,7 +342,8 @@ else:
         self.build(cached=True)
         for name, remove_hash in [
             (name, remove_hash)
-            for name in ["arrow-geometry.patch", "c-api-copy-functions.patch", "array-join-gather.patch"]
+            for name in ["arrow-geometry.patch", "c-api-copy-functions.patch", "array-join-gather.patch",
+                     "optional-idx-defined.patch"]
             for remove_hash in [False, True]
         ]:
             with self.subTest(patch=name, remove_hash=remove_hash):
@@ -368,7 +382,7 @@ else:
         pins = json.loads((metadata / "artifacts.json").read_text())
         for patch in [
             "nullable-bitpacking.patch", "arrow-geometry.patch", "c-api-copy-functions.patch",
-            "array-join-gather.patch",
+            "array-join-gather.patch", "optional-idx-defined.patch",
         ]:
             artifact = "share/duckdb-sdk/" + patch
             self.assertIn(artifact, pins)
@@ -376,6 +390,7 @@ else:
         self.assertIn("arrow_patch_sha256=", (metadata / "build.txt").read_text())
         self.assertIn("copy_function_patch_sha256=", (metadata / "build.txt").read_text())
         self.assertIn("array_join_patch_sha256=", (metadata / "build.txt").read_text())
+        self.assertIn("optional_idx_patch_sha256=", (metadata / "build.txt").read_text())
         self.assertIn("optimization_profile=NONE", (metadata / "build.txt").read_text())
         self.assertEqual(self.builds(), 1)
         self.assert_portable_configuration(self.configure_arguments())

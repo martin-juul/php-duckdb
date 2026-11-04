@@ -171,10 +171,11 @@ formats or functions execute as before.
 ### Engine patches and builds
 
 All packaging recipes and Docker images use the patched DuckDB 2.0.0 SDK. Its
-four patches fix nullable bitpacking writes, Arrow conversion transactions and
-geometry CRS, C API COPY format binding, and a DuckDB 2.0.0 hash-join gather
-that fails a `LEFT JOIN` bringing in a fixed-size `ARRAY` column with
-unmatched rows, and correlated scalar subqueries returning an `ARRAY`. Builds
+five patches fix nullable bitpacking writes, Arrow conversion transactions and
+geometry CRS, C API COPY format binding, a DuckDB 2.0.0 hash-join gather that
+fails a `LEFT JOIN` bringing in a fixed-size `ARRAY` column with unmatched rows
+and correlated scalar subqueries returning an `ARRAY`, and reads of the
+uninitialised value of an unset optional index during checkpoints. Builds
 against an external or unpatched DuckDB 2.0.0 library keep these defects; see
 the [patch inventory](../packaging/duckdb/patches/README.md). DuckDB 2.0
 release builds otherwise require AVX2 (x86-64-v3); the SDK builders keep a
