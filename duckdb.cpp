@@ -387,14 +387,26 @@ void duckdb_conn_worker_end(conn_inner &conn) {
     }
 }
 
-void duckdb_conn_destroy_prepare(conn_inner &conn, duckdb_prepared_statement &statement) {
+void duckdb_conn_destroy_prepare(const std::shared_ptr<conn_inner> &conn, duckdb_prepared_statement &statement) {
     {
-        std::lock_guard<std::mutex> lock(conn.worker_mutex);
-        if (conn.workers > 0) {
-            conn.worker_prepares.push_back(statement);
+        std::lock_guard<std::mutex> lock(conn->worker_mutex);
+        if (conn->workers > 0) {
+            conn->worker_prepares.push_back(statement);
             statement = nullptr;
             return;
         }
+    }
+
+    /* DuckDB 2.0 takes the client-context lock to destroy a prepared
+     * statement. Inside a handler of this connection the running statement
+     * holds that lock, so the destroy waits until the handler has returned. */
+    if (duckdb_conn_busy_here(*conn)) {
+        duckdb_prepared_statement deferred = statement;
+        statement = nullptr;
+        duckdb_conn_cleanup(conn, [deferred]() mutable {
+            duckdb_destroy_prepare(&deferred);
+        });
+        return;
     }
 
     duckdb_destroy_prepare(&statement);

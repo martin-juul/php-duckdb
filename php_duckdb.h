@@ -329,10 +329,11 @@ void duckdb_conn_worker_begin(conn_inner &conn);
 /* The worker finished executing: destroy the prepared statements released
  * while it ran. Caller holds conn.mutex, outside any DuckDB call. */
 void duckdb_conn_worker_end(conn_inner &conn);
-/* Destroy a prepared statement of this connection, or hand it to the
- * connection's async workers while one may be executing, so releasing it
- * never waits for their query. */
-void duckdb_conn_destroy_prepare(conn_inner &conn, duckdb_prepared_statement &statement);
+/* Destroy a prepared statement of this connection. While an async worker
+ * may be executing, hand it to the workers; inside a handler of this
+ * connection, defer it until the handler returns. Releasing a statement
+ * then never waits for a running query's client-context lock. */
+void duckdb_conn_destroy_prepare(const std::shared_ptr<conn_inner> &conn, duckdb_prepared_statement &statement);
 /* Run native cleanup under conn->mutex, or defer it until the connection's
  * PHP handler returns when the calling thread is inside one. No PHP runs. */
 void duckdb_conn_cleanup(const std::shared_ptr<conn_inner> &conn, std::function<void()> work);
@@ -375,7 +376,7 @@ struct stmt_inner {
             return;
         }
         if (conn) {
-            duckdb_conn_destroy_prepare(*conn, stmt);
+            duckdb_conn_destroy_prepare(conn, stmt);
         } else {
             duckdb_destroy_prepare(&stmt);
         }
@@ -485,7 +486,7 @@ struct async_task {
         }
         if (owned_stmt) {
             if (conn) {
-                duckdb_conn_destroy_prepare(*conn, owned_stmt);
+                duckdb_conn_destroy_prepare(conn, owned_stmt);
             } else {
                 duckdb_destroy_prepare(&owned_stmt);
             }
