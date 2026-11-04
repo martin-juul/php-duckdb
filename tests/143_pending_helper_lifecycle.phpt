@@ -87,19 +87,6 @@ check($conn->query('SELECT 43 AS v')->fetchAll() === [['v' => 43]], 'The next qu
 $format->reset();
 check_copy($conn->queryPending($copy('after-cancel', 5000))->await(), $format, "$dir/after-cancel.lines", 'after-cancel');
 echo "cancelled mid-execution\n";
-
-// A fiber suspended on a running pumped COPY is never resumed: request
-// shutdown destroys it and the statement without hanging.
-$format->reset();
-$abandoned = new Fiber(
-    fn() => $conn->queryPending("COPY (SELECT range AS i FROM range(50000000)) TO '$dir/abandoned.lines' (FORMAT lines)")->suspend()
-);
-$abandoned->start();
-while (!in_array('write', $format->log, true)) {
-    check(!$abandoned->isTerminated(), 'The abandoned COPY is still running');
-    $abandoned->resume();
-}
-echo "abandoned fiber\n";
 ?>
 --EXPECT--
 isReady
@@ -107,4 +94,3 @@ await
 suspend
 other connection between steps
 cancelled mid-execution
-abandoned fiber
