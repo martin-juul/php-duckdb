@@ -146,6 +146,10 @@ resolves them on the registering connection, as in 1.5.
 - BIGNUM and VARIANT decoding is verified for DuckDB 2.0.x, including VARIANT's
   new nanosecond time-zone timestamp tag; other engine versions still raise a
   decoding error for these two types.
+- A COPY or scalar handler exception raised while `PendingQuery::isReady()` or
+  a runtime's `suspend()` steps a query is now the `getPrevious()` cause of the
+  error that `await()` or `suspend()` throws. 1.5 dropped it once the stepping
+  call returned.
 
 ### Threading
 

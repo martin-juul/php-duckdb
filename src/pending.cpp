@@ -449,7 +449,26 @@ static bool duckdb_task_step_once(const std::shared_ptr<async_task> &task) {
     return false;
 }
 
+/* A step's handler exception fails the query, but DuckDB may report that
+ * failure on a later step, and the step's own method call or a runtime's
+ * yield between steps would otherwise drop or misplace it. The task keeps
+ * the first one until its error is thrown. */
+static void duckdb_task_keep_late_cause(async_task &task) {
+    zend_object *cause = duckdb_callback_take_cause();
+    if (!cause) {
+        return;
+    }
+    if (task.late_cause) {
+        duckdb_callback_release(task.conn.get(), cause);
+        return;
+    }
+    task.late_cause = cause;
+}
+
 bool duckdb_task_step(std::shared_ptr<async_task> task) {
+    /* A handler exception kept before this step belongs to the code that
+     * called it, not to this query. */
+    bool own_causes = task->mode == task_mode::POLLING && !duckdb_callback_has_cause();
     bool done = duckdb_task_step_once(task);
 
     /* After exit() or a fatal error in a COPY handler, finish the failing
@@ -457,16 +476,34 @@ bool duckdb_task_step(std::shared_ptr<async_task> task) {
     while (!done && duckdb_copy_unwinding()) {
         done = duckdb_task_step_once(task);
     }
+
+    if (own_causes) {
+        duckdb_task_keep_late_cause(*task);
+    }
     return done;
+}
+
+void duckdb_pending_release_late_cause(async_task &task) {
+    zend_object *cause = task.late_cause;
+    task.late_cause = nullptr;
+    duckdb_callback_release(task.conn.get(), cause);
 }
 
 void duckdb_pending_complete(php_duckdb_pending_object *intern, zval *return_value) {
     std::shared_ptr<async_task> task = intern->task;
 
     if (task->error) {
+        /* The kept handler exception becomes the cause of this error, unless
+         * the calling code already holds one of its own. */
+        if (task->late_cause && !duckdb_callback_has_cause()) {
+            duckdb_callback_keep_cause(task->late_cause);
+            task->late_cause = nullptr;
+        }
+        duckdb_pending_release_late_cause(*task);
         duckdb_throw_error(task->error_type, task->error_msg.c_str());
         RETURN_THROWS();
     }
+    duckdb_pending_release_late_cause(*task);
     if (task->consumed) {
         duckdb_throw_msg("Result has already been consumed");
         RETURN_THROWS();

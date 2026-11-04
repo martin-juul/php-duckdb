@@ -203,6 +203,10 @@ static void duckdb_result_iterator_free_object(zend_object *object) {
 
 static void duckdb_pending_free_object(zend_object *object) {
     php_duckdb_pending_object *intern = duckdb_pending_from_obj(object);
+    if (intern->task && intern->task->late_cause) {
+        OBJ_RELEASE(intern->task->late_cause);
+        intern->task->late_cause = nullptr;
+    }
     intern->task.~shared_ptr(); /* the worker keeps its own ref until completion */
     if (duckdb_notify_fd_valid(intern->read_fd)) {
         duckdb_notify_fd_close(intern->read_fd);

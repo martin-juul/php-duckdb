@@ -448,6 +448,10 @@ struct async_task {
     /* The prepared statement's type, recorded when the task is created
      * because the statement may be gone when the result is read. */
     duckdb_statement_type statement_type = DUCKDB_STATEMENT_TYPE_INVALID;
+    /* POLLING, request thread only: the first handler exception raised
+     * while a step ran, kept until the task's error is thrown. The
+     * PendingQuery object releases it. */
+    zend_object *late_cause = nullptr;
 
     duckdb_notify_fd notify_write_fd = DUCKDB_INVALID_NOTIFY_FD;
 
@@ -836,6 +840,8 @@ bool duckdb_task_step(std::shared_ptr<async_task> task);
 /* Shared completion logic for PendingQuery::await()/suspend(). Throws
  * on failure or double consumption; otherwise returns the Result. */
 void duckdb_pending_complete(php_duckdb_pending_object *intern, zval *return_value);
+/* Release a polling task's kept handler exception. Request thread only. */
+void duckdb_pending_release_late_cause(async_task &task);
 /* Create the completion-notification fd pair. Returns false and throws
  * on failure. */
 bool duckdb_create_notify_pipe(duckdb_notify_fd fds[2]);
