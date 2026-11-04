@@ -1448,8 +1448,6 @@ static bool after_method() {
         return false;
     }
     duckdb_drain_deferred_connections();
-    /* Once the executor is shutting down, no handler may run. */
-    duckdb_sessions_reap(EG(active));
     duckdb_scalar_after_method();
 
     if (pending_bailout) {

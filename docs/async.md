@@ -33,13 +33,15 @@ COPY handler on their own connection. A polling query that runs PHP handlers
 calls them from `isReady()`, `await()` and `suspend()`; the handlers
 themselves must not suspend.
 
-Starting a query, in either mode, supersedes the connection's open streaming
-result or unfinished pending query, as any other statement does; see
-[streaming caveats](query.md#streaming-queries-constant-memory). A superseded
-pending query throws "COPY statement superseded by another operation on its
-connection" when awaited, whatever statement it ran. An unfinished write is
-rolled back, or aborts the surrounding explicit transaction, so drive a
-pending write to completion before using its connection again.
+An unfinished pending query holds its connection like an open stream does:
+until `await()` returns or the `PendingQuery` is released, DuckDB refuses
+other statements on that connection with `ErrorType::ResourceInUse`; see
+[streaming caveats](query.md#streaming-queries-constant-memory).
+`queryPending()` throws the refusal when called. `queryAsync()` and
+`executeAsync()` return a `PendingQuery` whose `await()` throws it, because
+their worker starts the statement. Releasing an unfinished write rolls it
+back, or aborts the surrounding explicit transaction, so drive a pending write
+to completion before you drop it.
 
 ## Consuming the result
 

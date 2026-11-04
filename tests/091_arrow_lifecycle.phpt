@@ -108,10 +108,19 @@ echo "appender state checks preserve batches and clear recovers failed submissio
 
 $stream = $conn->queryStreaming('SELECT i::INTEGER AS i FROM range(10000) t(i)');
 $first = $stream->fetchArrowChunk();
-$conn->query('SELECT 1');
-rejects(fn() => $stream->fetchArrowChunk(), DuckDB\Exception::class);
+try {
+    $conn->query('SELECT 1');
+    throw new RuntimeException('A statement ran beside the open stream');
+} catch (DuckDB\Exception $error) {
+    check($error->getErrorType() === DuckDB\ErrorType::ResourceInUse, 'Open stream refuses: ' . $error->getMessage());
+}
+$second = $stream->fetchArrowChunk();
+check($second !== null, 'Refused statement leaves the stream readable');
 $other = (new DuckDB\Database())->connect();
-check($other->dataChunkFromArrow($first)->toRows()[0] === ['i' => 0], 'Exported batch survives stream invalidation');
+check($other->dataChunkFromArrow($second)->toRows()[0] === ['i' => $first->rowCount()], 'Stream continues after the refusal');
+unset($stream);
+check($other->dataChunkFromArrow($first)->toRows()[0] === ['i' => 0], 'Exported batch survives stream release');
+check($conn->query('SELECT 1 AS one')->fetchRow() === ['one' => 1], 'Released stream frees the connection');
 $rows = $conn->query('SELECT i::INTEGER AS i FROM range(8193) t(i)');
 $first = $rows->fetchArrowChunk();
 $position = $first->rowCount();
@@ -124,11 +133,11 @@ check($rows->fetchArrowChunk() === null && $rows->fetchRow() === null, 'Mixed fe
 $empty = $conn->queryStreaming('SELECT 1::INTEGER AS id WHERE false');
 check(count($empty->arrowSchema()->toArray()['children']) === 1, 'Empty stream has schema');
 check($empty->fetchArrowChunk() === null && $empty->fetchArrowChunk() === null, 'Empty stream has no batches');
-echo "exported batches survive invalidation and mixed fetches preserve stream position\n";
+echo "exported batches survive stream release and mixed fetches preserve stream position\n";
 ?>
 --EXPECT--
 owning objects reject cloning, serialization and invalid construction
 closed connection conversion failures preserve source ownership
 materialized and async results export after source connection release
 appender state checks preserve batches and clear recovers failed submission
-exported batches survive invalidation and mixed fetches preserve stream position
+exported batches survive stream release and mixed fetches preserve stream position

@@ -751,17 +751,15 @@ static void duckdb_result_stream_drained(result_data *d, open_result &record) {
 }
 
 /* Fetch a streaming result's next chunk. DuckDB 2.0 refuses a new
- * statement while a stream is open, so a newer statement supersedes this
- * one: its native handle is gone, and fetching fails loudly instead of
- * silently truncating the result.
+ * statement while a stream is open, so nothing else ends it before it
+ * drains, fails or its owner releases it.
  * A pumped stream keeps executing while it is fetched, so each fetch runs
  * on the connection's helper while this thread services the callbacks
  * that DuckDB threads hand over. The stream's session ends once the stream
  * drains or fails. */
 static bool duckdb_result_fetch_stream_chunk(result_data *d) {
-    /* The fetch runs inside DuckDB's execution engine on the connection, and
-     * the record's state only changes under the connection mutex, so a
-     * stream checked open cannot be superseded before the fetch runs. */
+    /* The fetch runs inside DuckDB's execution engine on the connection,
+     * and the record's state only changes under the connection mutex. */
     std::unique_lock<std::mutex> lk;
     if (!duckdb_conn_enter(*d->conn_keepalive, lk, conn_entry::own_result)) {
         return false;
@@ -769,15 +767,8 @@ static bool duckdb_result_fetch_stream_chunk(result_data *d) {
 
     open_result &record = *d->record;
     if (record.failed) {
-        /* A failed stream keeps its error, also after a newer statement
-         * destroyed its handle. */
+        /* A failed stream keeps its error for every re-fetch. */
         duckdb_throw_error(record.error_type, record.error_message.c_str());
-        return false;
-    }
-    if (record.state == open_result_state::superseded) {
-        duckdb_throw_msg("This streaming result was invalidated by a newer query on the same "
-                         "connection (DuckDB allows one open streaming result per connection). "
-                         "Use a separate connection per concurrent stream.");
         return false;
     }
 
@@ -1103,8 +1094,8 @@ void duckdb_result_instantiate(zval *return_value, duckdb_result *res, bool stre
     data->rows_changed = duckdb_rows_changed(source);
     data->arrow_options = duckdb_result_get_arrow_options(source);
 
-    /* A stream is the connection's open result until it drains or a newer
-     * statement supersedes it; the record owns its native handle. */
+    /* A stream is the connection's open result until it drains, fails or
+     * its owner releases it; the record owns its native handle. */
     if (streaming && keepalive) {
         data->record = duckdb_open_result_stream(*data->conn_keepalive, &data->result, std::move(session));
     }

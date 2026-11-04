@@ -1,5 +1,5 @@
 --TEST--
-Typed values: numeric casts, temporal precision/settings, geometry CRS and stream invalidation
+Typed values: numeric casts, temporal precision/settings, geometry CRS and open streams
 --SKIPIF--
 <?php require_once __DIR__ . '/skipif.inc'; ?>
 --FILE--
@@ -58,17 +58,24 @@ $first = $stream->fetchRow();
 $stmt->bindValue('v', new Value('INTEGER', 42));
 $second = $stream->fetchRow();
 if ($first['i'] !== 0 || $second['i'] !== 1) { throw new RuntimeException('Binding invalidated stream'); }
-$stmt->execute();
-try { while ($stream->fetchRow() !== null) {} echo "stream remained valid\n"; }
-catch (DuckDB\Exception $e) { echo "execution invalidated stream\n"; }
+try { $stmt->execute(); echo "execution ran beside the stream\n"; }
+catch (DuckDB\Exception $e) { echo "execution refused: ", $e->getErrorType()->name, "\n"; }
+$rows = 2;
+while ($stream->fetchRow() !== null) { $rows++; }
+echo "stream remained valid: $rows rows\n";
+echo "execution after drain: ", $stmt->execute()->fetchRow()['$v'] ?? 'missing', "\n";
 $conn->query('CREATE TABLE streamed (v INTEGER)');
 $app = $conn->appender('streamed');
 $stream = $conn->queryStreaming('SELECT i FROM range(100000) t(i)');
 $stream->fetchRow();
+try { $app->appendRow([new Value('INTEGER', 42)]); echo "appender ran beside the stream\n"; }
+catch (DuckDB\Exception $e) { echo "appender refused: ", $e->getErrorType()->name, "\n"; }
+$rows = 1;
+while ($stream->fetchRow() !== null) { $rows++; }
+echo "appender stream remained valid: $rows rows\n";
 $app->appendRow([new Value('INTEGER', 42)]);
-try { while ($stream->fetchRow() !== null) {} echo "appender stream remained valid\n"; }
-catch (DuckDB\Exception $e) { echo "appender conversion invalidated stream\n"; }
 $app->close();
+echo "appended after drain: ", $conn->query('SELECT count(*) AS n FROM streamed WHERE v = 42')->fetchRow()['n'], "\n";
 ?>
 --EXPECT--
 cast rejected
@@ -79,5 +86,9 @@ cast rejected
 cast rejected
 numeric and temporal: ok
 geometry CRS: ok
-execution invalidated stream
-appender conversion invalidated stream
+execution refused: ResourceInUse
+stream remained valid: 100000 rows
+execution after drain: 42
+appender refused: ResourceInUse
+appender stream remained valid: 100000 rows
+appended after drain: 1

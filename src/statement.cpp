@@ -610,8 +610,8 @@ DUCKDB_COPY_METHOD(DuckDB_Statement, executeAsync) {
     duckdb_statement_retained retained;
     /* Bind on the request thread, under the connection mutex so this cannot
      * interleave with a running async execution of the same statement; the
-     * worker thread only executes. Starting the execution supersedes any
-     * open result on this connection. */
+     * worker thread only executes. DuckDB refuses the execution with
+     * RESOURCE_IN_USE while a result is open on this connection. */
     {
         std::unique_lock<std::mutex> lk;
         if (!duckdb_conn_enter(*intern->inner->conn, lk, conn_entry::statement_start)) {

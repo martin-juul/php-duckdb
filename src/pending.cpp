@@ -173,12 +173,9 @@ static void duckdb_async_run_task(std::shared_ptr<async_task> task) {
             task->error_type = DUCKDB_ERROR_INTERRUPT;
             task->error_msg = "Query interrupted";
         } else {
-            /* A statement start supersedes the connection's open results,
-             * including those opened after this task was queued. No PHP
-             * runs here: superseded sessions' finish hooks go to the
-             * request thread. */
-            duckdb_conn_supersede_from_worker(*task->conn);
-
+            /* DuckDB refuses the statement with RESOURCE_IN_USE while a
+             * result is open on the connection, including one opened after
+             * this task was queued. */
             duckdb_state state;
             if (task->mode == task_mode::THREAD_PREPARED) {
                 state = duckdb_execute_prepared(task->stmt->stmt, &task->result);
@@ -263,9 +260,6 @@ void duckdb_async_worker_start(const std::shared_ptr<async_task> &task) {
     duckdb_async_worker *raw_worker = worker.get();
     duckdb_async_registry.push_back(std::move(worker));
 
-    /* This request thread runs the finish hooks of the sessions the worker
-     * supersedes. */
-    duckdb_sessions_watch(task->conn);
     duckdb_conn_worker_begin(*task->conn);
 
     try {
@@ -359,7 +353,7 @@ static bool duckdb_task_step_once(const std::shared_ptr<async_task> &task) {
         return task->done;
     }
     if (!task->record) {
-        /* finished, superseded or cancelled */
+        /* finished or cancelled */
         std::lock_guard<std::mutex> lk(task->m);
         return task->done;
     }
@@ -367,22 +361,10 @@ static bool duckdb_task_step_once(const std::shared_ptr<async_task> &task) {
     bool finished = false;
     {
         /* Own-result entry: the PendingQuery method checked the busy state
-         * on entry, and stepping must not supersede its own statement. */
+         * on entry. */
         std::lock_guard<std::mutex> lk(task->conn->mutex);
         open_result &record = *task->record;
-        if (record.state == open_result_state::superseded) {
-            /* A newer statement destroyed the pending query; its writers
-             * abort here unless that statement already ran them. */
-            if (record.session) {
-                duckdb_session_end(*task->conn, record.session, duckdb_superseded_message, true);
-            }
-            task->error = true;
-            task->error_type = DUCKDB_ERROR_INVALID;
-            task->error_msg = duckdb_superseded_message;
-            task->consumed = true;
-            task->record.reset();
-            finished = true;
-        } else if (record.session) {
+        if (record.session) {
             std::shared_ptr<copy_session> session = record.session;
             duckdb_pending_state st = DUCKDB_PENDING_ERROR;
             bool executed = false;

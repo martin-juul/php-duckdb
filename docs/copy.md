@@ -173,12 +173,11 @@ the writer is released without calling PHP. The same applies to writers that
 are still open once the request is past its destructor phase.
 
 Discarding an unfinished `PendingQuery` or cancelling it aborts its writers
-with a `DuckDB\Exception`. So does starting another statement on its
-connection before the query finishes, including appending rows or freeing an
-`Appender`: the extension supersedes the unfinished statement, and the failure
-says that the COPY statement was superseded. Binding values, clearing
-bindings, table-name discovery, Arrow conversion and registration do not
-start a statement and leave the pending COPY running.
+with a `DuckDB\Exception`. Until the query finishes, other statements on its
+connection, and appender writes that would flush, are refused with
+`ErrorType::ResourceInUse`; the refusal leaves the pending COPY running. Binding
+values, clearing bindings, table-name discovery, Arrow conversion and
+registration start no statement and work meanwhile.
 
 ## FrankenPHP and long-running workers
 

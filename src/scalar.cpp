@@ -670,8 +670,8 @@ DUCKDB_COPY_METHOD(DuckDB_Connection, registerScalarFunction) {
             conn->scalar_state = std::move(registry);
             scalar_connections.emplace_back(conn);
         }
-        /* Registration must not supersede an open result, and DuckDB refuses
-         * a statement while one is open. Resolve on the user connection, which
+        /* DuckDB refuses a statement while a result is open, and
+         * registration must not fail for that. Resolve on the user connection, which
          * sees its USE catalog, search path and uncommitted types, unless a
          * result is open; then resolve on the conversion connection. */
         conn_inner &resolver = conn->open_results.empty() ? *conn : *conn->scalar_state->conversion;

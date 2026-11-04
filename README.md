@@ -315,17 +315,17 @@ and prevents the same result from being consumed twice.
 ### Streaming & the one-stream rule
 
 `queryStreaming()` / `Statement::executeStreaming()` keep memory constant for
-arbitrarily large results. DuckDB allows **one open streaming result per
-connection**: starting any new query (or appender) on the same connection
-supersedes the previous stream. DuckDB 2.0 would refuse the new statement
-instead; the driver ends the old stream first, as DuckDB 1.5 did. Rows the
-stream already holds stay readable, and its next fetch throws a
-`DuckDB\Exception` instead of silently truncating your data — buffered
-`query()` results are not affected. Binding values, `getTableNames()`, Arrow
-conversion and function registration do not supersede it. Superseding a
-stream or pending query whose write has not finished rolls the write back, or
-aborts the surrounding transaction. For concurrent streams, open one
-connection per stream; see [streaming caveats](docs/query.md#streaming-queries-constant-memory).
+arbitrarily large results. While a stream or an unfinished pending query is
+open, DuckDB 2.0 refuses any new statement on the same connection with
+`ErrorType::ResourceInUse`; appender writes that would flush are refused the
+same way. The refused statement does not run and the open result stays
+readable. Drain the stream, `await()` the pending query or release it first;
+buffered `query()` results never hold the connection. Binding values,
+`getTableNames()`, Arrow conversion and function registration still work
+while a result is open. Releasing a stream or pending query whose write has
+not finished rolls the write back, or aborts the surrounding transaction. For
+concurrent streams, open one connection per stream; see
+[streaming caveats](docs/query.md#streaming-queries-constant-memory).
 
 A query that fails _mid-stream_, for example on a cast error millions of rows
 into a result, throws the usual typed exception while fetching. A stream never

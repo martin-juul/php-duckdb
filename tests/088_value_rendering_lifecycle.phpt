@@ -1,5 +1,5 @@
 --TEST--
-Value string rendering: snapshots, connection-local resolution, errors and stream lifecycle
+Value string rendering: snapshots, connection-local resolution, errors and open-stream refusal
 --SKIPIF--
 <?php require_once __DIR__ . '/skipif.inc'; ?>
 --FILE--
@@ -92,28 +92,33 @@ for ($iteration = 0; $iteration < 10; $iteration++) {
 }
 echo "errors and repeated recovery: ok\n";
 
-foreach ([false, true] as $fail) {
+// Rendering runs a statement, which DuckDB refuses while a stream holds the
+// connection. The refusal leaves the stream readable.
+foreach ([$value, $bad] as $rendered) {
     $stream = $conn->queryStreaming('SELECT i FROM range(5000) t(i)');
     renderingAssert($stream->fetchRow()['i'] === 0, 'Stream failed before rendering');
-    if ($fail) {
-        renderingReject(fn() => $bad->toString($conn), DuckDB\Exception::class);
-    } else {
-        renderingAssert($value->toString($conn) === '[1]', 'Stream-side rendering failed');
+    try {
+        $rendered->toString($conn);
+        throw new RuntimeException('Rendering ran beside an open stream');
+    } catch (DuckDB\Exception $error) {
+        renderingAssert($error->getErrorType() === DuckDB\ErrorType::ResourceInUse, 'Unexpected refusal: ' . $error->getMessage());
     }
-    renderingReject(fn() => $stream->fetchAll(), DuckDB\Exception::class);
+    renderingAssert(count($stream->fetchAll()) === 4999, 'Refused rendering changed the stream');
     unset($stream);
 }
+renderingAssert($value->toString($conn) === '[1]', 'Rendering after the stream failed');
+renderingReject(fn() => $bad->toString($conn), DuckDB\Exception::class);
 $stream = $other->queryStreaming('SELECT i FROM range(5000) t(i)');
 $value->toString($conn);
 renderingAssert(count($stream->fetchAll()) === 5000, 'Rendering invalidated another connection');
 $pending = $conn->queryAsync('SELECT sum(i)::BIGINT AS total FROM range(10000) t(i)');
 renderingAssert($value->toString($conn) === '[1]', 'Rendering during async execution failed');
 renderingAssert($pending->await()->fetchRow()['total'] === 49995000, 'Async result was changed');
-echo "stream invalidation, connection isolation and async ownership: ok\n";
+echo "open stream refusal, connection isolation and async ownership: ok\n";
 ?>
 --EXPECT--
 snapshots and explicit final renderer: ok
 catalog changes, transactions and connection reuse: ok
 session timezone presentation: ok
 errors and repeated recovery: ok
-stream invalidation, connection isolation and async ownership: ok
+open stream refusal, connection isolation and async ownership: ok

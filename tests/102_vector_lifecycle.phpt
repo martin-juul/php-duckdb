@@ -80,12 +80,19 @@ $stream->fetchRow();
 $separate = (new DuckDB\Database())->connect();
 $separate->createVector('INTEGER', 1)->set($separate, 0, '1');
 check($stream->fetchRow() === ['i' => 1], 'Other connections leave streams intact');
-$conn->createVector('INTEGER', 1);
-rejects(function () use ($stream) {
-    while ($stream->fetchRow() !== null) {
-    }
-}, DuckDB\Exception::class);
-echo "type resolution invalidates the connection's stream\n";
+try {
+    $conn->createVector('INTEGER', 1);
+    throw new RuntimeException('Type resolution ran beside the open stream');
+} catch (DuckDB\Exception $error) {
+    check($error->getErrorType() === DuckDB\ErrorType::ResourceInUse, 'Open stream refuses: ' . $error->getMessage());
+}
+$rows = 2;
+while ($stream->fetchRow() !== null) {
+    $rows++;
+}
+check($rows === 5000, 'Refused type resolution leaves the stream intact');
+check($conn->createVector('INTEGER', 1)->capacity() === 1, 'Type resolution after the stream drains');
+echo "type resolution is refused while the connection's stream is open\n";
 
 $conn->query('CREATE TABLE t(i INTEGER)');
 $conn->beginTransaction();
@@ -110,6 +117,6 @@ echo "repeated nested vectors release memory\n";
 vectors reject cloning, serialization and invalid construction
 vectors own their memory
 closed connections are rejected
-type resolution invalidates the connection's stream
+type resolution is refused while the connection's stream is open
 conversion errors keep transactions usable
 repeated nested vectors release memory

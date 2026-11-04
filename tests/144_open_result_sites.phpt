@@ -1,5 +1,5 @@
 --TEST--
-Connection: every synchronous statement start supersedes an open stream; binding, metadata, Arrow and registration leave it readable
+Connection: every synchronous statement start is refused with ResourceInUse while a stream is open; binding, metadata, Arrow, registration and appender creation leave it readable
 --SKIPIF--
 <?php require_once __DIR__ . '/skipif.inc'; ?>
 --FILE--
@@ -38,17 +38,31 @@ function open_stream(DuckDB\Connection $conn): DuckDB\Result
     return $stream;
 }
 
-/** Whether reading $stream to the end throws the stale-stream message. */
-function is_stale(DuckDB\Result $stream): bool
+/** Whether $operation throws DuckDB's RESOURCE_IN_USE refusal. */
+function is_refused(callable $operation): bool
 {
     try {
-        while ($stream->fetchRow() !== null) {
-        }
+        $operation();
     } catch (DuckDB\Exception $error) {
-        return str_starts_with($error->getMessage(), 'This streaming result was invalidated by a newer query');
+        return $error->getErrorType() === DuckDB\ErrorType::ResourceInUse
+            && $error->getMessage() === 'Resource In Use Error: connection has an open result; drain or destroy it before starting a new query';
     }
 
     return false;
+}
+
+/** Whether $stream still returns every remaining row; this drains it. */
+function is_complete(DuckDB\Result $stream): bool
+{
+    $next = 1;
+    while (($row = $stream->fetchRow()) !== null) {
+        if ($row !== ['i' => $next]) {
+            return false;
+        }
+        $next++;
+    }
+
+    return $next === 100000;
 }
 
 $conn = (new DuckDB\Database())->connect();
@@ -60,8 +74,9 @@ $vector = $conn->createVector('INTEGER', 1);
 $chunk = DuckDB\DataChunk::fromVectors(['v' => $conn->createVector('INTEGER', 1)], 1);
 $arrow = $chunk->toArrow($conn);
 
-// R6: each operation starts a statement, so it succeeds and the open stream
-// becomes stale.
+// R6: each operation starts a statement, so DuckDB refuses it while the
+// stream is open, and the stream keeps all of its rows. Once the stream has
+// drained, the same operation succeeds.
 $starts = [
     'query' => fn() => check($conn->query('SELECT 1 AS one')->fetchAll() === [['one' => 1]], 'query()'),
     'queryStreaming' => fn() => check($conn->queryStreaming('SELECT 2 AS two')->fetchAll() === [['two' => 2]],
@@ -76,7 +91,6 @@ $starts = [
         'Statement::executeStreaming()'),
     'queryPending' => fn() => check($conn->queryPending('SELECT 7 AS v')->await()->fetchAll() === [['v' => 7]],
         'queryPending()'),
-    'appender creation' => fn() => $conn->appender('t')->close(),
     'typed appendRow' => fn() => $appender->appendRow([new DuckDB\Value('INTEGER', '8')]),
     'Value::toString' => fn() => check((new DuckDB\Value('mood', 'busy'))->toString($conn) === 'busy',
         'Value::toString()'),
@@ -87,23 +101,37 @@ $starts = [
 ];
 foreach ($starts as $name => $operation) {
     $stream = open_stream($conn);
+    check(is_refused($operation), $name . ' was not refused');
+    check(is_complete($stream), $name . ' cut the stream short');
     $operation();
-    check(is_stale($stream), $name . ' left the stream readable');
-    echo $name, " supersedes\n";
+    echo $name, " is refused while the stream is open\n";
 }
+$appender->close();
+check($conn->query('SELECT count(*) AS n FROM t')->fetchAll() === [['n' => 1]], 'Only the accepted appendRow wrote a row');
 
 $stream = open_stream($conn);
+check(is_refused(fn() => $conn->beginTransaction()), 'beginTransaction() was not refused');
+check(is_complete($stream), 'beginTransaction() cut the stream short');
 $conn->beginTransaction();
-check(is_stale($stream), 'beginTransaction() left the stream readable');
 $conn->query('INSERT INTO t VALUES (11)');
 $stream = open_stream($conn);
+check(is_refused(fn() => $conn->rollBack()), 'rollBack() was not refused');
+check(is_refused(fn() => $conn->commit()), 'commit() was not refused');
+check(is_complete($stream), 'rollBack() and commit() cut the stream short');
+check($conn->query('SELECT count(*) AS n FROM t WHERE i = 11')->fetchAll() === [['n' => 1]], 'The transaction is still open');
 $conn->rollBack();
-check(is_stale($stream), 'rollBack() left the stream readable');
 check($conn->query('SELECT count(*) AS n FROM t WHERE i = 11')->fetchAll() === [['n' => 0]], 'The rollback ran');
-echo "beginTransaction and rollBack supersede\n";
+echo "beginTransaction, commit and rollBack are refused while the stream is open\n";
 
-// AE2, R7: these operations start no statement, so the stream keeps
-// returning rows.
+// An undriven pending query holds the connection the same way.
+$pending = $conn->queryPending('SELECT 42 AS v');
+check(is_refused(fn() => $conn->query('SELECT 1')), 'A pending query did not hold the connection');
+check($pending->await()->fetchAll() === [['v' => 42]], 'The pending query completes');
+check($conn->query('SELECT 1 AS one')->fetchAll() === [['one' => 1]], 'The completed pending query released the connection');
+echo "an undriven pending query refuses statements\n";
+
+// AE2, R7: these operations start no statement, so they succeed and the
+// stream keeps returning rows.
 $other = $conn->prepare('SELECT ? AS v');
 $plain = [
     'bindValue' => fn() => $other->bindValue(1, 12),
@@ -114,12 +142,16 @@ $plain = [
     'DataChunk::toArrow' => fn() => $chunk->toArrow($conn),
     'registerCopyToFunction' => fn() => $conn->registerCopyToFunction('lines', new LinesFormat()),
     'registerScalarFunction' => fn() => $conn->registerScalarFunction('php_label', ['mood'], 'VARCHAR', new Labelled()),
+    'appender creation' => fn() => $conn->appender('t'),
 ];
 foreach ($plain as $name => $operation) {
     $stream = open_stream($conn);
     $operation();
-    check($stream->fetchRow() === ['i' => 1], $name . ' superseded the stream');
+    check($stream->fetchRow() === ['i' => 1], $name . ' disturbed the stream');
     echo $name, " leaves the stream readable\n";
+
+    // Releasing the undrained stream frees the connection.
+    unset($stream);
 }
 check($conn->query("SELECT php_label('busy'::mood) AS v")->fetchAll() === [['v' => 'label busy']],
     'The function registered with a stream open runs');
@@ -136,21 +168,21 @@ check($conn->query("SELECT php_shade('dark'::shade) AS v")->fetchAll() === [['v'
 echo "registration resolves the USE catalog\n";
 ?>
 --EXPECT--
-query supersedes
-queryStreaming supersedes
-prepare supersedes
-Connection::execute with a typed parameter supersedes
-Statement::execute with a typed parameter supersedes
-Statement::executeStreaming supersedes
-queryPending supersedes
-appender creation supersedes
-typed appendRow supersedes
-Value::toString supersedes
-createVector supersedes
-Vector::set supersedes
-Vector::setValues supersedes
-getTableFunctions supersedes
-beginTransaction and rollBack supersede
+query is refused while the stream is open
+queryStreaming is refused while the stream is open
+prepare is refused while the stream is open
+Connection::execute with a typed parameter is refused while the stream is open
+Statement::execute with a typed parameter is refused while the stream is open
+Statement::executeStreaming is refused while the stream is open
+queryPending is refused while the stream is open
+typed appendRow is refused while the stream is open
+Value::toString is refused while the stream is open
+createVector is refused while the stream is open
+Vector::set is refused while the stream is open
+Vector::setValues is refused while the stream is open
+getTableFunctions is refused while the stream is open
+beginTransaction, commit and rollBack are refused while the stream is open
+an undriven pending query refuses statements
 bindValue leaves the stream readable
 typed bindValue leaves the stream readable
 clearBindings leaves the stream readable
@@ -159,5 +191,6 @@ dataChunkFromArrow leaves the stream readable
 DataChunk::toArrow leaves the stream readable
 registerCopyToFunction leaves the stream readable
 registerScalarFunction leaves the stream readable
+appender creation leaves the stream readable
 registered function runs
 registration resolves the USE catalog

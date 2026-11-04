@@ -47,7 +47,7 @@ Built-in function names cannot be replaced.
 Registration resolves the declared types on the registering connection. While
 a streaming or pending result is open there, it resolves them against
 committed types in the database's default catalog instead, so registering
-never supersedes the open result.
+works while the result is open and leaves it untouched.
 
 The function belongs to its registering connection. Other connections,
 including connections to the same database, cannot invoke its PHP handler.

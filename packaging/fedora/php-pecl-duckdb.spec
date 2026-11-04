@@ -163,7 +163,7 @@ export DUCKDB_EXTENSION_PATH="$PWD/modules/duckdb.so"
 %changelog
 * Tue Nov 03 2026 Martin Juul Christiansen <code@juul.xyz> - 2.0.0-1
 - Release 2.0.0 on DuckDB 2.0; a helper thread drives DuckDB while PHP callbacks run.
-- A newer statement supersedes open results; commit() throws for aborted transactions.
+- Open results refuse new statements with ResourceInUse, as in DuckDB 2.0; commit() throws for aborted transactions.
 - Ship the pinned DuckDB 2.0.0 SDK with the rebased engine patch set.
 
 * Tue Nov 03 2026 Martin Juul Christiansen <code@juul.xyz> - 1.5.0-1

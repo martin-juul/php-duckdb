@@ -102,8 +102,21 @@ check(str_contains($nestedError->getMessage(), 'PHP COPY formats cannot run insi
 check($nestedFormat->log === [], 'The nested format never ran');
 echo "nested format\n";
 
-// Destroying a Result of the busy connection inside a handler is deferred.
+// An open stream refuses the COPY before any handler runs.
 $streaming = $conn->queryStreaming('SELECT range FROM range(100000)');
+$format->reset();
+$error = failure(fn() => $conn->query($copy));
+check($error instanceof DuckDB\Exception && $error->getErrorType() === DuckDB\ErrorType::ResourceInUse,
+    get_class($error) . ': ' . $error->getMessage());
+check($format->log === [], 'No handler ran: ' . json_encode($format->log));
+
+// Destroying a drained stream of the busy connection inside a handler is
+// deferred.
+$rows = 0;
+foreach ($streaming as $row) {
+    $rows++;
+}
+check($rows === 100000, "The refused COPY left the stream intact: $rows rows");
 $format->reset();
 $format->hooks['open'] = function () use (&$streaming) {
     $streaming = null;

@@ -45,9 +45,10 @@ A partially read row batch cannot be fetched as Arrow. After `fetchRow()`,
 `fetchColumn()` or iteration has read part of a batch, `fetchArrowChunk()`
 throws without discarding its unread rows. Continue reading rows until the
 batch boundary before switching. Row fetching after a complete Arrow batch
-is allowed. Streaming results retain the [one-stream rule](query.md): starting
-another execution on their connection supersedes them. Use a separate
-connection for destination queries and appenders.
+is allowed. Streaming results follow the [one-stream rule](query.md): while
+one is open, DuckDB refuses other executions on its connection with
+`ErrorType::ResourceInUse`, and its appenders refuse to write. Use a separate connection
+for destination queries and appenders.
 
 See the runnable [batch copy example](../examples/arrow.php).
 

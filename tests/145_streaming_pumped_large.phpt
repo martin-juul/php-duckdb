@@ -183,23 +183,27 @@ check(count($values) === $medium && array_sum($values) === triangle($medium), 'T
 check($other->execute()->fetchColumn() === 7, 'The bound statement runs afterwards');
 echo "bindValue keeps the stream\n";
 
-// A newer statement supersedes a pumped stream: its session closes, its
-// next native fetch throws, and none of its callbacks runs afterwards.
+// DuckDB refuses a newer statement while a pumped stream holds the
+// connection. The refusal runs no callback, and the stream keeps returning
+// every row; once it drains, the newer statement runs.
 $scalar->reset();
-$result = $conn->queryStreaming($select($large));
-check($result->fetchRow() !== null, 'The stream returns a first row');
-check($conn->query('SELECT 1 AS v')->fetchColumn() === 1, 'The newer query runs');
+$result = $conn->queryStreaming($select($medium));
+$first = $result->fetchRow(DuckDB\FetchMode::Num);
+check($first !== null, 'The stream returns a first row');
 $calls = $scalar->calls;
-$error = failure(function () use ($result) {
-    while ($result->fetchRow() !== null) {
-    }
-});
-check(str_contains($error->getMessage(), 'invalidated by a newer query'), 'Stale fetch: ' . $error->getMessage());
-check($conn->query('SELECT php_id(6::BIGINT)')->fetchColumn() === 6, 'The connection is usable');
-usleep(100000);
-check($scalar->calls === $calls + 1, "Only the newer query called the function: $calls {$scalar->calls}");
-check(failure(fn() => $result->fetchRow()) instanceof DuckDB\Exception, 'The stale stream keeps throwing');
-echo "superseded by query\n";
+$error = failure(fn() => $conn->query('SELECT php_id(6::BIGINT) AS v'));
+check($error instanceof DuckDB\Exception && $error->getErrorType() === DuckDB\ErrorType::ResourceInUse,
+    'The newer query is refused: ' . $error->getMessage());
+check($scalar->calls === $calls, "The refused query called no function: $calls {$scalar->calls}");
+$values = [$first[0]];
+while (($row = $result->fetchRow(DuckDB\FetchMode::Num)) !== null) {
+    $values[] = $row[0];
+}
+check(count($values) === $medium && array_sum($values) === triangle($medium), 'The stream returns every row');
+$calls = $scalar->calls;
+check($conn->query('SELECT php_id(6::BIGINT)')->fetchColumn() === 6, 'The connection is usable after the stream drains');
+check($scalar->calls === $calls + 1, "The newer query called the function once: $calls {$scalar->calls}");
+echo "newer query refused\n";
 
 // executeStreaming() of a statement that writes through a PHP COPY format.
 $dir = copy_scratch();
@@ -309,7 +313,7 @@ fetchArrowChunk
 executeStreaming
 handler exception
 bindValue keeps the stream
-superseded by query
+newer query refused
 executeStreaming COPY
 helper exit during a streaming fetch
 workers exit during a streaming fetch

@@ -38,7 +38,8 @@ separate rows. Scalar functions, aggregates and macros are excluded. The
 returned arrays are snapshots and remain usable after closing the connection.
 The parallel lists flatten positional inputs followed by named inputs; order
 among named inputs is determined by DuckDB's catalog. Discovery executes a
-query and supersedes an active streaming result on the same connection.
+query, so it is refused with `ErrorType::ResourceInUse` while a streaming or
+pending result is open on the same connection.
 
 The metadata describes declared inputs. Result columns can depend on arguments:
 prepare an actual query and inspect `Statement::columnCount()`, `columnName()`

@@ -64,7 +64,7 @@ Notable categories (full list in [api.md](api.md#errortype-int)): `Parser`,
 | `new Database($path, $config)` | `DuckDB\Exception` with `ErrorType::InvalidConfiguration` for unknown options; `IOException` with `ErrorType::Io` for lock/permission failures; `ConnectionException` for unclassified open failures |
 | `query()` / `execute()` / `prepare()` | `ParserException`, `BinderException`, `CatalogException`, … |
 | `fetchRow()` mid-stream | the query's deferred error (e.g. `ConversionException`) |
-| Fetching a stream after a newer statement superseded it | `DuckDB\Exception` with `ErrorType::Invalid` ("This streaming result was invalidated by a newer query…") |
+| A statement, or an appender write that would flush, while a streaming or pending result is open on the connection | `DuckDB\Exception` with `ErrorType::ResourceInUse` ("connection has an open result; drain or destroy it before starting a new query") |
 | Any statement in a transaction that an earlier error aborted | `TransactionException` ("Current transaction is aborted (please ROLLBACK)") until `rollBack()` |
 | `commit()` of an aborted transaction | `TransactionException`; nothing is committed, the transaction is rolled back and no transaction remains active |
 | `PendingQuery::await()` / `suspend()` | rethrows the background query's failure on the awaiting fiber/thread |

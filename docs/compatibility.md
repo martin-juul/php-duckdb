@@ -184,7 +184,7 @@ to 1.5.6, so the stable v1 C API that this driver uses is unchanged. DuckDB
 | --- | --- |
 | Type id 42, `DUCKDB_TYPE_TIMESTAMP_TZ_NS` | Results decode to UTC `DateTimeImmutable` and report `TIMESTAMPTZ_NS`; see [types](types.md) |
 | Error codes 43 (`DATA_CORRUPTION`) and 44 (`RESOURCE_IN_USE`) | `ErrorType::DataCorruption` and `ErrorType::ResourceInUse` |
-| Open streaming or pending results refuse a new statement, appender flush or close with `RESOURCE_IN_USE` | The extension supersedes the open result first, as DuckDB 1.5 did; see [migrations](migrations.md#open-results) |
+| Open streaming or pending results refuse a new statement, appender flush or close with `RESOURCE_IN_USE` | The refusal surfaces as `ErrorType::ResourceInUse`; appender writes that would flush are refused up front so no buffered row is lost; see [migrations](migrations.md#open-results) |
 | Destroying an unfinished statement that may write rolls it back, or aborts the explicit transaction | Documented; `Connection::commit()` throws for an aborted transaction |
 | Prepared-statement results report `EXECUTE` as their statement type | The extension reports the prepared statement's own type |
 | VARIANT Arrow export, as `arrow.parquet.variant` | Available through `Result::arrowSchema()` and `fetchArrowChunk()` |

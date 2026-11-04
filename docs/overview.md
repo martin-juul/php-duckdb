@@ -116,8 +116,9 @@ shows the counterparts in its thin, object-oriented interface:
 - Async queries run on background worker threads that never touch PHP state;
   completion is reported through a file descriptor / stream you can poll or
   suspend a fiber on. See [async.md](async.md).
-- A new statement on a connection supersedes its open streaming or pending
-  result; see [streaming caveats](query.md#streaming-queries-constant-memory).
+- While a streaming or pending result is open on a connection, DuckDB refuses
+  new statements there with `ErrorType::ResourceInUse`; see
+  [streaming caveats](query.md#streaming-queries-constant-memory).
 - File databases take an **exclusive write lock** at open time. Only one
   process at a time can open a file for writing. See [connect.md](connect.md).
 

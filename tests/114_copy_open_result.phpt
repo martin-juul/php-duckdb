@@ -1,5 +1,5 @@
 --TEST--
-COPY TO: other use of the connection supersedes an undriven COPY without hanging; relative targets
+COPY TO: an undriven COPY holds its connection, refuses appender flushes and keeps running; relative targets
 --SKIPIF--
 <?php require_once __DIR__ . '/skipif.inc'; ?>
 --FILE--
@@ -25,27 +25,59 @@ function start_copy(DuckDB\Connection $conn, LinesFormat $format, string $copy):
     return $pending;
 }
 
-// Freeing an Appender with buffered rows flushes through the connection.
+$million = fn(string $name) => "COPY (SELECT range AS i FROM range(1000000)) TO '$dir/$name.lines' (FORMAT lines)";
+
+/** Await a COPY of a million rows and check that its writer finished normally. */
+function finish_copy(DuckDB\PendingQuery $pending, LinesFormat $format): void
+{
+    check($pending->await()->fetchAll() === [['Count' => 1000000]], 'The COPY wrote every row');
+    check(!in_array('abort', $format->log, true), 'abort() did not run');
+    check(in_array('close', $format->log, true), 'The COPY closed its writer');
+}
+
+function resource_in_use(callable $operation, string $what): void
+{
+    $error = failure($operation);
+    check($error instanceof DuckDB\Exception && $error->getErrorType() === DuckDB\ErrorType::ResourceInUse,
+        "$what: " . get_class($error) . ': ' . $error->getMessage());
+}
+
+// An Appender refuses to flush while the COPY holds the connection, keeps its
+// buffered rows and flushes them once the COPY has finished.
 $appender = $conn->appender('t');
 for ($i = 0; $i < 10; $i++) {
     $appender->appendRow([$i]);
 }
-$pending = start_copy($conn, $format, $copy);
-unset($appender);
-check(failure(fn() => $pending->await()) instanceof DuckDB\Exception, 'The superseded COPY failed');
-check(in_array('abort', $format->log, true), 'abort() ran');
+$pending = start_copy($conn, $format, $million('appender'));
+resource_in_use(fn() => $appender->flush(), 'flush()');
+resource_in_use(fn() => $appender->appendRow([10]), 'appendRow()');
+resource_in_use(fn() => $appender->close(), 'close()');
+resource_in_use(fn() => $conn->query('SELECT 1'), 'query()');
+finish_copy($pending, $format);
+unset($pending);
+$appender->close();
 check($conn->query('SELECT count(*) AS n FROM t')->fetchAll() === [['n' => 10]], 'The appender flushed its rows');
+echo "appender refused while the COPY runs\n";
+
+// Freeing an unclosed Appender while the COPY holds the connection neither
+// hangs nor touches the COPY. DuckDB refuses the implicit flush, so the
+// buffered rows are discarded.
+$appender = $conn->appender('t');
+$appender->appendRow([11]);
+$pending = start_copy($conn, $format, $million('appender-freed'));
+unset($appender);
+finish_copy($pending, $format);
+unset($pending);
+check($conn->query('SELECT count(*) AS n FROM t')->fetchAll() === [['n' => 10]], 'The refused rows were discarded');
 echo "appender destructor\n";
 
 // Binding a value starts no statement, so the undriven COPY keeps running
 // and completes when awaited.
 $statement = $conn->prepare('SELECT ?::INTEGER AS v');
-$bound = "COPY (SELECT range AS i FROM range(1000000)) TO '$dir/bound.lines' (FORMAT lines)";
-$pending = start_copy($conn, $format, $bound);
+$pending = start_copy($conn, $format, $million('bound'));
 $statement->bindValue(1, 5);
-check($pending->await()->fetchAll() === [['Count' => 1000000]], 'The COPY wrote every row');
-check(!in_array('abort', $format->log, true), 'abort() did not run');
-check(in_array('close', $format->log, true), 'The COPY closed its writer');
+resource_in_use(fn() => $statement->execute(), 'execute()');
+finish_copy($pending, $format);
 check($statement->execute()->fetchAll() === [['v' => 5]], 'The binding was kept');
 echo "bindValue leaves the COPY running\n";
 
@@ -90,6 +122,7 @@ unlink($path);
 echo "relative target\n";
 ?>
 --EXPECT--
+appender refused while the COPY runs
 appender destructor
 bindValue leaves the COPY running
 registration while running

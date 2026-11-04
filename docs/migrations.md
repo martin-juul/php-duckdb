@@ -4,7 +4,7 @@
 
 Extension **2.0.0** requires DuckDB **2.0.x** and no longer builds or runs
 against DuckDB 1.5.x. The pinned engine moves from DuckDB 1.5.6 to **2.0.0**,
-built by the [patched SDK builder](../packaging/duckdb/README.md) with four
+built by the [patched SDK builder](../packaging/duckdb/README.md) with five
 local engine patches. PHP **8.2–8.5** remain supported. No PHP signatures
 change, and no PHP APIs are removed or newly deprecated. The major version
 marks the engine change and the behavior changes below; most come from DuckDB
@@ -76,38 +76,50 @@ transaction is a catalog error and aborts it.
 
 ### Open results
 
-As in 1.5, a statement started on a connection supersedes that connection's
-open streaming result or unfinished pending query. DuckDB 2.0 would refuse the
-new statement with `RESOURCE_IN_USE`; the extension ends the open result itself
-first, so code that interleaves statements keeps working.
+**Breaking:** a statement no longer ends the connection's open result. In 1.5,
+starting a statement on a connection superseded its open streaming result or
+unfinished pending query. DuckDB 2.0 refuses the new statement instead, and
+the extension follows it: while a streaming result has not drained, or a
+pending query has not finished, every statement on that connection throws a
+`DuckDB\Exception` whose `getErrorType()` is `ErrorType::ResourceInUse` (44),
+with DuckDB's message "connection has an open result; drain or destroy it
+before starting a new query".
 
-- Rows and metadata that the superseded result already holds stay readable,
-  including the rest of its current chunk, `columns()` and
-  `statementType()`. Its next native fetch throws the existing "This streaming
-  result was invalidated by a newer query…" `DuckDB\Exception`, which reports
-  `getErrorType() === ErrorType::Invalid` (code 0), as in 1.5.
-- A superseded pending query of any kind throws "COPY statement superseded by
-  another operation on its connection" when awaited; the wording also applies
-  to pending queries that run no COPY.
-- `bindValue()`, `clearBindings()`, `getTableNames()`, `dataChunkFromArrow()`,
-  `DataChunk::toArrow()`, `registerCopyToFunction()` and
-  `registerScalarFunction()` start no statement and leave open results alone.
-  Unlike 1.5, `bindValue()` no longer cancels an undriven pending query that
-  runs a PHP COPY format.
-- Appender rows and batches (`endRow()`, `appendRow()`, `appendChunk()`,
-  `appendArrow()`), `flush()`, `close()` and destruction supersede an open
-  result and keep their rows, including rows that DuckDB flushes internally.
-- `queryAsync()` and `executeAsync()` supersede the open result from their
-  worker thread, too.
+- The refused statement never runs: it does not begin, commit or abort a
+  transaction, and the open result stays fully readable.
+- The connection accepts statements again once the stream drains (its last
+  fetch returns no row), fails, or is released (unset, or its last reference
+  dropped), and once a pending query is awaited or released.
+- Refused: `query()`, `queryStreaming()`, `execute()`, `prepare()`,
+  `queryPending()`, `Statement::execute*()`, `beginTransaction()`, `commit()`,
+  `rollBack()`, typed value rendering and conversion, and table-function
+  discovery. `queryAsync()` and `executeAsync()` return a `PendingQuery`
+  whose `await()` throws the refusal, because their worker starts the
+  statement.
+- Not refused: `bindValue()`, `clearBindings()`, `getTableNames()`,
+  `dataChunkFromArrow()`, `DataChunk::toArrow()`, `registerCopyToFunction()`,
+  `registerScalarFunction()` and `appender()` start no statement.
+- DuckDB refuses an appender flush too, and discards the buffered rows when it
+  does. The appender therefore refuses `endRow()`, `appendRow()`,
+  `appendChunk()`, `appendArrow()`, `flush()` and `close()` with the same
+  `ResourceInUse` exception before reaching DuckDB, keeping its rows and any
+  open row. `beginRow()`, `append()` and `appendDefault()` only buffer and
+  keep working. An unclosed appender destroyed while a result is open loses
+  its buffered rows.
+- The 1.5 "This streaming result was invalidated by a newer query…" and
+  "COPY statement superseded by another operation on its connection" errors
+  no longer occur.
 
-Superseding an unfinished statement that may write follows DuckDB 2.0: under
+To migrate code that interleaves statements on one connection, finish
+consuming each stream (or `unset()` it) before the next statement, `await()`
+pending queries first, or give each concurrent stream its own connection.
+Assigning a new stream to a variable that still holds an undrained one is
+refused too: PHP starts the new query before it releases the old value, so
+`unset()` the variable first.
+Releasing an unfinished statement that may write follows DuckDB 2.0: under
 autocommit its writes roll back; inside an explicit transaction DuckDB aborts
-the transaction, and the superseding statement itself throws "Current
-transaction is aborted (please ROLLBACK)". An undriven
-`queryPending('INSERT …')` is such a statement. A streaming
-`INSERT … RETURNING` is not: its writes finish before its first row. Drive a
-pending write to completion with `await()` before using its connection again,
-or run it on its own connection.
+the transaction. A streaming `INSERT … RETURNING` has finished its writes
+before its first row arrives.
 
 Registering a scalar function while a result is open resolves its types
 against committed types in the database's default catalog. Otherwise it

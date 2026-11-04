@@ -58,17 +58,23 @@ check(str_contains($format->reasons[0]->getMessage(), 'PendingQuery discarded'),
 check($conn->query('SELECT 1 AS ok')->fetchAll() === [['ok' => 1]], 'The connection is reusable');
 echo "pending discarded\n";
 
-// A newer statement supersedes an undriven COPY, which is then aborted.
+// An undriven COPY refuses a newer statement, then finishes normally.
 $format->reset();
-$pending = $conn->queryPending($copy('superseded', 5000000));
+$pending = $conn->queryPending($copy('holding', 500000));
 while (!in_array('write', $format->log, true)) {
     check(!$pending->isReady(), 'The COPY is still running: ' . calls($format));
 }
-$conn->query($copy('newer', 3));
-check(count(array_keys($format->log, 'abort')) === 1 && count(array_keys($format->log, 'close')) === 1, 'Superseded: ' . calls($format));
-check(failure(fn() => $pending->await()) instanceof DuckDB\Exception, 'The superseded COPY failed: ' . calls($format));
+$error = failure(fn() => $conn->query($copy('newer', 3)));
+check($error instanceof DuckDB\Exception && $error->getErrorType() === DuckDB\ErrorType::ResourceInUse,
+    get_class($error) . ': ' . $error->getMessage());
+check(!in_array('abort', $format->log, true) && !in_array('close', $format->log, true), 'Refused: ' . calls($format));
+$pending->await();
 unset($pending);
-echo "pending superseded\n";
+check(count(array_keys($format->log, 'close')) === 1 && !in_array('abort', $format->log, true), 'Finished: ' . calls($format));
+check(substr_count(file_get_contents("$dir/holding.lines"), "\n") === 500000, 'The refused statement left the COPY intact');
+$conn->query($copy('newer', 3));
+check(count(copy_lines("$dir/newer.lines")) === 3, 'The connection is reusable');
+echo "pending refuses a newer statement\n";
 
 // Cancelling a COPY aborts its writer.
 $format->reset();
@@ -115,7 +121,7 @@ echo "leak loop\n";
 --EXPECT--
 connection freed
 pending discarded
-pending superseded
+pending refuses a newer statement
 pending cancelled
 fiber blocked
 leak loop

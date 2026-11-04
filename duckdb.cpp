@@ -183,14 +183,10 @@ static HashTable *duckdb_statement_get_gc(zend_object *object, zval **table, int
     return zend_std_get_properties(object);
 }
 
-/* Freeing an open result's owner runs the finish hook of its session if an
- * async worker superseded it; like the owner's own cleanup, it runs no
- * handler. */
 static void duckdb_result_free_object(zend_object *object) {
     php_duckdb_result_object *intern = duckdb_result_from_obj(object);
     intern->data.~shared_ptr();
     zend_object_std_dtor(&intern->std);
-    duckdb_sessions_reap(/*can_call_php=*/false);
 }
 
 static void duckdb_result_iterator_free_object(zend_object *object) {
@@ -198,7 +194,6 @@ static void duckdb_result_iterator_free_object(zend_object *object) {
     zval_ptr_dtor(&intern->current);
     intern->data.~shared_ptr();
     zend_object_std_dtor(&intern->std);
-    duckdb_sessions_reap(/*can_call_php=*/false);
 }
 
 static void duckdb_pending_free_object(zend_object *object) {
@@ -214,7 +209,6 @@ static void duckdb_pending_free_object(zend_object *object) {
     }
     /* the write end is closed by the worker after notification */
     zend_object_std_dtor(&intern->std);
-    duckdb_sessions_reap(/*can_call_php=*/false);
 }
 
 /* End an undriven COPY session while PHP may still run its writers' abort(). */
@@ -274,14 +268,16 @@ bool duckdb_conn_check_not_busy(const conn_inner &conn) {
     return true;
 }
 
-const char duckdb_superseded_message[] = "COPY statement superseded by another operation on its connection";
+/* DuckDB's own RESOURCE_IN_USE error text (ClientContext::OPEN_RESULT_ERROR). */
+static const char duckdb_open_result_message[] =
+    "Resource In Use Error: connection has an open result; drain or destroy it before starting a new query";
 
 /* Close the record's session and destroy its native handle. A pending query
  * is drained first: dropping a partially executed DuckDB pending handle
  * alone can retain its executor and database allocations. */
 static void duckdb_open_result_release(conn_inner &conn, open_result &record, const std::string &reason) {
     if (record.session) {
-        record.session->close(reason.empty() ? std::string(duckdb_superseded_message) : reason);
+        record.session->close(reason.empty() ? std::string("Result destroyed") : reason);
     }
 
     if (record.pending) {
@@ -330,45 +326,44 @@ void duckdb_open_result_drained(conn_inner &conn, open_result &record) {
 
 void duckdb_open_result_destroy(conn_inner &conn, open_result &record, const std::string &reason) {
     duckdb_open_result_release(conn, record, reason);
-    if (record.state != open_result_state::superseded) {
-        record.state = open_result_state::destroyed;
-    }
+    record.state = open_result_state::destroyed;
     duckdb_open_result_unregister(conn, record);
 }
 
-void duckdb_conn_supersede(conn_inner &conn, bool can_call_php) {
-    if (conn.open_results.empty()) {
-        return;
-    }
-
-    std::vector<std::shared_ptr<open_result>> superseded;
-    superseded.swap(conn.open_results);
-    for (auto &record : superseded) {
-        /* Close the session before the native handle goes: DuckDB's
-         * cancellation waits for every task, including a worker waiting on
-         * a PHP callback. */
-        duckdb_open_result_release(conn, *record, duckdb_superseded_message);
-        record->state = open_result_state::superseded;
-        if (record->session && can_call_php) {
-            duckdb_session_end(conn, record->session, duckdb_superseded_message, true);
+bool duckdb_conn_check_no_open_result(conn_inner &conn) {
+    bool candidate = false;
+    for (const auto &record : conn.open_results) {
+        /* A stream whose fetch failed has completed; it stays registered
+         * only to repeat its error. */
+        if (record->state == open_result_state::open && record->holds_connection) {
+            candidate = true;
         }
     }
-}
-
-void duckdb_conn_supersede_from_worker(conn_inner &conn) {
-    if (conn.open_results.empty()) {
-        return;
+    if (!candidate) {
+        return true;
     }
 
-    std::vector<std::shared_ptr<open_result>> superseded = conn.open_results;
-    duckdb_conn_supersede(conn, /*can_call_php=*/false);
-
-    /* The worker runs no PHP: the request thread runs the finish hooks. */
-    for (auto &record : superseded) {
-        if (record->session) {
-            duckdb_session_end_later(conn, record->session, duckdb_superseded_message);
-        }
+    /* DuckDB alone knows whether the result holds the connection: it does not
+     * when DuckDB collected it in full. Preparing runs DuckDB's own check,
+     * which refuses without side effects; when it does not refuse, it does
+     * what the appender's flush would do anyway. */
+    duckdb_prepared_statement probe = nullptr;
+    bool held = false;
+    if (duckdb_prepare(conn.conn, "SELECT 1", &probe) == DuckDBError) {
+        const char *error = duckdb_prepare_error(probe);
+        held = error != nullptr && duckdb_classify_error_message(error) == DUCKDB_ERROR_RESOURCE_IN_USE;
     }
+    duckdb_destroy_prepare(&probe);
+
+    if (held) {
+        duckdb_throw_error(DUCKDB_ERROR_RESOURCE_IN_USE, duckdb_open_result_message);
+        return false;
+    }
+
+    for (auto &record : conn.open_results) {
+        record->holds_connection = false;
+    }
+    return true;
 }
 
 void duckdb_conn_worker_begin(conn_inner &conn) {
@@ -423,7 +418,6 @@ bool duckdb_conn_enter(conn_inner &conn, std::unique_lock<std::mutex> &lock, con
     lock = std::unique_lock<std::mutex>(conn.mutex);
     if (kind == conn_entry::statement_start) {
         conn.commit_rolled_back.store(false, std::memory_order_relaxed);
-        duckdb_conn_supersede(conn, /*can_call_php=*/true);
     }
     return true;
 }
@@ -817,8 +811,8 @@ PHP_METHOD(DuckDB_Connection, queryAsync) {
     if (!duckdb_connection_guard(intern->inner)) {
         RETURN_THROWS();
     }
-    /* The worker supersedes the connection's open results when it starts,
-     * like any statement start. */
+    /* Like any statement start, the worker's statement fails with
+     * RESOURCE_IN_USE while a result is open on the connection. */
     if (!duckdb_conn_check_not_busy(*intern->inner)) {
         RETURN_THROWS();
     }
@@ -1068,10 +1062,10 @@ DUCKDB_COPY_METHOD(DuckDB_Connection, appender) {
     auto inner = std::make_shared<appender_inner>();
     inner->conn = intern->inner;
     {
-        /* Appender operations go through the connection context, so they
-         * supersede any open result on this connection. */
+        /* Creating an appender starts no statement; DuckDB decides whether
+         * an open result allows it. */
         std::unique_lock<std::mutex> lk;
-        if (!duckdb_conn_enter(*intern->inner, lk, conn_entry::statement_start)) {
+        if (!duckdb_conn_enter(*intern->inner, lk, conn_entry::plain)) {
             RETURN_THROWS();
         }
         if (duckdb_appender_create_ext(intern->inner->conn, catalog, schema, table, &inner->appender) == DuckDBError) {
@@ -1291,8 +1285,8 @@ static void duckdb_connection_exec_simple(INTERNAL_FUNCTION_PARAMETERS, const ch
 
     duckdb_result res = {};
     {
-        /* BEGIN/COMMIT/ROLLBACK are executions too: they supersede any
-         * open result on this connection. */
+        /* BEGIN/COMMIT/ROLLBACK are statements too: DuckDB refuses them
+         * with RESOURCE_IN_USE while a result is open on this connection. */
         std::unique_lock<std::mutex> lk;
         if (!duckdb_conn_enter(*intern->inner, lk, conn_entry::statement_start)) {
             RETURN_THROWS();
@@ -1313,7 +1307,7 @@ DUCKDB_COPY_METHOD(DuckDB_Connection, beginTransaction) {
 }
 
 /* DuckDB 2.0 turns COMMIT of an aborted transaction into a silent ROLLBACK,
- * whatever aborted it: a SQL error, a superseded write or raw SQL the
+ * whatever aborted it: a SQL error, a cancelled write or raw SQL the
  * extension never saw. commit() therefore asks DuckDB first. Every statement
  * that needs a valid transaction fails with "Current transaction is aborted"
  * while an aborted one is open. EXPLAIN SELECT 1 is that statement: it has no
@@ -1346,8 +1340,6 @@ DUCKDB_COPY_METHOD(DuckDB_Connection, commit) {
 
     duckdb_result res = {};
     {
-        /* Superseding here can itself abort the transaction (an undriven
-         * write), so the probe runs after the entry. */
         std::unique_lock<std::mutex> lk;
         if (!duckdb_conn_enter(*intern->inner, lk, conn_entry::statement_start)) {
             RETURN_THROWS();

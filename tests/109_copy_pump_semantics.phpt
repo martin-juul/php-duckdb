@@ -81,12 +81,16 @@ try {
 }
 $undriven = $conn->queryPending($slow);
 unset($undriven);
-$superseded = $conn->queryPending($slow);
-check($conn->query('SELECT 4 AS d')->fetchAll() === [['d' => 4]], 'A newer statement supersedes a pending query');
+$holding = $conn->queryPending($slow);
+$refusal = null;
 try {
-    $superseded->await();
+    $conn->query('SELECT 4 AS d');
 } catch (DuckDB\Exception $error) {
+    $refusal = $error->getErrorType();
 }
+check($refusal === DuckDB\ErrorType::ResourceInUse, 'A pending query refuses a newer statement');
+check($holding->await()->fetchAll() === [['n' => 3000000]], 'The refused statement leaves the pending query intact');
+check($conn->query('SELECT 4 AS d')->fetchAll() === [['d' => 4]], 'The completed pending query frees the connection');
 $closing = $conn->queryPending($slow);
 $conn->close();
 unset($closing);

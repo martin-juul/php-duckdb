@@ -28,13 +28,16 @@ function fresh_connection(): DuckDB\Connection
     return $conn;
 }
 
-echo "-- superseded pending INSERT inside a transaction\n";
+echo "-- refused statements beside an undriven pending INSERT inside a transaction\n";
 $conn = fresh_connection();
 $conn->beginTransaction();
-$pending = $conn->queryPending('INSERT INTO t SELECT * FROM range(3000000)');
-report('superseding query', fn () => $conn->query('SELECT 1'));
+$pending = $conn->queryPending('INSERT INTO t SELECT * FROM range(300000)');
+report('query', fn () => $conn->query('SELECT 1'));
 report('commit', fn () => $conn->commit());
-unset($pending);
+report('rollBack', fn () => $conn->rollBack());
+var_dump($pending->await()->rowsChanged());
+var_dump(count_rows($conn));
+report('commit', fn () => $conn->commit());
 var_dump(count_rows($conn));
 $conn->beginTransaction();
 $conn->query('INSERT INTO t VALUES (1)');
@@ -50,29 +53,35 @@ report('commit', fn () => $conn->commit());
 var_dump(count_rows($conn));
 report('rollBack after the failed commit', fn () => $conn->rollBack());
 
-echo "-- superseded read-only stream inside a transaction\n";
+echo "-- refused statements beside a read-only stream inside a transaction\n";
 $conn = fresh_connection();
 $conn->beginTransaction();
 $conn->query('INSERT INTO t VALUES (1), (2)');
 $stream = $conn->queryStreaming('SELECT range AS i FROM range(100000)');
 var_dump($stream->fetchRow());
-$conn->query('SELECT 1');
+report('query', fn () => $conn->query('SELECT 1'));
+report('commit', fn () => $conn->commit());
+var_dump(count($stream->fetchAll()));
 report('commit', fn () => $conn->commit());
 var_dump(count_rows($conn));
 
-echo "-- superseded pending INSERT under autocommit\n";
+echo "-- refused statement beside an undriven pending INSERT under autocommit\n";
 $conn = fresh_connection();
-$pending = $conn->queryPending('INSERT INTO t SELECT * FROM range(3000000)');
+$pending = $conn->queryPending('INSERT INTO t SELECT * FROM range(300000)');
+report('count', fn () => count_rows($conn));
+var_dump($pending->await()->rowsChanged());
 var_dump(count_rows($conn));
-unset($pending);
 
-echo "-- superseded streaming INSERT ... RETURNING inside a transaction\n";
+// Its writes finish before the first row, so DuckDB does not count it as
+// holding the connection.
+echo "-- statements beside a streaming INSERT ... RETURNING inside a transaction\n";
 $conn = fresh_connection();
 $conn->beginTransaction();
 $returning = $conn->queryStreaming('INSERT INTO t SELECT * FROM range(100000) RETURNING i');
 var_dump($returning->fetchRow());
-$conn->query('SELECT 1');
+report('query', fn () => $conn->query('SELECT 1'));
 report('commit', fn () => $conn->commit());
+var_dump(count($returning->fetchAll()));
 var_dump(count_rows($conn));
 
 echo "-- healthy transaction\n";
@@ -135,31 +144,42 @@ report('rollBack', fn () => $conn->rollBack());
 var_dump(count_rows($conn));
 ?>
 --EXPECT--
--- superseded pending INSERT inside a transaction
-superseding query: DuckDB\TransactionException code=10 TransactionContext Error: Current transaction is aborted (please ROLLBACK)
-commit: DuckDB\TransactionException code=10 Transaction was aborted, so nothing was committed; it has been rolled back
-int(0)
-int(1)
+-- refused statements beside an undriven pending INSERT inside a transaction
+query: DuckDB\Exception code=44 Resource In Use Error: connection has an open result; drain or destroy it before starting a new query
+commit: DuckDB\Exception code=44 Resource In Use Error: connection has an open result; drain or destroy it before starting a new query
+rollBack: DuckDB\Exception code=44 Resource In Use Error: connection has an open result; drain or destroy it before starting a new query
+int(300000)
+int(300000)
+commit: ok
+int(300000)
+int(300001)
 -- SQL error inside a transaction
 failing query: DuckDB\CatalogException code=13 Catalog Error: Table with name missing does not exist!
 commit: DuckDB\TransactionException code=10 Transaction was aborted, so nothing was committed; it has been rolled back
 int(0)
 rollBack after the failed commit: DuckDB\TransactionException code=10 TransactionContext Error: cannot rollback - no transaction is active
--- superseded read-only stream inside a transaction
+-- refused statements beside a read-only stream inside a transaction
 array(1) {
   ["i"]=>
   int(0)
 }
+query: DuckDB\Exception code=44 Resource In Use Error: connection has an open result; drain or destroy it before starting a new query
+commit: DuckDB\Exception code=44 Resource In Use Error: connection has an open result; drain or destroy it before starting a new query
+int(99999)
 commit: ok
 int(2)
--- superseded pending INSERT under autocommit
-int(0)
--- superseded streaming INSERT ... RETURNING inside a transaction
+-- refused statement beside an undriven pending INSERT under autocommit
+count: DuckDB\Exception code=44 Resource In Use Error: connection has an open result; drain or destroy it before starting a new query
+int(300000)
+int(300000)
+-- statements beside a streaming INSERT ... RETURNING inside a transaction
 array(1) {
   ["i"]=>
   int(0)
 }
+query: ok
 commit: ok
+int(99999)
 int(100000)
 -- healthy transaction
 NULL

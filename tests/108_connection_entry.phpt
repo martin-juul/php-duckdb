@@ -48,29 +48,39 @@ check(count(array_unique($messages)) === 1, 'Closed connections report one messa
 echo $messages[0], "\n";
 unset($statement, $appender, $vector, $chunk, $conn, $db);
 
-function build(): array
+// One streaming or pending result holds a connection at a time, so each
+// variant holds one of them, plus an appender that buffered a row before the
+// result opened.
+function build(bool $streaming): array
 {
     $conn = (new DuckDB\Database())->connect();
     $conn->query('CREATE TABLE t(i INTEGER)');
-    $stream = $conn->queryStreaming('SELECT * FROM range(5000) t(i)');
-    $stream->fetchRow();
-    $pending = $conn->queryPending('SELECT count(*) FROM range(100000)');
     $appender = $conn->appender('t');
     $appender->appendRow([1]);
-    return [$conn, $stream, $pending, $appender];
+    if ($streaming) {
+        $result = $conn->queryStreaming('SELECT * FROM range(5000) t(i)');
+        $result->fetchRow();
+    } else {
+        $result = $conn->queryPending('SELECT count(*) FROM range(100000)');
+    }
+    return [$conn, $result, $appender];
 }
 
 $orders = [
-    [0, 1, 2, 3],
-    [3, 2, 1, 0],
-    [1, 0, 3, 2],
-    [2, 3, 0, 1],
+    [0, 1, 2],
+    [0, 2, 1],
+    [1, 0, 2],
+    [1, 2, 0],
+    [2, 0, 1],
+    [2, 1, 0],
 ];
-foreach ($orders as $order) {
-    $objects = build();
-    foreach ($order as $index) {
-        unset($objects[$index]);
-        gc_collect_cycles();
+foreach ([true, false] as $streaming) {
+    foreach ($orders as $order) {
+        $objects = build($streaming);
+        foreach ($order as $index) {
+            unset($objects[$index]);
+            gc_collect_cycles();
+        }
     }
 }
 echo "connection-bound objects release in every order\n";

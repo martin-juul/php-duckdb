@@ -142,11 +142,11 @@ immutable and reusable across connections; no rendered result or connection is
 stored in it. A closed connection raises `ConnectionException`, and invalid
 inputs raise the same conversion errors as binding.
 
-The conversion executes helper queries, so rendering supersedes an active
-stream or pending query on the same connection, even if conversion fails.
-Buffered results and streams on other connections remain readable. There is
-no implicit `__toString()`: rendering needs an explicit connection for catalog
-types and session settings.
+The conversion executes helper queries, so rendering is refused with
+`ErrorType::ResourceInUse` while a stream or pending query is open on the same
+connection. Buffered results and streams on other connections do not matter.
+There is no implicit `__toString()`: rendering needs an explicit connection for
+catalog types and session settings.
 
 ## Conversion timing
 
@@ -164,8 +164,9 @@ long-running connection. No converted native value is cached.
 
 `append()` converts before submitting the affected value. `appendRow()` converts
 all values together before beginning the row. Conversion failure leaves the row
-untouched. Conversion executes SQL on the same connection and supersedes an
-existing stream; binding a statement alone does not supersede it.
+untouched. Conversion executes SQL on the same connection, so it is refused
+with `ErrorType::ResourceInUse` while a stream is open there; binding a statement
+alone runs no SQL and works.
 
 A conversion error, such as a value that cannot be cast, leaves an explicit
 transaction on the connection usable, although DuckDB 2.0 aborts a

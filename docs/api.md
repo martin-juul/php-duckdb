@@ -366,9 +366,9 @@ Vectors remain usable after their connection and database close.
 | `copySelected(Vector $source, SelectionVector\|array $selection, int $targetOffset = 0): void` | Write source row `$selection[i]` to row `$targetOffset + i`; the source must have the same type |
 
 Indices outside the capacity throw `ValueError`. Converting input other than
-plain scalars of the vector's type executes on the supplied connection and
-supersedes its streaming result. See [vectors](vector.md) for conversion,
-ownership and chunk semantics.
+plain scalars of the vector's type executes on the supplied connection, which
+refuses it while a streaming result is open there. See [vectors](vector.md)
+for conversion, ownership and chunk semantics.
 
 ## `final class SelectionVector implements \Countable`
 

@@ -31,6 +31,8 @@ foreach ($cases as [$type, $expression, $expected]) {
         if ($result->fetchRow() !== ['v' => $expected]) {
             throw new RuntimeException("$type $context decoding lost information");
         }
+        // A stream holds the connection until it drains or is released.
+        unset($result);
         echo $type, ' ', $context, ": exact rendering\n";
     }
     $row = $conn->query("SELECT [$expression] AS v")->fetchRow();
