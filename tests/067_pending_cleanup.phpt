@@ -39,9 +39,9 @@ foreach (['cancel', 'drop'] as $mode) {
     var_dump($new->await()->fetchRow()['n']);
 }
 
-// Queuing an async worker invalidates the PHP execution epoch before that
-// worker necessarily acquires the connection. Cleanup must still interrupt
-// the old INSERT if it owns the active execution, never finish and commit it.
+// The async worker supersedes the old INSERT when it acquires the
+// connection, which may be before or after the old handle is cancelled or
+// dropped. Either way the INSERT is interrupted, never finished and committed.
 $c->query('CREATE TABLE cleanup_writes (i BIGINT)');
 foreach (['cancel', 'drop'] as $mode) {
     $old = $c->queryPending('INSERT INTO cleanup_writes SELECT i FROM range(1000000) t(i)');

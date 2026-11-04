@@ -264,6 +264,18 @@ struct conn_inner {
      * lease and parked between leases. It never locks `mutex` and holds no
      * reference to this connection, so this destructor never runs on it. */
     std::shared_ptr<conn_helper> helper;
+    /* Finish hooks of pumped sessions that an async worker superseded. The
+     * worker runs no PHP, so the request thread runs them at its next
+     * method exit or object free (duckdb_sessions_reap()). */
+    std::mutex reap_mutex;
+    std::vector<std::function<void(bool can_call_php)>> reaped;
+    /* Async workers started on this connection that have not finished
+     * executing. DuckDB 2.0 destroys a prepared statement under the client
+     * context lock, which a running query holds, so a statement released
+     * meanwhile waits in worker_prepares for the last worker to destroy. */
+    std::mutex worker_mutex;
+    int workers = 0;
+    std::vector<duckdb_prepared_statement> worker_prepares;
     ~conn_inner() {
         std::lock_guard<std::mutex> lock(mutex);
         /* Deferred work never owns the connection, so the last owner can
@@ -308,6 +320,19 @@ bool duckdb_conn_enter(conn_inner &conn, std::unique_lock<std::mutex> &lock, con
  * and may call PHP; otherwise they stay for the record's owner. Caller holds
  * conn.mutex. */
 void duckdb_conn_supersede(conn_inner &conn, bool can_call_php);
+/* An async worker's supersede: like duckdb_conn_supersede(), but the
+ * sessions' finish hooks move to the connection's reap queue for the
+ * request thread. Caller holds conn.mutex on the worker thread. */
+void duckdb_conn_supersede_from_worker(conn_inner &conn);
+/* Count an async worker on the connection until duckdb_conn_worker_end(). */
+void duckdb_conn_worker_begin(conn_inner &conn);
+/* The worker finished executing: destroy the prepared statements released
+ * while it ran. Caller holds conn.mutex, outside any DuckDB call. */
+void duckdb_conn_worker_end(conn_inner &conn);
+/* Destroy a prepared statement of this connection, or hand it to the
+ * connection's async workers while one may be executing, so releasing it
+ * never waits for their query. */
+void duckdb_conn_destroy_prepare(conn_inner &conn, duckdb_prepared_statement &statement);
 /* Run native cleanup under conn->mutex, or defer it until the connection's
  * PHP handler returns when the calling thread is inside one. No PHP runs. */
 void duckdb_conn_cleanup(const std::shared_ptr<conn_inner> &conn, std::function<void()> work);
@@ -346,7 +371,12 @@ struct stmt_inner {
     /* Bound to a PHP scalar function at prepare time. */
     bool uses_scalar_function = false;
     ~stmt_inner() {
-        if (stmt) {
+        if (!stmt) {
+            return;
+        }
+        if (conn) {
+            duckdb_conn_destroy_prepare(*conn, stmt);
+        } else {
             duckdb_destroy_prepare(&stmt);
         }
     }
@@ -454,7 +484,11 @@ struct async_task {
             });
         }
         if (owned_stmt) {
-            duckdb_destroy_prepare(&owned_stmt);
+            if (conn) {
+                duckdb_conn_destroy_prepare(*conn, owned_stmt);
+            } else {
+                duckdb_destroy_prepare(&owned_stmt);
+            }
             owned_stmt = nullptr;
         }
     }

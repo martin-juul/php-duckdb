@@ -109,6 +109,18 @@ std::shared_ptr<copy_session> duckdb_session_open(conn_inner &conn);
  * hook. `failure` is empty when the statement succeeded. */
 void duckdb_session_end(conn_inner &conn, const std::shared_ptr<copy_session> &session,
                         const std::string &failure = std::string(), bool can_call_php = true);
+/* An async worker's duckdb_session_end(): close the session and stop
+ * publishing it, but queue its finish hook on the connection's reap queue,
+ * because the worker runs no PHP. Caller holds conn.mutex. */
+void duckdb_session_end_later(conn_inner &conn, const std::shared_ptr<copy_session> &session,
+                              const std::string &failure);
+/* Request thread: let duckdb_sessions_reap() find the finish hooks that the
+ * connection's async workers queue. */
+void duckdb_sessions_watch(const std::shared_ptr<conn_inner> &conn);
+/* Request thread: run the finish hooks queued for the connections it
+ * watches, unless it is inside a PHP handler. `can_call_php` is as for
+ * duckdb_session_end(). */
+void duckdb_sessions_reap(bool can_call_php);
 /* Find the open session for a DuckDB connection id (any thread). */
 std::shared_ptr<copy_session> duckdb_session_find(db_inner &db, idx_t connection_id);
 /* The open session that runs bind callbacks for a connection on a DuckDB

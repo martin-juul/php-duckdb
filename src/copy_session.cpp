@@ -328,11 +328,8 @@ std::shared_ptr<copy_session> duckdb_session_open(conn_inner &conn) {
     return session;
 }
 
-void duckdb_session_end(conn_inner &conn, const std::shared_ptr<copy_session> &session_ref,
-                        const std::string &failure, bool can_call_php) {
-    /* Keep the session alive while its finish hook runs, whatever owns the
-     * caller's reference. */
-    std::shared_ptr<copy_session> session = session_ref;
+/* Close the session and stop publishing it to PHP callbacks. */
+static void session_close(const std::shared_ptr<copy_session> &session, const std::string &failure) {
     session->close(failure.empty() ? "COPY statement finished" : failure);
     if (auto db = session->db.lock()) {
         std::lock_guard<std::mutex> lock(db->session_mutex);
@@ -341,10 +338,88 @@ void duckdb_session_end(conn_inner &conn, const std::shared_ptr<copy_session> &s
             db->sessions.erase(found);
         }
     }
-    if (session->finish) {
-        auto finish = std::move(session->finish);
-        session->finish = nullptr;
+}
+
+/* Take the session's finish hook. An async worker's supersede and the
+ * record's owner may end the session at the same time; exactly one of them
+ * gets the hook. */
+static std::function<void(const std::string &, bool)> session_take_finish(copy_session &session) {
+    std::lock_guard<std::mutex> lock(session.mutex);
+    auto finish = std::move(session.finish);
+    session.finish = nullptr;
+    return finish;
+}
+
+void duckdb_session_end(conn_inner &conn, const std::shared_ptr<copy_session> &session_ref,
+                        const std::string &failure, bool can_call_php) {
+    /* Keep the session alive while its finish hook runs, whatever owns the
+     * caller's reference. */
+    std::shared_ptr<copy_session> session = session_ref;
+    session_close(session, failure);
+
+    auto finish = session_take_finish(*session);
+    if (finish) {
         finish(failure, can_call_php);
+    }
+}
+
+void duckdb_session_end_later(conn_inner &conn, const std::shared_ptr<copy_session> &session,
+                              const std::string &failure) {
+    session_close(session, failure);
+
+    auto finish = session_take_finish(*session);
+    if (!finish) {
+        return;
+    }
+
+    /* The PHP-side state leaves the session with its hook; the entry keeps
+     * the session alive, because the hook still refers to it. */
+    session->php_state.store(nullptr, std::memory_order_release);
+    std::lock_guard<std::mutex> lock(conn.reap_mutex);
+    conn.reaped.push_back([session, finish = std::move(finish), failure](bool can_call_php) {
+        finish(failure, can_call_php);
+    });
+}
+
+/* Connections whose async workers this request thread started. */
+static thread_local std::vector<std::weak_ptr<conn_inner>> reap_watched;
+
+void duckdb_sessions_watch(const std::shared_ptr<conn_inner> &conn) {
+    for (auto &watched : reap_watched) {
+        if (watched.lock() == conn) {
+            return;
+        }
+    }
+    reap_watched.push_back(conn);
+}
+
+void duckdb_sessions_reap(bool can_call_php) {
+    if (reap_watched.empty() || duckdb_callback_active()) {
+        return;
+    }
+
+    /* Finish hooks run PHP, which may start async workers and watch more
+     * connections: iterate a snapshot. */
+    reap_watched.erase(std::remove_if(reap_watched.begin(), reap_watched.end(),
+                                      [](const std::weak_ptr<conn_inner> &watched) {
+                                          return watched.expired();
+                                      }),
+                       reap_watched.end());
+    auto watched = reap_watched;
+    for (auto &weak : watched) {
+        auto conn = weak.lock();
+        if (!conn) {
+            continue;
+        }
+
+        std::vector<std::function<void(bool)>> hooks;
+        {
+            std::lock_guard<std::mutex> lock(conn->reap_mutex);
+            hooks.swap(conn->reaped);
+        }
+        for (auto &hook : hooks) {
+            hook(can_call_php);
+        }
     }
 }
 

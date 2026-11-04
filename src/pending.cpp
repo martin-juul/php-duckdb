@@ -173,6 +173,12 @@ static void duckdb_async_run_task(std::shared_ptr<async_task> task) {
             task->error_type = DUCKDB_ERROR_INTERRUPT;
             task->error_msg = "Query interrupted";
         } else {
+            /* A statement start supersedes the connection's open results,
+             * including those opened after this task was queued. No PHP
+             * runs here: superseded sessions' finish hooks go to the
+             * request thread. */
+            duckdb_conn_supersede_from_worker(*task->conn);
+
             duckdb_state state;
             if (task->mode == task_mode::THREAD_PREPARED) {
                 state = duckdb_execute_prepared(task->stmt->stmt, &task->result);
@@ -194,6 +200,8 @@ static void duckdb_async_run_task(std::shared_ptr<async_task> task) {
             duckdb_destroy_result(&task->result);
             task->consumed = true;
         }
+
+        duckdb_conn_worker_end(*task->conn);
 
         // Publish completion before a subsequent query can acquire this
         // connection. Cancellation interrupts under the same task mutex.
@@ -255,6 +263,11 @@ void duckdb_async_worker_start(const std::shared_ptr<async_task> &task) {
     duckdb_async_worker *raw_worker = worker.get();
     duckdb_async_registry.push_back(std::move(worker));
 
+    /* This request thread runs the finish hooks of the sessions the worker
+     * supersedes. */
+    duckdb_sessions_watch(task->conn);
+    duckdb_conn_worker_begin(*task->conn);
+
     try {
         raw_worker->thread = std::thread([task = task, raw_worker]() mutable {
             duckdb_async_run_task(std::move(task));
@@ -266,6 +279,7 @@ void duckdb_async_worker_start(const std::shared_ptr<async_task> &task) {
             duckdb_async_registry_cv.notify_all();
         });
     } catch (...) {
+        duckdb_conn_worker_end(*task->conn);
         duckdb_async_registry.pop_back();
         throw;
     }

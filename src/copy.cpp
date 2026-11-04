@@ -705,6 +705,18 @@ static zend_object *pinned_function(copy_php_state &state, const copy_registrati
     return nullptr;
 }
 
+/* Drop the session's reference to a PHP object. Where PHP may run, the
+ * release is marked busy like a handler: the caller may hold the connection
+ * mutex, and a destructor that uses the connection must fail instead of
+ * deadlocking on it. */
+static void release_session_object(copy_php_state *state, zend_object *object, bool can_call_php) {
+    if (can_call_php) {
+        duckdb_callback_release(state->conn, object);
+    } else {
+        OBJ_RELEASE(object);
+    }
+}
+
 static void finish_session(copy_php_state *state, const std::string &failure, bool can_call_php) {
     bool call_php = can_call_php && !pending_bailout;
     for (auto &entry : state->writers) {
@@ -734,11 +746,11 @@ static void finish_session(copy_php_state *state, const std::string &failure, bo
                 call_php = !pending_bailout;
             }
         }
-        OBJ_RELEASE(writer.object);
+        release_session_object(state, writer.object, call_php);
         writer.object = nullptr;
     }
     for (auto &pin : state->pins) {
-        OBJ_RELEASE(pin.second);
+        release_session_object(state, pin.second, call_php);
     }
     if (state->cause) {
         if (!failure.empty() && !pending_cause) {
@@ -1426,6 +1438,8 @@ static bool after_method() {
         return false;
     }
     duckdb_drain_deferred_connections();
+    /* Once the executor is shutting down, no handler may run. */
+    duckdb_sessions_reap(EG(active));
     duckdb_scalar_after_method();
 
     if (pending_bailout) {

@@ -183,10 +183,14 @@ static HashTable *duckdb_statement_get_gc(zend_object *object, zval **table, int
     return zend_std_get_properties(object);
 }
 
+/* Freeing an open result's owner runs the finish hook of its session if an
+ * async worker superseded it; like the owner's own cleanup, it runs no
+ * handler. */
 static void duckdb_result_free_object(zend_object *object) {
     php_duckdb_result_object *intern = duckdb_result_from_obj(object);
     intern->data.~shared_ptr();
     zend_object_std_dtor(&intern->std);
+    duckdb_sessions_reap(/*can_call_php=*/false);
 }
 
 static void duckdb_result_iterator_free_object(zend_object *object) {
@@ -194,6 +198,7 @@ static void duckdb_result_iterator_free_object(zend_object *object) {
     zval_ptr_dtor(&intern->current);
     intern->data.~shared_ptr();
     zend_object_std_dtor(&intern->std);
+    duckdb_sessions_reap(/*can_call_php=*/false);
 }
 
 static void duckdb_pending_free_object(zend_object *object) {
@@ -205,6 +210,7 @@ static void duckdb_pending_free_object(zend_object *object) {
     }
     /* the write end is closed by the worker after notification */
     zend_object_std_dtor(&intern->std);
+    duckdb_sessions_reap(/*can_call_php=*/false);
 }
 
 /* End an undriven COPY session while PHP may still run its writers' abort(). */
@@ -343,6 +349,55 @@ void duckdb_conn_supersede(conn_inner &conn, bool can_call_php) {
             duckdb_session_end(conn, record->session, duckdb_superseded_message, true);
         }
     }
+}
+
+void duckdb_conn_supersede_from_worker(conn_inner &conn) {
+    if (conn.open_results.empty()) {
+        return;
+    }
+
+    std::vector<std::shared_ptr<open_result>> superseded = conn.open_results;
+    duckdb_conn_supersede(conn, /*can_call_php=*/false);
+
+    /* The worker runs no PHP: the request thread runs the finish hooks. */
+    for (auto &record : superseded) {
+        if (record->session) {
+            duckdb_session_end_later(conn, record->session, duckdb_superseded_message);
+        }
+    }
+}
+
+void duckdb_conn_worker_begin(conn_inner &conn) {
+    std::lock_guard<std::mutex> lock(conn.worker_mutex);
+    conn.workers++;
+}
+
+void duckdb_conn_worker_end(conn_inner &conn) {
+    std::vector<duckdb_prepared_statement> released;
+    {
+        std::lock_guard<std::mutex> lock(conn.worker_mutex);
+        conn.workers--;
+        if (conn.workers == 0) {
+            released.swap(conn.worker_prepares);
+        }
+    }
+
+    for (auto &statement : released) {
+        duckdb_destroy_prepare(&statement);
+    }
+}
+
+void duckdb_conn_destroy_prepare(conn_inner &conn, duckdb_prepared_statement &statement) {
+    {
+        std::lock_guard<std::mutex> lock(conn.worker_mutex);
+        if (conn.workers > 0) {
+            conn.worker_prepares.push_back(statement);
+            statement = nullptr;
+            return;
+        }
+    }
+
+    duckdb_destroy_prepare(&statement);
 }
 
 bool duckdb_conn_enter(conn_inner &conn, std::unique_lock<std::mutex> &lock, conn_entry kind) {
@@ -736,6 +791,11 @@ PHP_METHOD(DuckDB_Connection, queryAsync) {
 
     php_duckdb_connection_object *intern = Z_DUCKDB_CONNECTION_P(ZEND_THIS);
     if (!duckdb_connection_guard(intern->inner)) {
+        RETURN_THROWS();
+    }
+    /* The worker supersedes the connection's open results when it starts,
+     * like any statement start. */
+    if (!duckdb_conn_check_not_busy(*intern->inner)) {
         RETURN_THROWS();
     }
 
