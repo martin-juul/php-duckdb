@@ -245,11 +245,11 @@ struct conn_inner {
      * Re-entering the connection from that thread would self-deadlock. */
     std::atomic<int> handler_depth{0};
     std::atomic<std::thread::id> handler_thread{};
-    /* Native cleanup that destructors could not run while busy. */
     /* Set when commit() rolled back an aborted transaction, so the
      * rollBack() of a catch block around it succeeds instead of replacing
      * the commit error. Cleared by the next statement start. */
     std::atomic<bool> commit_rolled_back{false};
+    /* Native cleanup that destructors could not run while busy. */
     std::mutex deferred_mutex;
     std::vector<std::function<void()>> deferred;
     /* Live COPY format registrations; statements are pumped while nonzero. */

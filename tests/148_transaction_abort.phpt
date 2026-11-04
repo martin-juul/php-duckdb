@@ -120,6 +120,19 @@ try {
 report('commit', fn () => $conn->commit());
 $conn->query('SELECT 1');
 report('rollBack', fn () => $conn->rollBack());
+
+echo "-- rollBack after a transaction begun through queryAsync()\n";
+$conn = fresh_connection();
+$conn->beginTransaction();
+try {
+    $conn->query('SELECT * FROM missing');
+} catch (DuckDB\Exception $e) {
+}
+report('commit', fn () => $conn->commit());
+$conn->queryAsync('BEGIN TRANSACTION')->await();
+$conn->queryAsync('INSERT INTO t VALUES (1)')->await();
+report('rollBack', fn () => $conn->rollBack());
+var_dump(count_rows($conn));
 ?>
 --EXPECT--
 -- superseded pending INSERT inside a transaction
@@ -169,3 +182,7 @@ second rollBack: DuckDB\TransactionException code=10 TransactionContext Error: c
 -- rollBack after another statement keeps its error
 commit: DuckDB\TransactionException code=10 Transaction was aborted, so nothing was committed; it has been rolled back
 rollBack: DuckDB\TransactionException code=10 TransactionContext Error: cannot rollback - no transaction is active
+-- rollBack after a transaction begun through queryAsync()
+commit: DuckDB\TransactionException code=10 Transaction was aborted, so nothing was committed; it has been rolled back
+rollBack: ok
+int(0)

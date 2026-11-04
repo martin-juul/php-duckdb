@@ -822,6 +822,8 @@ PHP_METHOD(DuckDB_Connection, queryAsync) {
     if (!duckdb_conn_check_not_busy(*intern->inner)) {
         RETURN_THROWS();
     }
+    /* It is a statement start here as well: a later rollBack() runs again. */
+    intern->inner->commit_rolled_back.store(false, std::memory_order_relaxed);
 
     duckdb_notify_fd fds[2] = {DUCKDB_INVALID_NOTIFY_FD, DUCKDB_INVALID_NOTIFY_FD};
     if (!duckdb_create_notify_pipe(fds)) {
