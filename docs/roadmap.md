@@ -1,7 +1,9 @@
 # Roadmap
 
-The extension provides binding primitives for a future Doctrine DBAL driver
-in a separate repository, without a Doctrine dependency of its own. Native
+The extension provides binding primitives for a Doctrine DBAL driver in a
+separate repository, without a Doctrine dependency of its own. That driver is
+[martin-juul/doctrine-duckdb-driver](https://github.com/martin-juul/doctrine-duckdb-driver);
+see [Doctrine DBAL and ORM](../README.md#doctrine-dbal-and-orm). Native
 classes such as `DuckDB\Decimal` and `DuckDB\ListValue` let custom DBAL types
 return typed values without opening a connection. These classes extend
 `DuckDB\Value`, which accepts advanced declarations. Catalog resolution and

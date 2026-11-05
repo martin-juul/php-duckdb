@@ -938,6 +938,43 @@ semantics (persistent `:memory:` databases per worker thread, async queries in
 workers, safe shutdown), and [examples/frankenphp.php](examples/frankenphp.php)
 for a runnable worker script.
 
+## Doctrine DBAL and ORM
+
+[martin-juul/doctrine-duckdb-driver](https://github.com/martin-juul/doctrine-duckdb-driver)
+is a Doctrine DBAL 4 driver, platform and schema manager built on this
+extension. It lets DBAL, Doctrine ORM, Doctrine Migrations and Symfony's
+DoctrineBundle use a DuckDB database file or an in-memory database. It needs
+PHP 8.4 or later, extension 2.0 (DuckDB 2.0) and `doctrine/dbal` 4.5 or later.
+
+```sh
+composer require martin-juul/doctrine-duckdb-driver
+```
+
+```php
+use Doctrine\DBAL\DriverManager;
+use MartinJuul\DBAL\DuckDB\Driver;
+
+$connection = DriverManager::getConnection([
+    'driverClass' => Driver::class,
+    'dbname' => 'var/app.duckdb', // leave out for an in-memory database
+]);
+```
+
+Symfony applications register the package's `DuckDBBundle` and set a
+`duckdb://` database URL. Plain ORM setups call
+`DuckDBSetup::configureOrm()` so that generated IDs come from sequences,
+because DuckDB has no identity columns.
+
+Where DuckDB lacks a feature Doctrine expects, the package emulates it or fails
+with an error that names the gap and the workaround. For example, it rebuilds
+tables for schema changes `ALTER TABLE` cannot express and flattens nested
+transactions. It rejects row locks and `lastInsertId()`. It leaves out foreign
+keys with `CASCADE`, `SET NULL` or `SET DEFAULT` actions, which DuckDB cannot
+enforce. The package's
+[limitations page](https://github.com/martin-juul/doctrine-duckdb-driver/blob/master/docs/limitations.md)
+lists each case. `$connection->getNativeConnection()` returns the underlying
+`DuckDB\Connection` for the appender, Arrow and async APIs.
+
 ## Development
 
 ### Test harness
