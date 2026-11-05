@@ -57,6 +57,10 @@ echo "queryStreaming racing the async worker\n";
 // finishes and closes its writer.
 $conn = (new DuckDB\Database(':memory:', ['threads' => 4]))->connect();
 $format = new LinesFormat();
+// Each write() sleeps 1 ms, so the COPY's roughly 500 chunks cannot all run
+// within one pump step: the loop below always sees the COPY still running at
+// its first write, also where timers are coarse (Windows).
+$format->hooks['write'] = fn() => usleep(1000);
 $conn->registerCopyToFunction('lines', $format);
 $copy = "COPY (SELECT range AS i FROM range(1000000)) TO '$dir/big.lines' (FORMAT lines)";
 $pending = $conn->queryPending($copy);
@@ -102,6 +106,8 @@ final class QueryingWriter implements DuckDB\CopyToWriter
     public function write(DuckDB\DataChunk $batch): void
     {
         $this->format->log[] = 'write';
+        // Keep the COPY running across pump steps; see the LinesFormat hook above.
+        usleep(1000);
     }
 
     public function close(): void
