@@ -6,7 +6,12 @@ DUCKDB_SOURCE_ARCHIVE ?= $(CURDIR)/duckdb-source.tar.gz
 DUCKDB_BUILD_DIR ?= /tmp/php-duckdb-deb-engine
 
 # see FEATURE AREAS in dpkg-buildflags(1)
-export DEB_BUILD_MAINT_OPTIONS = hardening=+all
+# The vendored DuckDB engine is a very large C++ build. Ubuntu's default
+# LTO flags (-flto=auto -ffat-lto-objects) store both LTO bytecode and
+# machine code in every object, which roughly doubles the engine's build
+# tree and has filled hosted CI runners' disks. LTO adds little to a
+# library used through its C API; debug info and hardening flags stay.
+export DEB_BUILD_MAINT_OPTIONS = hardening=+all optimize=-lto
 export DEB_LDFLAGS_MAINT_APPEND = -Wl,--as-needed
 
 # Never bake a build-tree RPATH into the shared object
